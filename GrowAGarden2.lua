@@ -1,4 +1,3 @@
-```lua
 local Services = {
     Players = game:GetService("Players"),
     RunService = game:GetService("RunService"),
@@ -1514,4 +1513,3 @@ end
 Services.Players.PlayerRemoving:Connect(function(p)
     if p == LocalPlayer then Cleanup() end
 end)
-```
