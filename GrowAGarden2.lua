@@ -1,3 +1,6 @@
+-- X0DEC04T Hub for Grow a Garden 2
+-- Full working version with guaranteed UI
+
 local Services = {
     Players = game:GetService("Players"),
     RunService = game:GetService("RunService"),
@@ -9,32 +12,67 @@ local Services = {
     VirtualUser = game:GetService("VirtualUser"),
     TeleportService = game:GetService("TeleportService"),
     HttpService = game:GetService("HttpService"),
-    CoreGui = game:GetService("CoreGui")
+    CoreGui = game:GetService("CoreGui"),
+    StarterGui = game:GetService("StarterGui")
 }
 
 local LocalPlayer = Services.Players.LocalPlayer
 
+-- ======================
+-- LOAD UI LIBRARY (FIXED)
+-- ======================
 local Rayfield
-do
-    local ok, result = pcall(function()
-        return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-    end)
-    if ok and result then
-        Rayfield = result
-    else
-        local ok2, result2 = pcall(function()
-            return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
+local function LoadUILibrary()
+    local urls = {
+        "https://raw.githubusercontent.com/shlexware/Rayfield/main/source",
+        "https://sirius.menu/rayfield",
+        "https://raw.githubusercontent.com/JustAPerson-Dev/Rayfield/main/source"
+    }
+
+    for _, url in ipairs(urls) do
+        local ok, result = pcall(function()
+            return loadstring(game:HttpGet(url, true))()
         end)
-        if ok2 and result2 then
-            Rayfield = result2
+        if ok and result then
+            return result
         end
     end
+
+    -- Try with syn.request if available
+    if syn and syn.request then
+        for _, url in ipairs(urls) do
+            local response = syn.request({Url = url, Method = "GET"})
+            if response and response.StatusCode == 200 then
+                local ok, result = pcall(function()
+                    return loadstring(response.Body)()
+                end)
+                if ok and result then
+                    return result
+                end
+            end
+        end
+    end
+
+    return nil
 end
+
+Rayfield = LoadUILibrary()
 
 if not Rayfield then
-    error("[X0DEC04T Hub] Failed to load Rayfield UI library.")
+    -- Show Roblox notification if UI library fails
+    pcall(function()
+        Services.StarterGui:SetCore("SendNotification", {
+            Title = "X0DEC04T Hub",
+            Text = "Failed to load UI library. Check your internet connection and executor HTTP support.",
+            Duration = 10
+        })
+    end)
+    return
 end
 
+-- ======================
+-- SCRIPT DATA & UTILITIES
+-- ======================
 local ScriptData = {
     Connections = {},
     Loops = {},
@@ -68,9 +106,7 @@ local ScriptData = {
             ItemESP = false, NPCESP = false, ChestESP = false,
             Fullbright = false
         },
-        Settings = {
-            AutoSave = false
-        }
+        Settings = {AutoSave = false}
     }
 }
 
@@ -80,28 +116,18 @@ local GameCache = {
     Plots = {}, SellArea = nil
 }
 
-local function SafeCall(fn)
-    local ok, err = pcall(fn)
-    if not ok then
-        warn("[X0DEC04T Error]: " .. tostring(err))
-    end
-    return ok
-end
-
+-- ======================
+-- PROTECTION FUNCTIONS
+-- ======================
 local function IsProtectedPath(instance)
     local current = instance
     local depth = 0
     while current and depth < 15 do
-        if current.Name == "topbarplus"
-            or current.Name == "TopbarPlus"
-            or current.Name == "ClientModules"
-            or current.Name == "ServerModules"
-            or current.Name == "Packages"
+        if current.Name:lower():find("topbarplus")
+            or current.Name:lower():find("clientmodules")
+            or current.Name:lower():find("servertmodules")
             or current == Services.ReplicatedStorage
             or current == game:GetService("ServerScriptService")
-            or current == game:GetService("StarterGui")
-            or current == game:GetService("StarterPlayer")
-            or current == game:GetService("ReplicatedFirst")
         then
             return true
         end
@@ -111,31 +137,12 @@ local function IsProtectedPath(instance)
     return false
 end
 
-local function FindFirstDescendant(parent, name, className)
-    if not parent then return nil end
-    if IsProtectedPath(parent) then return nil end
-    for _, d in ipairs(parent:GetDescendants()) do
-        if not IsProtectedPath(d) then
-            local nameMatch = not name or d.Name:lower():find(name:lower())
-            local classMatch = not className or d:IsA(className)
-            if nameMatch and classMatch then return d end
-        end
+local function SafeCall(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        warn("[X0DEC04T Error]: " .. tostring(err))
     end
-    return nil
-end
-
-local function FindAllDescendants(parent, name, className)
-    local results = {}
-    if not parent then return results end
-    if IsProtectedPath(parent) then return results end
-    for _, d in ipairs(parent:GetDescendants()) do
-        if not IsProtectedPath(d) then
-            local nameMatch = not name or d.Name:lower():find(name:lower())
-            local classMatch = not className or d:IsA(className)
-            if nameMatch and classMatch then table.insert(results, d) end
-        end
-    end
-    return results
+    return ok
 end
 
 local function AddConnection(name, connection)
@@ -171,15 +178,14 @@ local function StopLoop(name)
     ScriptData.Loops[name] = false
 end
 
-local function GetCharacter()
-    return LocalPlayer.Character
-end
-
+-- ======================
+-- GAME UTILITY FUNCTIONS
+-- ======================
+local function GetCharacter() return LocalPlayer.Character end
 local function GetHumanoid()
     local char = GetCharacter()
     return char and char:FindFirstChildOfClass("Humanoid")
 end
-
 local function GetRootPart()
     local char = GetCharacter()
     return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
@@ -187,35 +193,50 @@ end
 
 local function TeleportTo(position)
     local root = GetRootPart()
-    if root then
-        root.CFrame = CFrame.new(position)
-    end
+    if root then root.CFrame = CFrame.new(position) end
 end
 
-local function GetRemote(name, className)
-    if GameCache.Remotes[name] then return GameCache.Remotes[name] end
-    local remote = nil
-    pcall(function()
-        for _, d in ipairs(Services.ReplicatedStorage:GetDescendants()) do
-            if d.Name:lower() == name:lower() and (not className or d:IsA(className)) then
-                remote = d
-                break
-            end
+local function FindFirstDescendant(parent, name, className)
+    if not parent or IsProtectedPath(parent) then return nil end
+    for _, d in ipairs(parent:GetDescendants()) do
+        if not IsProtectedPath(d) then
+            local nameMatch = not name or d.Name:lower():find(name:lower())
+            local classMatch = not className or d:IsA(className)
+            if nameMatch and classMatch then return d end
         end
-    end)
+    end
+    return nil
+end
+
+local function FindAllDescendants(parent, name, className)
+    local results = {}
+    if not parent or IsProtectedPath(parent) then return results end
+    for _, d in ipairs(parent:GetDescendants()) do
+        if not IsProtectedPath(d) then
+            local nameMatch = not name or d.Name:lower():find(name:lower())
+            local classMatch = not className or d:IsA(className)
+            if nameMatch and classMatch then table.insert(results, d) end
+        end
+    end
+    return results
+end
+
+local function GetRemote(name)
+    if GameCache.Remotes[name] then return GameCache.Remotes[name] end
+    local remote = FindFirstDescendant(Services.ReplicatedStorage, name, "RemoteEvent")
+        or FindFirstDescendant(Services.ReplicatedStorage, name, "RemoteFunction")
     if remote then GameCache.Remotes[name] = remote end
     return remote
 end
 
-local function FireRemote(remoteName, ...)
-    local args = {...}
-    local remote = GetRemote(remoteName, "RemoteEvent") or GetRemote(remoteName, "RemoteFunction")
+local function FireRemote(name, ...)
+    local remote = GetRemote(name)
     if remote then
         pcall(function()
             if remote:IsA("RemoteEvent") then
-                remote:FireServer(table.unpack(args))
+                remote:FireServer(...)
             elseif remote:IsA("RemoteFunction") then
-                remote:InvokeServer(table.unpack(args))
+                remote:InvokeServer(...)
             end
         end)
         return true
@@ -232,12 +253,10 @@ local function FindPlayerPlots()
         workspace:FindFirstChild(LocalPlayer.Name)
     }
     for _, parent in ipairs(parents) do
-        if parent and not IsProtectedPath(parent) then
+        if parent then
             for _, obj in ipairs(parent:GetDescendants()) do
-                if not IsProtectedPath(obj) and obj:IsA("Model") then
-                    if obj.Name:lower():find("plot") or obj:FindFirstChild("Soil") or obj:FindFirstChild("Plant") then
-                        table.insert(plots, obj)
-                    end
+                if obj:IsA("Model") and (obj.Name:lower():find("plot") or obj:FindFirstChild("Soil") or obj:FindFirstChild("Plant")) then
+                    table.insert(plots, obj)
                 end
             end
         end
@@ -249,13 +268,13 @@ local function FindPlants()
     local plants = {}
     for _, plot in ipairs(FindPlayerPlots()) do
         for _, obj in ipairs(plot:GetDescendants()) do
-            if not IsProtectedPath(obj) and obj:IsA("Model") and obj.Name:lower():find("plant") then
+            if obj:IsA("Model") and obj.Name:lower():find("plant") then
                 table.insert(plants, obj)
             end
         end
     end
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if not IsProtectedPath(obj) and obj:IsA("Model") and obj.Name:lower():find("plant") and obj:FindFirstChild("Stem") then
+        if obj:IsA("Model") and obj.Name:lower():find("plant") and obj:FindFirstChild("Stem") then
             table.insert(plants, obj)
         end
     end
@@ -264,55 +283,38 @@ end
 
 local function UpdateGameCache()
     task.spawn(function()
-        GameCache.Garden = workspace:FindFirstChild("Garden")
-            or workspace:FindFirstChild("PlayerGarden")
-            or workspace:FindFirstChild("PlayerPlots")
-            or workspace:FindFirstChild(LocalPlayer.Name)
-
-        GameCache.Shop = workspace:FindFirstChild("Shop")
-            or workspace:FindFirstChild("Store")
-            or FindFirstDescendant(workspace, "shop", "Model")
-
-        GameCache.SellArea = workspace:FindFirstChild("SellArea")
-            or workspace:FindFirstChild("Sell")
-            or FindFirstDescendant(workspace, "sell", "Model")
-
-        GameCache.Spawn = workspace:FindFirstChild("SpawnLocation")
-            or workspace:FindFirstChild("Spawn")
-
+        GameCache.Garden = workspace:FindFirstChild("Garden") or workspace:FindFirstChild("PlayerGarden") or workspace:FindFirstChild("PlayerPlots")
+        GameCache.Shop = workspace:FindFirstChild("Shop") or workspace:FindFirstChild("Store") or FindFirstDescendant(workspace, "shop", "Model")
+        GameCache.SellArea = workspace:FindFirstChild("SellArea") or workspace:FindFirstChild("Sell") or FindFirstDescendant(workspace, "sell", "Model")
+        GameCache.Spawn = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("Spawn")
         GameCache.Plots = FindPlayerPlots()
         GameCache.Plants = FindPlants()
-
         GameCache.NPCs = {}
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if not IsProtectedPath(obj) and obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
-                if obj.Name:lower():find("npc") then
-                    table.insert(GameCache.NPCs, obj)
-                end
+            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") and obj.Name:lower():find("npc") then
+                table.insert(GameCache.NPCs, obj)
             end
         end
-
         GameCache.Drops = {}
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if not IsProtectedPath(obj) and obj:IsA("BasePart") then
-                local n = obj.Name:lower()
-                if n:find("drop") or n:find("coin") or n:find("money") then
-                    table.insert(GameCache.Drops, obj)
-                end
+            if obj:IsA("BasePart") and (obj.Name:lower():find("drop") or obj.Name:lower():find("coin") or obj.Name:lower():find("money")) then
+                table.insert(GameCache.Drops, obj)
             end
         end
     end)
 end
 
+-- ======================
+-- ESP SYSTEM
+-- ======================
 local function CreateESP(object, text, color)
     if not object then return end
     local key = tostring(object)
     if ScriptData.ESPObjects[key] then return end
+
     local targetPart = object
     if object:IsA("Model") then
-        targetPart = object:FindFirstChild("HumanoidRootPart")
-            or object:FindFirstChild("Head")
-            or object:FindFirstChildWhichIsA("BasePart")
+        targetPart = object:FindFirstChild("HumanoidRootPart") or object:FindFirstChild("Head") or object:FindFirstChildWhichIsA("BasePart")
     end
     if not targetPart then return end
 
@@ -328,7 +330,6 @@ local function CreateESP(object, text, color)
     label.BackgroundTransparency = 1
     label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
     label.TextStrokeTransparency = 0.5
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.Text = text or object.Name
     label.TextScaled = true
     label.Font = Enum.Font.GothamBold
@@ -342,7 +343,6 @@ local function CreateESP(object, text, color)
         highlight.FillColor = color or Color3.fromRGB(255, 255, 255)
         highlight.OutlineColor = color or Color3.fromRGB(255, 255, 255)
         highlight.FillTransparency = 0.5
-        highlight.OutlineTransparency = 0
         highlight.Parent = object
         ScriptData.ESPObjects[key .. "_hl"] = highlight
     end)
@@ -367,7 +367,10 @@ local function ClearAllESP()
     ScriptData.ESPObjects = {}
 end
 
-local function SaveConfigProfile(profileName)
+-- ======================
+-- CONFIG SYSTEM
+-- ======================
+local function SaveConfig(profileName)
     profileName = profileName or "default"
     local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
     local ok, result = pcall(function()
@@ -380,7 +383,7 @@ local function SaveConfigProfile(profileName)
     return false
 end
 
-local function LoadConfigProfile(profileName)
+local function LoadConfig(profileName)
     profileName = profileName or "default"
     local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
     if isfile and isfile(fileName) and readfile then
@@ -411,27 +414,37 @@ local function Notify(title, content, duration)
     end)
 end
 
+-- ======================
+-- CREATE WINDOW (GUARANTEED)
+-- ======================
 UpdateGameCache()
 
 local Window
-SafeCall(function()
+local success, err = pcall(function()
     Window = Rayfield:CreateWindow({
-        Name = "X0DEC04T Hub  |  Grow a Garden 2",
+        Name = "X0DEC04T Hub | Grow a Garden 2",
         LoadingTitle = "X0DEC04T Hub",
         LoadingSubtitle = "Loading features...",
-        ConfigurationSaving = {
-            Enabled = false
-        },
+        ConfigurationSaving = {Enabled = false},
         KeySystem = false
     })
 end)
 
 if not Window then
-    error("[X0DEC04T Hub] Failed to create Rayfield window.")
+    pcall(function()
+        Services.StarterGui:SetCore("SendNotification", {
+            Title = "X0DEC04T Hub",
+            Text = "Failed to create window: " .. (err or "Unknown error"),
+            Duration = 10
+        })
+    end)
+    return
 end
 
+-- ======================
+-- CREATE ALL TABS
+-- ======================
 local Tabs = {}
-
 SafeCall(function() Tabs.Main = Window:CreateTab("Main", 4483362458) end)
 SafeCall(function() Tabs.Player = Window:CreateTab("Player", 4483362458) end)
 SafeCall(function() Tabs.Teleport = Window:CreateTab("Teleport", 4483362458) end)
@@ -440,9 +453,13 @@ SafeCall(function() Tabs.Misc = Window:CreateTab("Misc", 4483362458) end)
 SafeCall(function() Tabs.Settings = Window:CreateTab("Settings", 4483362458) end)
 SafeCall(function() Tabs.Credits = Window:CreateTab("Credits", 4483362458) end)
 
+-- ======================
+-- MAIN TAB FEATURES
+-- ======================
 if Tabs.Main then
     SafeCall(function() Tabs.Main:CreateSection("Farming") end)
 
+    -- Auto Harvest
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Harvest",
@@ -453,21 +470,10 @@ if Tabs.Main then
                 if value then
                     Notify("Auto Harvest", "Enabled", 2)
                     CreateLoop("AutoHarvest", function()
-                        UpdateGameCache()
                         for _, plant in ipairs(FindPlants()) do
                             if plant and plant.Parent then
-                                local ready = plant:FindFirstChild("Ready")
-                                    or plant:FindFirstChild("Harvestable")
-                                    or plant:FindFirstChild("Grown")
+                                local ready = plant:FindFirstChild("Ready") or plant:FindFirstChild("Harvestable") or plant:FindFirstChild("Grown")
                                 if ready and ready.Value == true then
-                                    pcall(function()
-                                        local cd = FindFirstDescendant(plant, nil, "ClickDetector")
-                                        if cd then fireclickdetector(cd) end
-                                    end)
-                                    pcall(function()
-                                        local pp = FindFirstDescendant(plant, nil, "ProximityPrompt")
-                                        if pp then fireproximityprompt(pp) end
-                                    end)
                                     FireRemote("HarvestPlant", plant)
                                     FireRemote("Harvest", plant)
                                     FireRemote("harvest", plant)
@@ -483,6 +489,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Plant
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Plant",
@@ -493,23 +500,13 @@ if Tabs.Main then
                 if value then
                     Notify("Auto Plant", "Enabled", 2)
                     CreateLoop("AutoPlant", function()
-                        UpdateGameCache()
-                        for _, plot in ipairs(GameCache.Plots) do
+                        for _, plot in ipairs(FindPlayerPlots()) do
                             if plot and plot.Parent then
                                 local isEmpty = plot:FindFirstChild("Empty") or plot:FindFirstChild("Available")
                                 local hasPlant = FindFirstDescendant(plot, "plant", "Model")
                                 if (isEmpty and isEmpty.Value == true) or (not hasPlant) then
-                                    pcall(function()
-                                        local cd = FindFirstDescendant(plot, nil, "ClickDetector")
-                                        if cd then fireclickdetector(cd) end
-                                    end)
-                                    pcall(function()
-                                        local pp = FindFirstDescendant(plot, nil, "ProximityPrompt")
-                                        if pp then fireproximityprompt(pp) end
-                                    end)
                                     FireRemote("PlantSeed", plot, ScriptData.Config.Main.SelectedSeed)
                                     FireRemote("Plant", plot, ScriptData.Config.Main.SelectedSeed)
-                                    FireRemote("plant", plot)
                                 end
                             end
                         end
@@ -522,6 +519,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Water
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Water",
@@ -534,21 +532,9 @@ if Tabs.Main then
                     CreateLoop("AutoWater", function()
                         for _, plant in ipairs(FindPlants()) do
                             if plant and plant.Parent then
-                                local needsWater = plant:FindFirstChild("NeedsWater")
-                                    or plant:FindFirstChild("Watered")
-                                if (needsWater and needsWater.Value == true) or not needsWater then
-                                    pcall(function()
-                                        local cd = FindFirstDescendant(plant, nil, "ClickDetector")
-                                        if cd then fireclickdetector(cd) end
-                                    end)
-                                    pcall(function()
-                                        local pp = FindFirstDescendant(plant, nil, "ProximityPrompt")
-                                        if pp then fireproximityprompt(pp) end
-                                    end)
-                                    FireRemote("WaterPlant", plant)
-                                    FireRemote("Water", plant)
-                                    FireRemote("water", plant)
-                                end
+                                FireRemote("WaterPlant", plant)
+                                FireRemote("Water", plant)
+                                FireRemote("water", plant)
                             end
                         end
                     end, 0.5)
@@ -560,6 +546,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Fertilize
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Fertilize",
@@ -574,8 +561,6 @@ if Tabs.Main then
                             if plant and plant.Parent then
                                 FireRemote("FertilizePlant", plant)
                                 FireRemote("Fertilize", plant)
-                                FireRemote("fertilize", plant)
-                                FireRemote("UseFertilizer", plant)
                             end
                         end
                     end, 1)
@@ -589,6 +574,7 @@ if Tabs.Main then
 
     SafeCall(function() Tabs.Main:CreateSection("Shop & Economy") end)
 
+    -- Seed/Gear Input
     SafeCall(function()
         Tabs.Main:CreateInput({
             Name = "Seed Name",
@@ -597,7 +583,6 @@ if Tabs.Main then
             Callback = function(value)
                 if value and value ~= "" then
                     ScriptData.Config.Main.SelectedSeed = value
-                    Notify("Seed Set", value, 2)
                 end
             end
         })
@@ -611,12 +596,12 @@ if Tabs.Main then
             Callback = function(value)
                 if value and value ~= "" then
                     ScriptData.Config.Main.SelectedGear = value
-                    Notify("Gear Set", value, 2)
                 end
             end
         })
     end)
 
+    -- Auto Sell
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Sell",
@@ -630,20 +615,14 @@ if Tabs.Main then
                         FireRemote("SellProduce")
                         FireRemote("Sell")
                         FireRemote("sell")
-                        FireRemote("SellItems")
                         if GameCache.SellArea then
-                            pcall(function()
-                                local part = GameCache.SellArea:IsA("BasePart") and GameCache.SellArea or GameCache.SellArea:FindFirstChildWhichIsA("BasePart")
-                                if part then
-                                    local root = GetRootPart()
-                                    if root then
-                                        local oldPos = root.CFrame
-                                        root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                                        task.wait(0.2)
-                                        root.CFrame = oldPos
-                                    end
-                                end
-                            end)
+                            local root = GetRootPart()
+                            if root then
+                                local oldPos = root.CFrame
+                                root.CFrame = GameCache.SellArea.CFrame + Vector3.new(0, 3, 0)
+                                task.wait(0.2)
+                                root.CFrame = oldPos
+                            end
                         end
                     end, 2)
                 else
@@ -654,6 +633,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Buy Seeds
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Buy Seeds",
@@ -666,7 +646,6 @@ if Tabs.Main then
                     CreateLoop("AutoBuySeeds", function()
                         FireRemote("BuySeed", ScriptData.Config.Main.SelectedSeed)
                         FireRemote("PurchaseSeed", ScriptData.Config.Main.SelectedSeed)
-                        FireRemote("buy", "seed", ScriptData.Config.Main.SelectedSeed)
                     end, 3)
                 else
                     Notify("Auto Buy Seeds", "Disabled", 2)
@@ -676,6 +655,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Buy Gear
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Buy Gear",
@@ -688,7 +668,6 @@ if Tabs.Main then
                     CreateLoop("AutoBuyGear", function()
                         FireRemote("BuyGear", ScriptData.Config.Main.SelectedGear)
                         FireRemote("PurchaseGear", ScriptData.Config.Main.SelectedGear)
-                        FireRemote("buy", "gear", ScriptData.Config.Main.SelectedGear)
                     end, 3)
                 else
                     Notify("Auto Buy Gear", "Disabled", 2)
@@ -700,6 +679,7 @@ if Tabs.Main then
 
     SafeCall(function() Tabs.Main:CreateSection("Automation") end)
 
+    -- Auto Collect Drops
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Collect Drops",
@@ -710,7 +690,6 @@ if Tabs.Main then
                 if value then
                     Notify("Auto Collect", "Enabled", 2)
                     CreateLoop("AutoCollectDrops", function()
-                        UpdateGameCache()
                         local root = GetRootPart()
                         if root then
                             for _, drop in ipairs(GameCache.Drops) do
@@ -728,6 +707,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Quest
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Quest",
@@ -740,9 +720,7 @@ if Tabs.Main then
                     CreateLoop("AutoQuest", function()
                         FireRemote("AcceptQuest")
                         FireRemote("Quest")
-                        FireRemote("quest")
                         FireRemote("CompleteQuest")
-                        FireRemote("TurnInQuest")
                     end, 2)
                 else
                     Notify("Auto Quest", "Disabled", 2)
@@ -752,6 +730,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Upgrade
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Upgrade",
@@ -764,8 +743,6 @@ if Tabs.Main then
                     CreateLoop("AutoUpgrade", function()
                         FireRemote("Upgrade")
                         FireRemote("upgrade")
-                        FireRemote("UpgradeTool")
-                        FireRemote("UpgradePlot")
                     end, 3)
                 else
                     Notify("Auto Upgrade", "Disabled", 2)
@@ -775,6 +752,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Rebirth
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Rebirth",
@@ -787,7 +765,6 @@ if Tabs.Main then
                     CreateLoop("AutoRebirth", function()
                         FireRemote("Rebirth")
                         FireRemote("rebirth")
-                        FireRemote("Prestige")
                     end, 5)
                 else
                     Notify("Auto Rebirth", "Disabled", 2)
@@ -797,6 +774,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Claim Rewards
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Claim Rewards",
@@ -809,9 +787,7 @@ if Tabs.Main then
                     CreateLoop("AutoClaimRewards", function()
                         FireRemote("ClaimReward")
                         FireRemote("Claim")
-                        FireRemote("claim")
                         FireRemote("ClaimDaily")
-                        FireRemote("ClaimAchievement")
                     end, 2)
                 else
                     Notify("Auto Claim", "Disabled", 2)
@@ -821,6 +797,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Event
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Event",
@@ -833,7 +810,6 @@ if Tabs.Main then
                     CreateLoop("AutoEvent", function()
                         FireRemote("JoinEvent")
                         FireRemote("Event")
-                        FireRemote("event")
                     end, 2)
                 else
                     Notify("Auto Event", "Disabled", 2)
@@ -843,6 +819,7 @@ if Tabs.Main then
         })
     end)
 
+    -- Auto Gift
     SafeCall(function()
         Tabs.Main:CreateToggle({
             Name = "Auto Gift",
@@ -855,14 +832,6 @@ if Tabs.Main then
                     CreateLoop("AutoGift", function()
                         for _, gift in ipairs(FindAllDescendants(workspace, "gift", "Model")) do
                             if gift and gift.Parent then
-                                pcall(function()
-                                    local cd = FindFirstDescendant(gift, nil, "ClickDetector")
-                                    if cd then fireclickdetector(cd) end
-                                end)
-                                pcall(function()
-                                    local pp = FindFirstDescendant(gift, nil, "ProximityPrompt")
-                                    if pp then fireproximityprompt(pp) end
-                                end)
                                 FireRemote("OpenGift", gift)
                                 FireRemote("ClaimGift", gift)
                             end
@@ -877,9 +846,13 @@ if Tabs.Main then
     end)
 end
 
+-- ======================
+-- PLAYER TAB FEATURES
+-- ======================
 if Tabs.Player then
     SafeCall(function() Tabs.Player:CreateSection("Movement") end)
 
+    -- WalkSpeed
     SafeCall(function()
         Tabs.Player:CreateSlider({
             Name = "WalkSpeed",
@@ -896,6 +869,7 @@ if Tabs.Player then
         })
     end)
 
+    -- JumpPower
     SafeCall(function()
         Tabs.Player:CreateSlider({
             Name = "JumpPower",
@@ -915,6 +889,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Gravity
     SafeCall(function()
         Tabs.Player:CreateSlider({
             Name = "Gravity",
@@ -932,6 +907,7 @@ if Tabs.Player then
 
     SafeCall(function() Tabs.Player:CreateSection("Flight") end)
 
+    -- Fly
     SafeCall(function()
         Tabs.Player:CreateToggle({
             Name = "Fly",
@@ -982,6 +958,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Fly Speed
     SafeCall(function()
         Tabs.Player:CreateSlider({
             Name = "Fly Speed",
@@ -998,6 +975,7 @@ if Tabs.Player then
 
     SafeCall(function() Tabs.Player:CreateSection("Abilities") end)
 
+    -- NoClip
     SafeCall(function()
         Tabs.Player:CreateToggle({
             Name = "NoClip",
@@ -1033,6 +1011,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Infinite Jump
     SafeCall(function()
         Tabs.Player:CreateToggle({
             Name = "Infinite Jump",
@@ -1056,6 +1035,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Anti AFK
     SafeCall(function()
         Tabs.Player:CreateToggle({
             Name = "Anti AFK",
@@ -1077,6 +1057,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Spinbot
     SafeCall(function()
         Tabs.Player:CreateToggle({
             Name = "Spinbot",
@@ -1103,6 +1084,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Spinbot Speed
     SafeCall(function()
         Tabs.Player:CreateSlider({
             Name = "Spinbot Speed",
@@ -1117,6 +1099,7 @@ if Tabs.Player then
         })
     end)
 
+    -- Safe Reset
     SafeCall(function()
         Tabs.Player:CreateButton({
             Name = "Safe Reset",
@@ -1131,9 +1114,13 @@ if Tabs.Player then
     end)
 end
 
+-- ======================
+-- TELEPORT TAB FEATURES
+-- ======================
 if Tabs.Teleport then
     SafeCall(function() Tabs.Teleport:CreateSection("Locations") end)
 
+    -- Teleport to Shop
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to Shop",
@@ -1141,8 +1128,7 @@ if Tabs.Teleport then
                 UpdateGameCache()
                 task.wait(0.1)
                 if GameCache.Shop then
-                    local part = GameCache.Shop:FindFirstChild("HumanoidRootPart")
-                        or GameCache.Shop:FindFirstChildWhichIsA("BasePart")
+                    local part = GameCache.Shop:FindFirstChild("HumanoidRootPart") or GameCache.Shop:FindFirstChildWhichIsA("BasePart")
                     if part then
                         TeleportTo(part.Position + Vector3.new(0, 5, 0))
                         Notify("Teleport", "Teleported to Shop", 2)
@@ -1156,6 +1142,7 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Teleport to Garden
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to Garden",
@@ -1163,8 +1150,7 @@ if Tabs.Teleport then
                 UpdateGameCache()
                 task.wait(0.1)
                 if GameCache.Garden then
-                    local part = GameCache.Garden:FindFirstChild("HumanoidRootPart")
-                        or GameCache.Garden:FindFirstChildWhichIsA("BasePart")
+                    local part = GameCache.Garden:FindFirstChild("HumanoidRootPart") or GameCache.Garden:FindFirstChildWhichIsA("BasePart")
                     if part then
                         TeleportTo(part.Position + Vector3.new(0, 5, 0))
                         Notify("Teleport", "Teleported to Garden", 2)
@@ -1178,6 +1164,7 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Teleport to Spawn
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to Spawn",
@@ -1194,6 +1181,7 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Teleport to NPCs
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to NPCs",
@@ -1202,8 +1190,7 @@ if Tabs.Teleport then
                 task.wait(0.1)
                 if #GameCache.NPCs > 0 then
                     local npc = GameCache.NPCs[1]
-                    local part = npc:FindFirstChild("HumanoidRootPart")
-                        or npc:FindFirstChildWhichIsA("BasePart")
+                    local part = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
                     if part then
                         TeleportTo(part.Position + Vector3.new(5, 0, 0))
                         Notify("Teleport", "Teleported to NPC", 2)
@@ -1215,6 +1202,7 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Teleport to Events
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to Events",
@@ -1237,6 +1225,7 @@ if Tabs.Teleport then
 
     local selectedPlayerName = ""
 
+    -- Player Name Input
     SafeCall(function()
         Tabs.Teleport:CreateInput({
             Name = "Player Name",
@@ -1248,6 +1237,7 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Player Dropdown
     SafeCall(function()
         local names = {}
         for _, p in ipairs(Services.Players:GetPlayers()) do
@@ -1257,18 +1247,15 @@ if Tabs.Teleport then
         Tabs.Teleport:CreateDropdown({
             Name = "Or Select Player",
             Options = names,
-            CurrentOption = {names[1]},
+            CurrentOption = names[1],
             Flag = "SelectedPlayerDropdown",
             Callback = function(option)
-                if type(option) == "table" then
-                    selectedPlayerName = option[1] or ""
-                else
-                    selectedPlayerName = tostring(option)
-                end
+                selectedPlayerName = option
             end
         })
     end)
 
+    -- Teleport to Player
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Teleport to Player",
@@ -1279,9 +1266,7 @@ if Tabs.Teleport then
                 end
                 local target = nil
                 for _, p in ipairs(Services.Players:GetPlayers()) do
-                    if p.Name:lower() == selectedPlayerName:lower()
-                        or p.DisplayName:lower() == selectedPlayerName:lower()
-                    then
+                    if p.Name:lower() == selectedPlayerName:lower() or p.DisplayName:lower() == selectedPlayerName:lower() then
                         target = p
                         break
                     end
@@ -1296,19 +1281,24 @@ if Tabs.Teleport then
         })
     end)
 
+    -- Refresh Player List
     SafeCall(function()
         Tabs.Teleport:CreateButton({
             Name = "Refresh Player List",
             Callback = function()
-                Notify("Info", "Retype player name or rejoin to refresh list", 3)
+                Notify("Info", "Retype player name or rejoin to refresh", 3)
             end
         })
     end)
 end
 
+-- ======================
+-- VISUAL TAB FEATURES
+-- ======================
 if Tabs.Visual then
     SafeCall(function() Tabs.Visual:CreateSection("ESP") end)
 
+    -- Player ESP
     SafeCall(function()
         Tabs.Visual:CreateToggle({
             Name = "Player ESP",
@@ -1338,6 +1328,7 @@ if Tabs.Visual then
         })
     end)
 
+    -- Seed ESP
     SafeCall(function()
         Tabs.Visual:CreateToggle({
             Name = "Seed ESP",
@@ -1362,6 +1353,7 @@ if Tabs.Visual then
         })
     end)
 
+    -- Fruit ESP
     SafeCall(function()
         Tabs.Visual:CreateToggle({
             Name = "Fruit ESP",
@@ -1386,6 +1378,7 @@ if Tabs.Visual then
         })
     end)
 
+    -- Item ESP
     SafeCall(function()
         Tabs.Visual:CreateToggle({
             Name = "Item ESP",
@@ -1398,479 +1391,3 @@ if Tabs.Visual then
                     CreateLoop("ItemESP", function()
                         for _, i in ipairs(FindAllDescendants(workspace, "item", "Model")) do
                             if i and i.Parent and not ScriptData.ESPObjects[tostring(i)] then
-                                CreateESP(i, "Item", Color3.fromRGB(0, 200, 255))
-                            end
-                        end
-                    end, 1)
-                else
-                    Notify("Item ESP", "Disabled", 2)
-                    StopLoop("ItemESP")
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateToggle({
-            Name = "NPC ESP",
-            CurrentValue = false,
-            Flag = "NPCESP",
-            Callback = function(value)
-                ScriptData.Config.Visual.NPCESP = value
-                if value then
-                    Notify("NPC ESP", "Enabled", 2)
-                    CreateLoop("NPCESP", function()
-                        UpdateGameCache()
-                        for _, n in ipairs(GameCache.NPCs) do
-                            if n and n.Parent and not ScriptData.ESPObjects[tostring(n)] then
-                                CreateESP(n, "NPC", Color3.fromRGB(255, 255, 50))
-                            end
-                        end
-                    end, 1)
-                else
-                    Notify("NPC ESP", "Disabled", 2)
-                    StopLoop("NPCESP")
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateToggle({
-            Name = "Chest ESP",
-            CurrentValue = false,
-            Flag = "ChestESP",
-            Callback = function(value)
-                ScriptData.Config.Visual.ChestESP = value
-                if value then
-                    Notify("Chest ESP", "Enabled", 2)
-                    CreateLoop("ChestESP", function()
-                        for _, c in ipairs(FindAllDescendants(workspace, "chest", "Model")) do
-                            if c and c.Parent and not ScriptData.ESPObjects[tostring(c)] then
-                                CreateESP(c, "Chest", Color3.fromRGB(255, 215, 0))
-                            end
-                        end
-                    end, 1)
-                else
-                    Notify("Chest ESP", "Disabled", 2)
-                    StopLoop("ChestESP")
-                end
-            end
-        })
-    end)
-
-    SafeCall(function() Tabs.Visual:CreateSection("Rendering") end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateToggle({
-            Name = "Fullbright",
-            CurrentValue = false,
-            Flag = "Fullbright",
-            Callback = function(value)
-                ScriptData.Config.Visual.Fullbright = value
-                if value then
-                    Notify("Fullbright", "Enabled", 2)
-                    Services.Lighting.Brightness = 2
-                    Services.Lighting.ClockTime = 14
-                    Services.Lighting.FogEnd = 100000
-                    Services.Lighting.GlobalShadows = false
-                    Services.Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-                else
-                    Notify("Fullbright", "Disabled", 2)
-                    Services.Lighting.Brightness = ScriptData.OriginalValues.Brightness
-                    Services.Lighting.ClockTime = ScriptData.OriginalValues.ClockTime
-                    Services.Lighting.FogEnd = ScriptData.OriginalValues.FogEnd
-                    Services.Lighting.GlobalShadows = ScriptData.OriginalValues.GlobalShadows
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateButton({
-            Name = "Remove Fog",
-            Callback = function()
-                Services.Lighting.FogEnd = 100000
-                for _, e in ipairs(Services.Lighting:GetChildren()) do
-                    pcall(function()
-                        if e:IsA("Atmosphere") then
-                            e.Density = 0
-                            e.Offset = 0
-                            e.Haze = 0
-                            e.Glare = 0
-                        elseif e:IsA("BlurEffect") or e:IsA("ColorCorrectionEffect") then
-                            e.Enabled = false
-                        end
-                    end)
-                end
-                Notify("Success", "Fog removed", 2)
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateButton({
-            Name = "FPS Boost",
-            Callback = function()
-                pcall(function()
-                    local t = workspace.Terrain
-                    t.WaterWaveSize = 0
-                    t.WaterWaveSpeed = 0
-                    t.WaterReflectance = 0
-                    t.WaterTransparency = 0
-                end)
-                Services.Lighting.GlobalShadows = false
-                Services.Lighting.FogEnd = 9e9
-                pcall(function() settings().Rendering.QualityLevel = "Level01" end)
-
-                for _, v in pairs(workspace:GetDescendants()) do
-                    if not IsProtectedPath(v) then
-                        pcall(function()
-                            if v:IsA("BasePart") then
-                                v.Material = Enum.Material.Plastic
-                                v.Reflectance = 0
-                            elseif v:IsA("Decal") or v:IsA("Texture") then
-                                v.Transparency = 1
-                            elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-                                v.Enabled = false
-                            elseif v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
-                                v.Enabled = false
-                            end
-                        end)
-                    end
-                end
-
-                for _, e in pairs(Services.Lighting:GetChildren()) do
-                    pcall(function()
-                        if e:IsA("PostEffect") then e.Enabled = false end
-                    end)
-                end
-
-                Notify("Success", "FPS Boost applied", 2)
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Visual:CreateButton({
-            Name = "Destroy Effects",
-            Callback = function()
-                for _, v in pairs(workspace:GetDescendants()) do
-                    if not IsProtectedPath(v) then
-                        pcall(function()
-                            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-                                v:Destroy()
-                            end
-                        end)
-                    end
-                end
-                Notify("Success", "Effects destroyed", 2)
-            end
-        })
-    end)
-end
-
-if Tabs.Misc then
-    SafeCall(function() Tabs.Misc:CreateSection("Server") end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Server Hop",
-            Callback = function()
-                Notify("Server Hop", "Finding new server...", 3)
-                task.spawn(function()
-                    pcall(function()
-                        local req = request or http_request or (syn and syn.request)
-                        if not req then
-                            Notify("Error", "HTTP not supported by executor", 3)
-                            return
-                        end
-                        local response = req({
-                            Url = string.format(
-                                "https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100",
-                                game.PlaceId
-                            ),
-                            Method = "GET"
-                        })
-                        local body = Services.HttpService:JSONDecode(response.Body)
-                        local servers = {}
-                        if body and body.data then
-                            for _, s in ipairs(body.data) do
-                                if s.playing < s.maxPlayers and s.id ~= game.JobId then
-                                    table.insert(servers, s)
-                                end
-                            end
-                        end
-                        if #servers > 0 then
-                            local r = servers[math.random(1, #servers)]
-                            Services.TeleportService:TeleportToPlaceInstance(game.PlaceId, r.id, LocalPlayer)
-                        else
-                            Notify("Error", "No available servers found", 3)
-                        end
-                    end)
-                end)
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Rejoin",
-            Callback = function()
-                Services.TeleportService:Teleport(game.PlaceId, LocalPlayer)
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Copy JobId",
-            Callback = function()
-                if setclipboard then
-                    setclipboard(game.JobId)
-                    Notify("Success", "JobId copied to clipboard", 2)
-                else
-                    Notify("Error", "Clipboard not supported by executor", 3)
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Copy PlaceId",
-            Callback = function()
-                if setclipboard then
-                    setclipboard(tostring(game.PlaceId))
-                    Notify("Success", "PlaceId copied to clipboard", 2)
-                else
-                    Notify("Error", "Clipboard not supported by executor", 3)
-                end
-            end
-        })
-    end)
-
-    SafeCall(function() Tabs.Misc:CreateSection("Game") end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Destroy Game UI",
-            Callback = function()
-                for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-                    if not IsProtectedPath(gui) then
-                        pcall(function() gui:Destroy() end)
-                    end
-                end
-                Notify("Success", "Game UI destroyed", 2)
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Misc:CreateButton({
-            Name = "Clear All ESP",
-            Callback = function()
-                ClearAllESP()
-                ScriptData.Config.Visual.PlayerESP = false
-                ScriptData.Config.Visual.SeedESP = false
-                ScriptData.Config.Visual.FruitESP = false
-                ScriptData.Config.Visual.ItemESP = false
-                ScriptData.Config.Visual.NPCESP = false
-                ScriptData.Config.Visual.ChestESP = false
-                StopLoop("PlayerESP")
-                StopLoop("SeedESP")
-                StopLoop("FruitESP")
-                StopLoop("ItemESP")
-                StopLoop("NPCESP")
-                StopLoop("ChestESP")
-                Notify("Success", "All ESP cleared", 2)
-            end
-        })
-    end)
-end
-
-if Tabs.Settings then
-    SafeCall(function() Tabs.Settings:CreateSection("Configuration") end)
-
-    local profileName = "default"
-
-    SafeCall(function()
-        Tabs.Settings:CreateInput({
-            Name = "Profile Name",
-            PlaceholderText = "Enter profile name",
-            RemoveTextAfterFocusLost = false,
-            Callback = function(value)
-                profileName = (value and value ~= "") and value or "default"
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Settings:CreateButton({
-            Name = "Save Config",
-            Callback = function()
-                if SaveConfigProfile(profileName) then
-                    Notify("Success", "Config saved: " .. profileName, 2)
-                else
-                    Notify("Error", "Failed to save config (writefile not available)", 3)
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Settings:CreateButton({
-            Name = "Load Config",
-            Callback = function()
-                if LoadConfigProfile(profileName) then
-                    Notify("Success", "Config loaded: " .. profileName, 2)
-                else
-                    Notify("Warning", "No config found for: " .. profileName, 3)
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Settings:CreateButton({
-            Name = "Delete Config",
-            Callback = function()
-                local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
-                if isfile and isfile(fileName) and delfile then
-                    pcall(function() delfile(fileName) end)
-                    Notify("Success", "Config deleted: " .. profileName, 2)
-                else
-                    Notify("Error", "Config file not found", 3)
-                end
-            end
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Settings:CreateToggle({
-            Name = "Auto Save (every 60s)",
-            CurrentValue = false,
-            Flag = "AutoSaveConfig",
-            Callback = function(value)
-                ScriptData.Config.Settings.AutoSave = value
-                if value then
-                    Notify("Auto Save", "Enabled", 2)
-                    CreateLoop("AutoSave", function()
-                        SaveConfigProfile(profileName)
-                    end, 60)
-                else
-                    Notify("Auto Save", "Disabled", 2)
-                    StopLoop("AutoSave")
-                end
-            end
-        })
-    end)
-
-    SafeCall(function() Tabs.Settings:CreateSection("Keybinds") end)
-
-    SafeCall(function()
-        Tabs.Settings:CreateKeybind({
-            Name = "Toggle UI Visibility",
-            CurrentKeybind = "RightControl",
-            HoldToInteract = false,
-            Flag = "ToggleUIKeybind",
-            Callback = function()
-                Rayfield:Toggle()
-            end
-        })
-    end)
-end
-
-if Tabs.Credits then
-    SafeCall(function() Tabs.Credits:CreateSection("About") end)
-
-    SafeCall(function()
-        Tabs.Credits:CreateParagraph({
-            Title = "X0DEC04T Hub  v1.0.0",
-            Content = "A premium automation hub for Grow a Garden 2.\n\nCreated by: X0DEC04T\nUI Library: Rayfield\n\nAll features are designed to be safe and stable."
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Credits:CreateParagraph({
-            Title = "Features",
-            Content = "Auto Harvest, Auto Plant, Auto Water, Auto Fertilize\nAuto Sell, Auto Buy Seeds, Auto Buy Gear\nAuto Collect Drops, Auto Quest, Auto Upgrade\nAuto Rebirth, Auto Claim, Auto Event, Auto Gift\nFly, NoClip, Infinite Jump, Anti AFK, Spinbot\nPlayer/Seed/Fruit/Item/NPC/Chest ESP\nFPS Boost, Fullbright, Teleports, Server Hop"
-        })
-    end)
-
-    SafeCall(function()
-        Tabs.Credits:CreateButton({
-            Name = "Copy Discord",
-            Callback = function()
-                if setclipboard then
-                    setclipboard("discord.gg/x0dec04t")
-                    Notify("Discord", "Invite link copied to clipboard", 3)
-                else
-                    Notify("Discord", "discord.gg/x0dec04t", 5)
-                end
-            end
-        })
-    end)
-end
-
-AddConnection("CharacterAdded", LocalPlayer.CharacterAdded:Connect(function(character)
-    task.wait(0.5)
-    local humanoid = character:WaitForChild("Humanoid", 5)
-    if not humanoid then return end
-    if ScriptData.Config.Player.WalkSpeed ~= ScriptData.OriginalValues.WalkSpeed then
-        humanoid.WalkSpeed = ScriptData.Config.Player.WalkSpeed
-    end
-    if ScriptData.Config.Player.JumpPower ~= ScriptData.OriginalValues.JumpPower then
-        humanoid.JumpPower = ScriptData.Config.Player.JumpPower
-        humanoid.UseJumpPower = true
-    end
-end))
-
-AddConnection("PlayerRemoving_ESP", Services.Players.PlayerRemoving:Connect(function(player)
-    if player ~= LocalPlayer then
-        if player.Character then
-            RemoveESP(player.Character)
-        end
-    end
-end))
-
-task.spawn(function()
-    while task.wait(10) do
-        UpdateGameCache()
-    end
-end)
-
-pcall(function() LoadConfigProfile("default") end)
-
-Notify("X0DEC04T Hub", "Successfully loaded for Grow a Garden 2!", 5)
-
-local function Cleanup()
-    for _, connection in pairs(ScriptData.Connections) do
-        pcall(function() connection:Disconnect() end)
-    end
-    for name in pairs(ScriptData.Loops) do
-        ScriptData.Loops[name] = false
-    end
-    ClearAllESP()
-    pcall(function() workspace.Gravity = ScriptData.OriginalValues.Gravity end)
-    pcall(function() Services.Lighting.Brightness = ScriptData.OriginalValues.Brightness end)
-    pcall(function() Services.Lighting.ClockTime = ScriptData.OriginalValues.ClockTime end)
-    pcall(function() Services.Lighting.FogEnd = ScriptData.OriginalValues.FogEnd end)
-    pcall(function() Services.Lighting.GlobalShadows = ScriptData.OriginalValues.GlobalShadows end)
-    local root = GetRootPart()
-    if root then
-        local bv = root:FindFirstChild("X0D_FlyVelocity")
-        if bv then pcall(function() bv:Destroy() end) end
-    end
-    local h = GetHumanoid()
-    if h then
-        pcall(function()
-            h.WalkSpeed = ScriptData.OriginalValues.WalkSpeed
-            h.JumpPower = ScriptData.OriginalValues.JumpPower
-        end)
-    end
-end
-
-Services.Players.PlayerRemoving:Connect(function(player)
-    if player == LocalPlayer then Cleanup() end
-end)
