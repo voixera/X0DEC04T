@@ -14,36 +14,31 @@ local Services = {
 
 local LocalPlayer = Services.Players.LocalPlayer
 
-local function LoadWindUI()
-    local urls = {
-        "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
-        "https://raw.githubusercontent.com/Footagesus/WindUI/main/main.lua"
-    }
-    for _, url in ipairs(urls) do
-        local ok, result = pcall(function()
-            return loadstring(game:HttpGet(url, true))()
+local Rayfield
+do
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+    end)
+    if ok and result then
+        Rayfield = result
+    else
+        local ok2, result2 = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
         end)
-        if ok and result then
-            return result
-        else
-            warn("[X0DEC04T] Failed loading WindUI from: " .. url)
+        if ok2 and result2 then
+            Rayfield = result2
         end
     end
-    return nil
 end
 
-local WindUI = LoadWindUI()
-
-if not WindUI then
-    error("[X0DEC04T Hub] Could not load WindUI from any source. Check your internet connection or executor HTTP support.")
+if not Rayfield then
+    error("[X0DEC04T Hub] Failed to load Rayfield UI library. Check your internet connection.")
 end
 
 local ScriptData = {
     Connections = {},
     Loops = {},
     ESPObjects = {},
-    UIVisible = true,
-    WindUIGui = nil,
     OriginalValues = {
         WalkSpeed = 16,
         JumpPower = 50,
@@ -71,10 +66,10 @@ local ScriptData = {
         Visual = {
             PlayerESP = false, SeedESP = false, FruitESP = false,
             ItemESP = false, NPCESP = false, ChestESP = false,
-            Tracers = false, Highlight = false, Fullbright = false
+            Fullbright = false
         },
         Settings = {
-            AutoSave = false, Watermark = true, UIScale = 1, Transparency = 0
+            AutoSave = false
         }
     }
 }
@@ -288,7 +283,7 @@ local function ClearAllESP()
     ScriptData.ESPObjects = {}
 end
 
-local function SaveConfig(profileName)
+local function SaveConfigProfile(profileName)
     profileName = profileName or "default"
     local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
     local ok, result = pcall(function() return Services.HttpService:JSONEncode(ScriptData.Config) end)
@@ -296,7 +291,7 @@ local function SaveConfig(profileName)
     return false
 end
 
-local function LoadConfig(profileName)
+local function LoadConfigProfile(profileName)
     profileName = profileName or "default"
     local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
     if isfile and isfile(fileName) and readfile then
@@ -313,165 +308,55 @@ local function LoadConfig(profileName)
     return false
 end
 
-local function Notify(title, message, duration)
+local function Notify(title, content, duration)
     pcall(function()
-        WindUI:Notify({ Title = title, Content = message, Duration = duration or 3 })
+        Rayfield:Notify({
+            Title = title,
+            Content = content,
+            Duration = duration or 3
+        })
     end)
 end
 
 UpdateGameCache()
 
-local existingCoreGuis = {}
-for _, g in ipairs(Services.CoreGui:GetChildren()) do existingCoreGuis[g] = true end
-local existingPlayerGuis = {}
-for _, g in ipairs(LocalPlayer:WaitForChild("PlayerGui"):GetChildren()) do existingPlayerGuis[g] = true end
-
 local Window
 SafeCall(function()
-    Window = WindUI:CreateWindow({
-        Title = "X0DEC04T Hub",
-        SubTitle = "Grow a Garden 2",
-        Icon = "rbxassetid://10734950",
-        Author = "X0DEC04T",
-        Folder = "X0DEC04THub",
-        Size = UDim2.fromOffset(580, 460),
-        Transparent = true,
-        Theme = "Dark",
-        Resizable = true
+    Window = Rayfield:CreateWindow({
+        Name = "X0DEC04T Hub | Grow a Garden 2",
+        LoadingTitle = "X0DEC04T Hub",
+        LoadingSubtitle = "Loading Grow a Garden 2 features...",
+        ConfigurationSaving = {
+            Enabled = true,
+            FolderName = "X0DEC04THub",
+            FileName = "GrowAGarden2Config"
+        },
+        KeySystem = false
     })
 end)
 
 if not Window then
-    error("[X0DEC04T Hub] Failed to create WindUI window.")
+    error("[X0DEC04T Hub] Failed to create Rayfield window.")
 end
-
-task.wait(0.2)
-for _, g in ipairs(Services.CoreGui:GetChildren()) do
-    if not existingCoreGuis[g] and g:IsA("ScreenGui") then
-        ScriptData.WindUIGui = g
-        break
-    end
-end
-if not ScriptData.WindUIGui then
-    for _, g in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-        if not existingPlayerGuis[g] and g:IsA("ScreenGui") then
-            ScriptData.WindUIGui = g
-            break
-        end
-    end
-end
-
-local function CreateMinimizeButton()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "X0DEC04T_MinimizeButton"
-    screenGui.ResetOnSpawn = false
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.DisplayOrder = 999
-    if gethui then screenGui.Parent = gethui()
-    elseif syn and syn.protect_gui then syn.protect_gui(screenGui) screenGui.Parent = Services.CoreGui
-    else screenGui.Parent = Services.CoreGui end
-
-    local button = Instance.new("TextButton")
-    button.Name = "MinimizeButton"
-    button.Size = UDim2.new(0, 60, 0, 60)
-    button.Position = UDim2.new(1, -80, 0, 20)
-    button.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    button.BorderSizePixel = 0
-    button.Text = ""
-    button.AutoButtonColor = false
-    button.Parent = screenGui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = button
-
-    local logo = Instance.new("TextLabel")
-    logo.Size = UDim2.new(1, 0, 1, 0)
-    logo.BackgroundTransparency = 1
-    logo.Text = "X0D"
-    logo.TextColor3 = Color3.fromRGB(255, 255, 255)
-    logo.TextScaled = true
-    logo.Font = Enum.Font.GothamBold
-    logo.Parent = button
-
-    local gradient = Instance.new("UIGradient")
-    gradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(138, 43, 226)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(75, 0, 130))
-    }
-    gradient.Rotation = 45
-    gradient.Parent = button
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(180, 100, 255)
-    stroke.Thickness = 2
-    stroke.Parent = button
-
-    local dragging, dragStart, startPos = false, nil, nil
-    local clickStartTime = 0
-
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = button.Position
-            clickStartTime = tick()
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-
-    button.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    button.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if tick() - clickStartTime < 0.3 then
-                ScriptData.UIVisible = not ScriptData.UIVisible
-                if ScriptData.WindUIGui then
-                    ScriptData.WindUIGui.Enabled = ScriptData.UIVisible
-                end
-                Services.TweenService:Create(button, TweenInfo.new(0.3), {
-                    Rotation = ScriptData.UIVisible and 0 or 180
-                }):Play()
-            end
-        end
-    end)
-
-    button.MouseEnter:Connect(function()
-        Services.TweenService:Create(button, TweenInfo.new(0.2), {Size = UDim2.new(0, 68, 0, 68)}):Play()
-    end)
-    button.MouseLeave:Connect(function()
-        Services.TweenService:Create(button, TweenInfo.new(0.2), {Size = UDim2.new(0, 60, 0, 60)}):Play()
-    end)
-
-    return screenGui
-end
-
-CreateMinimizeButton()
 
 local MainTab, PlayerTab, TeleportTab, VisualTab, MiscTab, SettingsTab, CreditsTab
 
-SafeCall(function() MainTab = Window:Tab({ Title = "Main", Icon = "rbxassetid://10734950" }) end)
-SafeCall(function() PlayerTab = Window:Tab({ Title = "Player", Icon = "rbxassetid://10747372" }) end)
-SafeCall(function() TeleportTab = Window:Tab({ Title = "Teleport", Icon = "rbxassetid://10723407" }) end)
-SafeCall(function() VisualTab = Window:Tab({ Title = "Visual", Icon = "rbxassetid://10734896" }) end)
-SafeCall(function() MiscTab = Window:Tab({ Title = "Misc", Icon = "rbxassetid://10734949" }) end)
-SafeCall(function() SettingsTab = Window:Tab({ Title = "Settings", Icon = "rbxassetid://10734952" }) end)
-SafeCall(function() CreditsTab = Window:Tab({ Title = "Credits", Icon = "rbxassetid://10747373" }) end)
+SafeCall(function() MainTab = Window:CreateTab("Main", 4483362458) end)
+SafeCall(function() PlayerTab = Window:CreateTab("Player", 4483362458) end)
+SafeCall(function() TeleportTab = Window:CreateTab("Teleport", 4483362458) end)
+SafeCall(function() VisualTab = Window:CreateTab("Visual", 4483362458) end)
+SafeCall(function() MiscTab = Window:CreateTab("Misc", 4483362458) end)
+SafeCall(function() SettingsTab = Window:CreateTab("Settings", 4483362458) end)
+SafeCall(function() CreditsTab = Window:CreateTab("Credits", 4483362458) end)
 
 if MainTab then
-    SafeCall(function() MainTab:Section({ Title = "Farming Features" }) end)
+    SafeCall(function() MainTab:CreateSection("Farming Features") end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Harvest",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Harvest",
+            CurrentValue = false,
+            Flag = "AutoHarvest",
             Callback = function(value)
                 ScriptData.Config.Main.AutoHarvest = value
                 if value then
@@ -481,7 +366,7 @@ if MainTab then
                         for _, plant in ipairs(FindPlants()) do
                             if plant then
                                 local ready = plant:FindFirstChild("Ready") or plant:FindFirstChild("Harvestable") or plant:FindFirstChild("Grown")
-                                if (ready and ready.Value == true) then
+                                if ready and ready.Value == true then
                                     local cd = FindFirstDescendant(plant, nil, "ClickDetector")
                                     if cd then fireclickdetector(cd) end
                                     local pp = FindFirstDescendant(plant, nil, "ProximityPrompt")
@@ -502,9 +387,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Plant",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Plant",
+            CurrentValue = false,
+            Flag = "AutoPlant",
             Callback = function(value)
                 ScriptData.Config.Main.AutoPlant = value
                 if value then
@@ -536,9 +422,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Water",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Water",
+            CurrentValue = false,
+            Flag = "AutoWater",
             Callback = function(value)
                 ScriptData.Config.Main.AutoWater = value
                 if value then
@@ -568,9 +455,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Fertilize",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Fertilize",
+            CurrentValue = false,
+            Flag = "AutoFertilize",
             Callback = function(value)
                 ScriptData.Config.Main.AutoFertilize = value
                 if value then
@@ -593,34 +481,39 @@ if MainTab then
         })
     end)
 
-    SafeCall(function() MainTab:Section({ Title = "Shop & Economy" }) end)
+    SafeCall(function() MainTab:CreateSection("Shop & Economy") end)
 
     SafeCall(function()
-        MainTab:Input({
-            Title = "Seed Name",
-            Placeholder = "e.g. Carrot",
-            Value = ScriptData.Config.Main.SelectedSeed,
+        MainTab:CreateInput({
+            Name = "Seed Name",
+            PlaceholderText = "e.g. Carrot",
+            RemoveTextAfterFocusLost = false,
             Callback = function(value)
-                ScriptData.Config.Main.SelectedSeed = value
+                if value and value ~= "" then
+                    ScriptData.Config.Main.SelectedSeed = value
+                end
             end
         })
     end)
 
     SafeCall(function()
-        MainTab:Input({
-            Title = "Gear Name",
-            Placeholder = "e.g. Basic Watering Can",
-            Value = ScriptData.Config.Main.SelectedGear,
+        MainTab:CreateInput({
+            Name = "Gear Name",
+            PlaceholderText = "e.g. Basic Watering Can",
+            RemoveTextAfterFocusLost = false,
             Callback = function(value)
-                ScriptData.Config.Main.SelectedGear = value
+                if value and value ~= "" then
+                    ScriptData.Config.Main.SelectedGear = value
+                end
             end
         })
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Sell",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Sell",
+            CurrentValue = false,
+            Flag = "AutoSell",
             Callback = function(value)
                 ScriptData.Config.Main.AutoSell = value
                 if value then
@@ -649,9 +542,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Buy Seeds",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Buy Seeds",
+            CurrentValue = false,
+            Flag = "AutoBuySeeds",
             Callback = function(value)
                 ScriptData.Config.Main.AutoBuySeeds = value
                 if value then
@@ -670,9 +564,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Buy Gear",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Buy Gear",
+            CurrentValue = false,
+            Flag = "AutoBuyGear",
             Callback = function(value)
                 ScriptData.Config.Main.AutoBuyGear = value
                 if value then
@@ -690,12 +585,13 @@ if MainTab then
         })
     end)
 
-    SafeCall(function() MainTab:Section({ Title = "Automation" }) end)
+    SafeCall(function() MainTab:CreateSection("Automation") end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Collect Drops",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Collect Drops",
+            CurrentValue = false,
+            Flag = "AutoCollectDrops",
             Callback = function(value)
                 ScriptData.Config.Main.AutoCollectDrops = value
                 if value then
@@ -720,9 +616,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Quest",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Quest",
+            CurrentValue = false,
+            Flag = "AutoQuest",
             Callback = function(value)
                 ScriptData.Config.Main.AutoQuest = value
                 if value then
@@ -743,9 +640,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Upgrade",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Upgrade",
+            CurrentValue = false,
+            Flag = "AutoUpgrade",
             Callback = function(value)
                 ScriptData.Config.Main.AutoUpgrade = value
                 if value then
@@ -765,9 +663,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Rebirth",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Rebirth",
+            CurrentValue = false,
+            Flag = "AutoRebirth",
             Callback = function(value)
                 ScriptData.Config.Main.AutoRebirth = value
                 if value then
@@ -786,9 +685,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Claim Rewards",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Claim Rewards",
+            CurrentValue = false,
+            Flag = "AutoClaimRewards",
             Callback = function(value)
                 ScriptData.Config.Main.AutoClaimRewards = value
                 if value then
@@ -809,9 +709,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Event",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Event",
+            CurrentValue = false,
+            Flag = "AutoEvent",
             Callback = function(value)
                 ScriptData.Config.Main.AutoEvent = value
                 if value then
@@ -830,9 +731,10 @@ if MainTab then
     end)
 
     SafeCall(function()
-        MainTab:Toggle({
-            Title = "Auto Gift",
-            Default = false,
+        MainTab:CreateToggle({
+            Name = "Auto Gift",
+            CurrentValue = false,
+            Flag = "AutoGift",
             Callback = function(value)
                 ScriptData.Config.Main.AutoGift = value
                 if value then
@@ -859,13 +761,16 @@ if MainTab then
 end
 
 if PlayerTab then
-    SafeCall(function() PlayerTab:Section({ Title = "Movement" }) end)
+    SafeCall(function() PlayerTab:CreateSection("Movement") end)
 
     SafeCall(function()
-        PlayerTab:Slider({
-            Title = "WalkSpeed",
-            Step = 1,
-            Value = { Min = 16, Max = 200, Default = 16 },
+        PlayerTab:CreateSlider({
+            Name = "WalkSpeed",
+            Range = {16, 200},
+            Increment = 1,
+            Suffix = "Speed",
+            CurrentValue = 16,
+            Flag = "WalkSpeed",
             Callback = function(value)
                 ScriptData.Config.Player.WalkSpeed = value
                 local h = GetHumanoid()
@@ -875,10 +780,13 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Slider({
-            Title = "JumpPower",
-            Step = 1,
-            Value = { Min = 50, Max = 300, Default = 50 },
+        PlayerTab:CreateSlider({
+            Name = "JumpPower",
+            Range = {50, 300},
+            Increment = 1,
+            Suffix = "Power",
+            CurrentValue = 50,
+            Flag = "JumpPower",
             Callback = function(value)
                 ScriptData.Config.Player.JumpPower = value
                 local h = GetHumanoid()
@@ -888,10 +796,13 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Slider({
-            Title = "Gravity",
-            Step = 1,
-            Value = { Min = 0, Max = 196, Default = 196 },
+        PlayerTab:CreateSlider({
+            Name = "Gravity",
+            Range = {0, 196},
+            Increment = 1,
+            Suffix = "",
+            CurrentValue = 196,
+            Flag = "Gravity",
             Callback = function(value)
                 ScriptData.Config.Player.Gravity = value
                 workspace.Gravity = value
@@ -899,12 +810,13 @@ if PlayerTab then
         })
     end)
 
-    SafeCall(function() PlayerTab:Section({ Title = "Flight" }) end)
+    SafeCall(function() PlayerTab:CreateSection("Flight") end)
 
     SafeCall(function()
-        PlayerTab:Toggle({
-            Title = "Fly",
-            Default = false,
+        PlayerTab:CreateToggle({
+            Name = "Fly",
+            CurrentValue = false,
+            Flag = "Fly",
             Callback = function(value)
                 ScriptData.Config.Player.Fly = value
                 if value then
@@ -945,22 +857,26 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Slider({
-            Title = "Fly Speed",
-            Step = 1,
-            Value = { Min = 10, Max = 200, Default = 50 },
+        PlayerTab:CreateSlider({
+            Name = "Fly Speed",
+            Range = {10, 200},
+            Increment = 1,
+            Suffix = "Speed",
+            CurrentValue = 50,
+            Flag = "FlySpeed",
             Callback = function(value)
                 ScriptData.Config.Player.FlySpeed = value
             end
         })
     end)
 
-    SafeCall(function() PlayerTab:Section({ Title = "Abilities" }) end)
+    SafeCall(function() PlayerTab:CreateSection("Abilities") end)
 
     SafeCall(function()
-        PlayerTab:Toggle({
-            Title = "NoClip",
-            Default = false,
+        PlayerTab:CreateToggle({
+            Name = "NoClip",
+            CurrentValue = false,
+            Flag = "NoClip",
             Callback = function(value)
                 ScriptData.Config.Player.NoClip = value
                 if value then
@@ -988,9 +904,10 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Toggle({
-            Title = "Infinite Jump",
-            Default = false,
+        PlayerTab:CreateToggle({
+            Name = "Infinite Jump",
+            CurrentValue = false,
+            Flag = "InfiniteJump",
             Callback = function(value)
                 ScriptData.Config.Player.InfiniteJump = value
                 if value then
@@ -1008,9 +925,10 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Toggle({
-            Title = "Anti AFK",
-            Default = false,
+        PlayerTab:CreateToggle({
+            Name = "Anti AFK",
+            CurrentValue = false,
+            Flag = "AntiAFK",
             Callback = function(value)
                 ScriptData.Config.Player.AntiAFK = value
                 if value then
@@ -1028,9 +946,10 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Toggle({
-            Title = "Spinbot",
-            Default = false,
+        PlayerTab:CreateToggle({
+            Name = "Spinbot",
+            CurrentValue = false,
+            Flag = "Spinbot",
             Callback = function(value)
                 ScriptData.Config.Player.Spinbot = value
                 if value then
@@ -1052,10 +971,13 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Slider({
-            Title = "Spinbot Speed",
-            Step = 1,
-            Value = { Min = 1, Max = 50, Default = 10 },
+        PlayerTab:CreateSlider({
+            Name = "Spinbot Speed",
+            Range = {1, 50},
+            Increment = 1,
+            Suffix = "",
+            CurrentValue = 10,
+            Flag = "SpinbotSpeed",
             Callback = function(value)
                 ScriptData.Config.Player.SpinbotSpeed = value
             end
@@ -1063,8 +985,8 @@ if PlayerTab then
     end)
 
     SafeCall(function()
-        PlayerTab:Button({
-            Title = "Safe Reset",
+        PlayerTab:CreateButton({
+            Name = "Safe Reset",
             Callback = function()
                 local h = GetHumanoid()
                 if h then h.Health = 0 Notify("Reset", "Character reset", 2) end
@@ -1074,11 +996,11 @@ if PlayerTab then
 end
 
 if TeleportTab then
-    SafeCall(function() TeleportTab:Section({ Title = "Locations" }) end)
+    SafeCall(function() TeleportTab:CreateSection("Locations") end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to Shop",
+        TeleportTab:CreateButton({
+            Name = "Teleport to Shop",
             Callback = function()
                 UpdateGameCache()
                 if GameCache.Shop then
@@ -1092,8 +1014,8 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to Garden",
+        TeleportTab:CreateButton({
+            Name = "Teleport to Garden",
             Callback = function()
                 UpdateGameCache()
                 if GameCache.Garden then
@@ -1107,8 +1029,8 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to Spawn",
+        TeleportTab:CreateButton({
+            Name = "Teleport to Spawn",
             Callback = function()
                 UpdateGameCache()
                 if GameCache.Spawn then
@@ -1122,8 +1044,8 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to NPCs",
+        TeleportTab:CreateButton({
+            Name = "Teleport to NPCs",
             Callback = function()
                 UpdateGameCache()
                 if #GameCache.NPCs > 0 then
@@ -1138,8 +1060,8 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to Events",
+        TeleportTab:CreateButton({
+            Name = "Teleport to Events",
             Callback = function()
                 local events = FindAllDescendants(workspace, "event", "Model")
                 if #events > 0 then
@@ -1152,14 +1074,15 @@ if TeleportTab then
         })
     end)
 
-    SafeCall(function() TeleportTab:Section({ Title = "Players" }) end)
+    SafeCall(function() TeleportTab:CreateSection("Players") end)
 
     local selectedPlayerName = ""
 
     SafeCall(function()
-        TeleportTab:Input({
-            Title = "Player Name",
-            Placeholder = "Type exact player name",
+        TeleportTab:CreateInput({
+            Name = "Player Name",
+            PlaceholderText = "Type exact player name",
+            RemoveTextAfterFocusLost = false,
             Callback = function(value)
                 selectedPlayerName = value
             end
@@ -1167,11 +1090,28 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        TeleportTab:Button({
-            Title = "Teleport to Player",
+        local names = {}
+        for _, p in ipairs(Services.Players:GetPlayers()) do
+            if p ~= LocalPlayer then table.insert(names, p.Name) end
+        end
+        if #names == 0 then table.insert(names, "No players") end
+        TeleportTab:CreateDropdown({
+            Name = "Or Select Player",
+            Options = names,
+            CurrentOption = {names[1]},
+            Flag = "SelectedPlayerDropdown",
+            Callback = function(option)
+                selectedPlayerName = option[1] or option
+            end
+        })
+    end)
+
+    SafeCall(function()
+        TeleportTab:CreateButton({
+            Name = "Teleport to Player",
             Callback = function()
                 if selectedPlayerName == "" then
-                    Notify("Error", "Type a player name first", 3)
+                    Notify("Error", "Type or select a player first", 3)
                     return
                 end
                 local target = nil
@@ -1192,36 +1132,23 @@ if TeleportTab then
     end)
 
     SafeCall(function()
-        local names = {}
-        for _, p in ipairs(Services.Players:GetPlayers()) do
-            if p ~= LocalPlayer then table.insert(names, p.Name) end
-        end
-        TeleportTab:Dropdown({
-            Title = "Or Select Player",
-            Values = names,
-            Callback = function(value)
-                selectedPlayerName = value
-            end
-        })
-    end)
-
-    SafeCall(function()
-        TeleportTab:Button({
-            Title = "Refresh Player List",
+        TeleportTab:CreateButton({
+            Name = "Refresh Player List",
             Callback = function()
-                Notify("Info", "Re-run script or type player name manually to refresh", 3)
+                Notify("Info", "Re-select or type player name to refresh", 3)
             end
         })
     end)
 end
 
 if VisualTab then
-    SafeCall(function() VisualTab:Section({ Title = "ESP" }) end)
+    SafeCall(function() VisualTab:CreateSection("ESP") end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Player ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Player ESP",
+            CurrentValue = false,
+            Flag = "PlayerESP",
             Callback = function(value)
                 ScriptData.Config.Visual.PlayerESP = value
                 if value then
@@ -1247,9 +1174,10 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Seed ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Seed ESP",
+            CurrentValue = false,
+            Flag = "SeedESP",
             Callback = function(value)
                 ScriptData.Config.Visual.SeedESP = value
                 if value then
@@ -1268,9 +1196,10 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Fruit ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Fruit ESP",
+            CurrentValue = false,
+            Flag = "FruitESP",
             Callback = function(value)
                 ScriptData.Config.Visual.FruitESP = value
                 if value then
@@ -1289,9 +1218,10 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Item ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Item ESP",
+            CurrentValue = false,
+            Flag = "ItemESP",
             Callback = function(value)
                 ScriptData.Config.Visual.ItemESP = value
                 if value then
@@ -1310,9 +1240,10 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "NPC ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "NPC ESP",
+            CurrentValue = false,
+            Flag = "NPCESP",
             Callback = function(value)
                 ScriptData.Config.Visual.NPCESP = value
                 if value then
@@ -1332,9 +1263,10 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Chest ESP",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Chest ESP",
+            CurrentValue = false,
+            Flag = "ChestESP",
             Callback = function(value)
                 ScriptData.Config.Visual.ChestESP = value
                 if value then
@@ -1352,12 +1284,13 @@ if VisualTab then
         })
     end)
 
-    SafeCall(function() VisualTab:Section({ Title = "Rendering" }) end)
+    SafeCall(function() VisualTab:CreateSection("Rendering") end)
 
     SafeCall(function()
-        VisualTab:Toggle({
-            Title = "Fullbright",
-            Default = false,
+        VisualTab:CreateToggle({
+            Name = "Fullbright",
+            CurrentValue = false,
+            Flag = "Fullbright",
             Callback = function(value)
                 ScriptData.Config.Visual.Fullbright = value
                 if value then
@@ -1378,8 +1311,8 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Button({
-            Title = "Remove Fog",
+        VisualTab:CreateButton({
+            Name = "Remove Fog",
             Callback = function()
                 Services.Lighting.FogEnd = 100000
                 for _, e in ipairs(Services.Lighting:GetChildren()) do
@@ -1391,8 +1324,8 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Button({
-            Title = "FPS Boost",
+        VisualTab:CreateButton({
+            Name = "FPS Boost",
             Callback = function()
                 local t = workspace.Terrain
                 t.WaterWaveSize = 0
@@ -1423,8 +1356,8 @@ if VisualTab then
     end)
 
     SafeCall(function()
-        VisualTab:Button({
-            Title = "Destroy Effects",
+        VisualTab:CreateButton({
+            Name = "Destroy Effects",
             Callback = function()
                 for _, v in pairs(workspace:GetDescendants()) do
                     if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
@@ -1438,11 +1371,11 @@ if VisualTab then
 end
 
 if MiscTab then
-    SafeCall(function() MiscTab:Section({ Title = "Server" }) end)
+    SafeCall(function() MiscTab:CreateSection("Server") end)
 
     SafeCall(function()
-        MiscTab:Button({
-            Title = "Server Hop",
+        MiscTab:CreateButton({
+            Name = "Server Hop",
             Callback = function()
                 Notify("Server Hop", "Finding new server...", 3)
                 pcall(function()
@@ -1468,8 +1401,8 @@ if MiscTab then
     end)
 
     SafeCall(function()
-        MiscTab:Button({
-            Title = "Rejoin",
+        MiscTab:CreateButton({
+            Name = "Rejoin",
             Callback = function()
                 Services.TeleportService:Teleport(game.PlaceId, LocalPlayer)
             end
@@ -1477,8 +1410,8 @@ if MiscTab then
     end)
 
     SafeCall(function()
-        MiscTab:Button({
-            Title = "Copy JobId",
+        MiscTab:CreateButton({
+            Name = "Copy JobId",
             Callback = function()
                 if setclipboard then setclipboard(game.JobId) Notify("Success", "JobId copied", 2)
                 else Notify("Error", "Clipboard not supported", 3) end
@@ -1487,8 +1420,8 @@ if MiscTab then
     end)
 
     SafeCall(function()
-        MiscTab:Button({
-            Title = "Copy PlaceId",
+        MiscTab:CreateButton({
+            Name = "Copy PlaceId",
             Callback = function()
                 if setclipboard then setclipboard(tostring(game.PlaceId)) Notify("Success", "PlaceId copied", 2)
                 else Notify("Error", "Clipboard not supported", 3) end
@@ -1496,33 +1429,28 @@ if MiscTab then
         })
     end)
 
-    SafeCall(function() MiscTab:Section({ Title = "Game" }) end)
+    SafeCall(function() MiscTab:CreateSection("Game") end)
 
     SafeCall(function()
-        MiscTab:Button({
-            Title = "Destroy UI",
+        MiscTab:CreateButton({
+            Name = "Destroy UI",
             Callback = function()
-                for _, gui in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
-                    if gui.Name ~= "X0DEC04T_MinimizeButton" and gui ~= ScriptData.WindUIGui then
-                        gui:Destroy()
-                    end
-                end
-                Notify("Success", "UI destroyed", 2)
+                pcall(function() Window:Destroy() end)
             end
         })
     end)
 end
 
 if SettingsTab then
-    SafeCall(function() SettingsTab:Section({ Title = "Configuration" }) end)
+    SafeCall(function() SettingsTab:CreateSection("Configuration") end)
 
     local profileName = "default"
 
     SafeCall(function()
-        SettingsTab:Input({
-            Title = "Profile Name",
-            Value = "default",
-            Placeholder = "Enter profile name",
+        SettingsTab:CreateInput({
+            Name = "Profile Name",
+            PlaceholderText = "Enter profile name",
+            RemoveTextAfterFocusLost = false,
             Callback = function(value)
                 profileName = value ~= "" and value or "default"
             end
@@ -1530,28 +1458,28 @@ if SettingsTab then
     end)
 
     SafeCall(function()
-        SettingsTab:Button({
-            Title = "Save Config",
+        SettingsTab:CreateButton({
+            Name = "Save Config",
             Callback = function()
-                if SaveConfig(profileName) then Notify("Success", "Config saved: " .. profileName, 2)
+                if SaveConfigProfile(profileName) then Notify("Success", "Config saved: " .. profileName, 2)
                 else Notify("Error", "Failed to save config", 3) end
             end
         })
     end)
 
     SafeCall(function()
-        SettingsTab:Button({
-            Title = "Load Config",
+        SettingsTab:CreateButton({
+            Name = "Load Config",
             Callback = function()
-                if LoadConfig(profileName) then Notify("Success", "Config loaded: " .. profileName, 2)
+                if LoadConfigProfile(profileName) then Notify("Success", "Config loaded: " .. profileName, 2)
                 else Notify("Warning", "No config found: " .. profileName, 3) end
             end
         })
     end)
 
     SafeCall(function()
-        SettingsTab:Button({
-            Title = "Delete Config",
+        SettingsTab:CreateButton({
+            Name = "Delete Config",
             Callback = function()
                 local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
                 if isfile and isfile(fileName) and delfile then
@@ -1565,14 +1493,15 @@ if SettingsTab then
     end)
 
     SafeCall(function()
-        SettingsTab:Toggle({
-            Title = "Auto Save Config",
-            Default = false,
+        SettingsTab:CreateToggle({
+            Name = "Auto Save Config",
+            CurrentValue = false,
+            Flag = "AutoSaveConfig",
             Callback = function(value)
                 ScriptData.Config.Settings.AutoSave = value
                 if value then
                     Notify("Auto Save", "Enabled (60s)", 2)
-                    CreateLoop("AutoSave", function() SaveConfig(profileName) end, 60)
+                    CreateLoop("AutoSave", function() SaveConfigProfile(profileName) end, 60)
                 else
                     Notify("Auto Save", "Disabled", 2)
                     StopLoop("AutoSave")
@@ -1581,71 +1510,33 @@ if SettingsTab then
         })
     end)
 
-    SafeCall(function() SettingsTab:Section({ Title = "UI Settings" }) end)
+    SafeCall(function() SettingsTab:CreateSection("Keybinds") end)
 
     SafeCall(function()
-        SettingsTab:Toggle({
-            Title = "Watermark",
-            Default = true,
-            Callback = function(value)
-                ScriptData.Config.Settings.Watermark = value
-            end
-        })
-    end)
-
-    SafeCall(function()
-        SettingsTab:Slider({
-            Title = "UI Scale",
-            Step = 0.1,
-            Value = { Min = 0.5, Max = 1.5, Default = 1 },
-            Callback = function(value)
-                ScriptData.Config.Settings.UIScale = value
-            end
-        })
-    end)
-
-    SafeCall(function()
-        SettingsTab:Slider({
-            Title = "Transparency",
-            Step = 0.1,
-            Value = { Min = 0, Max = 1, Default = 0 },
-            Callback = function(value)
-                ScriptData.Config.Settings.Transparency = value
-            end
-        })
-    end)
-
-    SafeCall(function()
-        SettingsTab:Keybind({
-            Title = "Toggle UI Key",
-            Default = Enum.KeyCode.RightControl,
-            Callback = function(key)
-                AddConnection("ToggleUIKeybind", Services.UserInputService.InputBegan:Connect(function(input, processed)
-                    if not processed and input.KeyCode == key then
-                        ScriptData.UIVisible = not ScriptData.UIVisible
-                        if ScriptData.WindUIGui then
-                            ScriptData.WindUIGui.Enabled = ScriptData.UIVisible
-                        end
-                    end
-                end))
+        SettingsTab:CreateKeybind({
+            Name = "Toggle UI Key",
+            CurrentKeybind = "K",
+            HoldToInteract = false,
+            Flag = "ToggleUIKeybind",
+            Callback = function()
             end
         })
     end)
 end
 
 if CreditsTab then
-    SafeCall(function() CreditsTab:Section({ Title = "Credits" }) end)
+    SafeCall(function() CreditsTab:CreateSection("Credits") end)
 
     SafeCall(function()
-        CreditsTab:Paragraph({
+        CreditsTab:CreateParagraph({
             Title = "X0DEC04T Hub v1.0.0",
-            Desc = "Created by X0DEC04T for Grow a Garden 2. Powered by WindUI."
+            Content = "Created by X0DEC04T for Grow a Garden 2.\nPowered by Rayfield UI Library."
         })
     end)
 
     SafeCall(function()
-        CreditsTab:Button({
-            Title = "Copy Discord Invite",
+        CreditsTab:CreateButton({
+            Name = "Copy Discord Invite",
             Callback = function()
                 if setclipboard then setclipboard("discord.gg/x0dec04t") Notify("Success", "Discord link copied", 3)
                 else Notify("Info", "discord.gg/x0dec04t", 5) end
@@ -1671,9 +1562,8 @@ task.spawn(function()
     while task.wait(10) do UpdateGameCache() end
 end)
 
-LoadConfig("default")
+LoadConfigProfile("default")
 Notify("X0DEC04T Hub", "Loaded successfully for Grow a Garden 2!", 5)
-Notify("Info", "Tap the X0D button to toggle UI", 3)
 
 local function Cleanup()
     for _, connection in pairs(ScriptData.Connections) do pcall(function() connection:Disconnect() end) end
