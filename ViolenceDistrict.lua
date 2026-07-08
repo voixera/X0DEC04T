@@ -9,6 +9,7 @@ local HttpService       = game:GetService("HttpService")
 local TweenService      = game:GetService("TweenService")
 local Workspace         = game:GetService("Workspace")
 local CoreGui           = game:GetService("CoreGui")
+local VirtualUser       = game:GetService("VirtualUser")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -27,11 +28,11 @@ local HUB = {
     Author  = "voixera",
     Folder  = "X0DEC04T_Hub",
     ConfigFolder = "X0DEC04T_Hub/Configs",
+    LogoID  = "rbxassetid://91626851418651",
 }
 
 --═══════════════════════════════════════════════════════════════
 -- REMOTE REFERENCES
--- Structure: ReplicatedStorage.Remotes.<Category>.<Remote>
 --═══════════════════════════════════════════════════════════════
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -183,36 +184,25 @@ local WS = {
 -- STATE MANAGER
 --═══════════════════════════════════════════════════════════════
 local State = {
-    -- Generator
     AutoRepair       = false,
     AutoSkillCheck   = false,
-    SkillCheckMode   = "Perfect", -- "Perfect" | "Good"
+    SkillCheckMode   = "Perfect",
     SkillCheckNotify = false,
-
-    -- Escape
     AutoExit         = false,
     NotifyAllGens    = true,
-
-    -- Healing
     AutoHealTeam     = false,
     AutoHealSelf     = false,
     AutoHealSkill    = false,
-
-    -- Items
     AutoParry        = false,
     AutoFlashlight   = false,
     AutoRiotRush     = false,
     AutoTwistFate    = false,
     AutoHolyWater    = false,
-
-    -- Survival
     AutoSelfUnhook   = false,
     AutoUnhookTeam   = false,
     AutoWiggle       = false,
     InfiniteSprint   = false,
     AntiAFK          = true,
-
-    -- ESP
     ESP_Killer       = false,
     ESP_Survivors    = false,
     ESP_Generators   = false,
@@ -222,17 +212,11 @@ local State = {
     ChaseAlert       = false,
     AttackAlert      = false,
     KillerAlert      = false,
-
-    -- Movement
     WalkSpeed        = 16,
     JumpPower        = 50,
     NoClip           = false,
-
-    -- Events
     AutoGifts        = false,
     AutoMedals       = false,
-
-    -- Runtime
     IsKiller         = false,
     MatchActive      = false,
     ESPObjects       = {},
@@ -249,16 +233,15 @@ function Util.SafeFire(remote, ...)
         warn("[X0DEC04T] Remote missing:", debug.traceback())
         return false
     end
-    local ok, err = pcall(function(...)
+    local args = {...}
+    local ok, err = pcall(function()
         if remote:IsA("RemoteEvent") then
-            remote:FireServer(...)
+            remote:FireServer(table.unpack(args))
         elseif remote:IsA("RemoteFunction") then
-            return remote:InvokeServer(...)
+            return remote:InvokeServer(table.unpack(args))
         end
-    end, ...)
-    if not ok then
-        warn("[X0DEC04T] Fire failed:", err)
-    end
+    end)
+    if not ok then warn("[X0DEC04T] Fire failed:", err) end
     return ok
 end
 
@@ -304,21 +287,26 @@ end
 
 function Util.CleanupESP()
     for _, obj in pairs(State.ESPObjects) do
-        if obj and obj.Parent then
-            obj:Destroy()
-        end
+        if obj and obj.Parent then obj:Destroy() end
     end
     State.ESPObjects = {}
 end
 
+function Util.GetGuiParent()
+    local parent = CoreGui
+    pcall(function()
+        if gethui then parent = gethui() end
+    end)
+    return parent
+end
+
 --═══════════════════════════════════════════════════════════════
--- ESP SYSTEM (Framework - ready to activate per category)
+-- ESP SYSTEM
 --═══════════════════════════════════════════════════════════════
 local ESP = {}
 
 function ESP.CreateBillboard(adornee, text, color)
     if not adornee then return nil end
-
     local bb = Instance.new("BillboardGui")
     bb.Name = "X0DEC04T_ESP"
     bb.Adornee = adornee
@@ -338,24 +326,21 @@ function ESP.CreateBillboard(adornee, text, color)
     label.TextScaled = true
     label.Parent = bb
 
-    bb.Parent = CoreGui
+    bb.Parent = Util.GetGuiParent()
     table.insert(State.ESPObjects, bb)
     return bb, label
 end
 
 function ESP.ScanInteractables()
-    -- TODO: Implement once Interactables children are identified
-    -- Expected: Generators, Exit Levers likely inside Workspace.Interactables
     if not WS.Interactables then return end
     for _, obj in ipairs(WS.Interactables:GetChildren()) do
-        -- Placeholder - awaiting confirmation of interactable structure
+        -- Placeholder - awaiting Interactables verification
     end
 end
 
 function ESP.RefreshAll()
     Util.CleanupESP()
     if State.ESP_Generators then ESP.ScanInteractables() end
-    -- Additional ESP categories will hook here
 end
 
 --═══════════════════════════════════════════════════════════════
@@ -363,57 +348,48 @@ end
 --═══════════════════════════════════════════════════════════════
 local Features = {}
 
--- ▓▓▓ GENERATOR ▓▓▓
 function Features.AutoRepair()
     task.spawn(function()
         while State.AutoRepair do
             -- TODO: VERIFY ARGS for R.Generator.Repair
-            -- Likely args: (generatorModel) or ()
-            -- Util.SafeFire(R.Generator.Repair, ???)
             task.wait(0.5)
         end
     end)
 end
 
 function Features.SetupSkillCheck()
-    -- TODO: VERIFY ARGS for R.Generator.SkillCheckResult
-    -- Likely args: (boolean success) or (number timing) or ("Perfect"/"Good"/"Bad")
     if R.Generator.SkillCheck then
         Util.SafeConnect(R.Generator.SkillCheck.OnClientEvent, function(...)
             if State.SkillCheckNotify then
                 Util.Notify("Skill Check!", "Generator skill check triggered")
             end
             if State.AutoSkillCheck then
-                -- Util.SafeFire(R.Generator.SkillCheckResult, ???)
+                -- TODO: VERIFY ARGS for R.Generator.SkillCheckResult
             end
         end)
     end
     if R.Healing.SkillCheck then
         Util.SafeConnect(R.Healing.SkillCheck.OnClientEvent, function(...)
             if State.AutoHealSkill then
-                -- Util.SafeFire(R.Healing.SkillCheckResult, ???)
+                -- TODO: VERIFY ARGS for R.Healing.SkillCheckResult
             end
         end)
     end
 end
 
--- ▓▓▓ EXIT ▓▓▓
 function Features.AutoExit()
     task.spawn(function()
         while State.AutoExit do
             -- TODO: VERIFY ARGS for R.Exit.LeverEvent
-            -- Util.SafeFire(R.Exit.LeverEvent, ???)
             task.wait(0.5)
         end
     end)
 end
 
--- ▓▓▓ HEALING ▓▓▓
 function Features.AutoHealTeam()
     task.spawn(function()
         while State.AutoHealTeam do
             -- TODO: VERIFY ARGS for R.Healing.HealEvent
-            -- Likely args: (targetPlayer) or (targetCharacter)
             task.wait(0.5)
         end
     end)
@@ -428,29 +404,16 @@ function Features.AutoHealSelf()
     end)
 end
 
--- ▓▓▓ ITEMS ▓▓▓
 function Features.AutoParry()
-    -- TODO: VERIFY ARGS for R.Items.ParryingDagger.parry
-    -- Likely trigger: On attack detection from R.Attacks.Lunge or R.Attacks.BasicAttack
     if R.Attacks.Lunge then
         Util.SafeConnect(R.Attacks.Lunge.OnClientEvent, function(...)
             if State.AutoParry then
-                -- local parry = R.Items.ParryingDagger:FindFirstChild("parry")
-                -- Util.SafeFire(parry, ???)
+                -- TODO: VERIFY ARGS for R.Items.ParryingDagger.parry
             end
         end)
     end
 end
 
-function Features.AutoFlashlight()
-    -- TODO: VERIFY ARGS for R.Items.Flashlight.Activate
-end
-
-function Features.AutoRiotRush()
-    -- TODO: VERIFY ARGS for R.Items.RiotShield.Rush
-end
-
--- ▓▓▓ SURVIVAL ▓▓▓
 function Features.AutoSelfUnhook()
     task.spawn(function()
         while State.AutoSelfUnhook do
@@ -464,7 +427,6 @@ function Features.AutoUnhookTeam()
     task.spawn(function()
         while State.AutoUnhookTeam do
             -- TODO: VERIFY ARGS for R.Carry.Unhook
-            -- Needs: proximity check to hook + target player arg
             task.wait(0.5)
         end
     end)
@@ -474,7 +436,6 @@ function Features.AutoWiggle()
     task.spawn(function()
         while State.AutoWiggle do
             -- TODO: VERIFY ARGS for R.Carry.DropSurvivor
-            -- May be a wiggle-progression remote elsewhere
             task.wait(0.1)
         end
     end)
@@ -496,7 +457,6 @@ function Features.AntiAFK()
     end)
 end
 
--- ▓▓▓ AWARENESS ▓▓▓
 function Features.SetupChaseAlert()
     if R.Chase.Music then
         Util.SafeConnect(R.Chase.Music.OnClientEvent, function(...)
@@ -536,7 +496,6 @@ function Features.SetupKillerDetection()
     end
 end
 
--- ▓▓▓ MATCH STATE ▓▓▓
 function Features.SetupMatchState()
     if R.Game.Start then
         Util.SafeConnect(R.Game.Start.OnClientEvent, function(...)
@@ -565,7 +524,6 @@ function Features.SetupMatchState()
     end
 end
 
--- ▓▓▓ MOVEMENT ▓▓▓
 function Features.ApplyWalkSpeed()
     local hum = Util.GetHumanoid()
     if hum then hum.WalkSpeed = State.WalkSpeed end
@@ -606,13 +564,241 @@ local Window = WindUI:CreateWindow({
     KeySystem    = false,
 })
 
-Window:EditOpenButton({
-    Title            = HUB.Name,
-    Icon             = "skull",
-    CornerRadius     = UDim.new(0, 12),
-    StrokeThickness  = 2,
-    Draggable        = true,
-})
+--═══════════════════════════════════════════════════════════════
+-- FLOATING LAUNCHER (Minimize Replacement)
+--═══════════════════════════════════════════════════════════════
+local Launcher = {}
+Launcher.Instance = nil
+Launcher.Gui      = nil
+Launcher.Visible  = false
+
+function Launcher:Build()
+    if self.Gui and self.Gui.Parent then return self.Gui end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name           = "X0DEC04T_Launcher"
+    ScreenGui.ResetOnSpawn   = false
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.DisplayOrder   = 999999
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Enabled        = false
+    ScreenGui.Parent         = Util.GetGuiParent()
+
+    local Button = Instance.new("TextButton")
+    Button.Name             = "LauncherButton"
+    Button.Size             = UDim2.fromOffset(155, 50)
+    Button.Position         = UDim2.new(0, 20, 0.5, -25)
+    Button.BackgroundColor3 = Color3.fromRGB(25, 20, 45)
+    Button.BorderSizePixel  = 0
+    Button.AutoButtonColor  = false
+    Button.Text             = ""
+    Button.ZIndex           = 10
+    Button.Parent           = ScreenGui
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 14)
+    Corner.Parent       = Button
+
+    local Gradient = Instance.new("UIGradient")
+    Gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 90, 200)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(140, 80, 220)),
+    })
+    Gradient.Rotation = 45
+    Gradient.Parent   = Button
+
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Thickness       = 1.5
+    Stroke.Color           = Color3.fromRGB(160, 130, 255)
+    Stroke.Transparency    = 0.3
+    Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    Stroke.Parent          = Button
+
+    local Glow = Instance.new("ImageLabel")
+    Glow.Name                   = "Glow"
+    Glow.BackgroundTransparency = 1
+    Glow.Image                  = "rbxassetid://5028857084"
+    Glow.ImageColor3            = Color3.fromRGB(140, 100, 255)
+    Glow.ImageTransparency      = 0.55
+    Glow.ScaleType              = Enum.ScaleType.Slice
+    Glow.SliceCenter            = Rect.new(24, 24, 276, 276)
+    Glow.Size                   = UDim2.new(1, 30, 1, 30)
+    Glow.Position               = UDim2.new(0, -15, 0, -15)
+    Glow.ZIndex                 = 9
+    Glow.Parent                 = Button
+
+    local Logo = Instance.new("ImageLabel")
+    Logo.Name             = "Logo"
+    Logo.Size             = UDim2.fromOffset(38, 38)
+    Logo.Position         = UDim2.new(0, 6, 0.5, -19)
+    Logo.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+    Logo.BorderSizePixel  = 0
+    Logo.Image            = HUB.LogoID
+    Logo.ZIndex           = 11
+    Logo.Parent           = Button
+
+    local LogoCorner = Instance.new("UICorner")
+    LogoCorner.CornerRadius = UDim.new(1, 0)
+    LogoCorner.Parent       = Logo
+
+    local LogoStroke = Instance.new("UIStroke")
+    LogoStroke.Color        = Color3.fromRGB(200, 180, 255)
+    LogoStroke.Thickness    = 1
+    LogoStroke.Transparency = 0.4
+    LogoStroke.Parent       = Logo
+
+    local Label = Instance.new("TextLabel")
+    Label.Name                   = "Label"
+    Label.BackgroundTransparency = 1
+    Label.Size                   = UDim2.new(1, -55, 1, 0)
+    Label.Position               = UDim2.new(0, 50, 0, 0)
+    Label.Text                   = "X0DEC04T"
+    Label.Font                   = Enum.Font.GothamBold
+    Label.TextSize               = 15
+    Label.TextColor3             = Color3.fromRGB(255, 255, 255)
+    Label.TextStrokeTransparency = 0.6
+    Label.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+    Label.TextXAlignment         = Enum.TextXAlignment.Center
+    Label.ZIndex                 = 11
+    Label.Parent                 = Button
+
+    -- Hover animations
+    local hoverIn  = TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Size = UDim2.fromOffset(165, 54) })
+    local hoverOut = TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Size = UDim2.fromOffset(155, 50) })
+    local glowIn   = TweenService:Create(Glow, TweenInfo.new(0.2), { ImageTransparency = 0.3 })
+    local glowOut  = TweenService:Create(Glow, TweenInfo.new(0.2), { ImageTransparency = 0.55 })
+
+    Button.MouseEnter:Connect(function() hoverIn:Play(); glowIn:Play() end)
+    Button.MouseLeave:Connect(function() hoverOut:Play(); glowOut:Play() end)
+
+    -- Pulsing glow
+    task.spawn(function()
+        while Glow.Parent do
+            TweenService:Create(Glow, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.4 }):Play()
+            task.wait(1.5)
+            TweenService:Create(Glow, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.65 }):Play()
+            task.wait(1.5)
+        end
+    end)
+
+    -- Drag (PC + Mobile)
+    local dragging      = false
+    local dragStart     = nil
+    local startPos      = nil
+    local dragThreshold = 5
+    local didDrag       = false
+
+    Button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            didDrag   = false
+            dragStart = input.Position
+            startPos  = Button.Position
+
+            local conn
+            conn = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if conn then conn:Disconnect() end
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            if delta.Magnitude > dragThreshold then didDrag = true end
+            Button.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    Button.MouseButton1Click:Connect(function()
+        if didDrag then return end
+        Launcher:Hide()
+        Launcher:RestoreWindow()
+    end)
+
+    self.Gui      = ScreenGui
+    self.Instance = Button
+    return ScreenGui
+end
+
+function Launcher:Show()
+    if not self.Gui then self:Build() end
+    self.Gui.Enabled = true
+    self.Visible    = true
+
+    self.Instance.Size = UDim2.fromOffset(0, 50)
+    TweenService:Create(self.Instance, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.fromOffset(155, 50),
+    }):Play()
+end
+
+function Launcher:Hide()
+    if self.Gui then self.Gui.Enabled = false end
+    self.Visible = false
+end
+
+function Launcher:RestoreWindow()
+    pcall(function()
+        if Window.Open then
+            Window:Open()
+        elseif Window.SetVisibility then
+            Window:SetVisibility(true)
+        else
+            Window:Toggle()
+        end
+    end)
+end
+
+function Launcher:MinimizeWindow()
+    pcall(function()
+        if Window.Close then
+            Window:Close()
+        elseif Window.SetVisibility then
+            Window:SetVisibility(false)
+        else
+            Window:Toggle()
+        end
+    end)
+    self:Show()
+end
+
+-- Hook minimize event
+pcall(function()
+    if Window.OnClose then
+        Window:OnClose(function()
+            Launcher:MinimizeWindow()
+        end)
+    end
+end)
+
+-- Fallback state monitor for older WindUI versions
+task.spawn(function()
+    local lastState = true
+    while task.wait(0.3) do
+        local isOpen = true
+        pcall(function()
+            if Window.UIElements and Window.UIElements.Main then
+                isOpen = Window.UIElements.Main.Visible
+            end
+        end)
+        if lastState and not isOpen and not Launcher.Visible then
+            Launcher:Show()
+        elseif not lastState and isOpen and Launcher.Visible then
+            Launcher:Hide()
+        end
+        lastState = isOpen
+    end
+end)
+
+Launcher:Build()
 
 --═══════════════════════════════════════════════════════════════
 -- TABS
@@ -685,9 +871,9 @@ Tabs.Generator:Toggle({
 })
 
 Tabs.Generator:Dropdown({
-    Title = "Skill Check Mode",
+    Title  = "Skill Check Mode",
     Values = { "Perfect", "Good" },
-    Value = "Perfect",
+    Value  = "Perfect",
     Callback = function(v) State.SkillCheckMode = v end,
 })
 
@@ -993,9 +1179,9 @@ Tabs.Events:Toggle({
 Tabs.Settings:Section({ Title = "Theme" })
 
 Tabs.Settings:Dropdown({
-    Title = "Theme",
+    Title  = "Theme",
     Values = { "Dark", "Light", "Rose", "Blood", "Midnight" },
-    Value = "Dark",
+    Value  = "Dark",
     Callback = function(v)
         pcall(function() WindUI:SetTheme(v) end)
     end,
@@ -1031,7 +1217,7 @@ Tabs.Settings:Keybind({
     Title = "Toggle UI",
     Value = "RightShift",
     Callback = function()
-        Window:Toggle()
+        pcall(function() Window:Toggle() end)
     end,
 })
 
@@ -1061,6 +1247,7 @@ Tabs.Settings:Button({
             pcall(function() conn:Disconnect() end)
         end
         Util.CleanupESP()
+        if Launcher.Gui then Launcher.Gui:Destroy() end
         Window:Destroy()
     end,
 })
@@ -1068,8 +1255,6 @@ Tabs.Settings:Button({
 --═══════════════════════════════════════════════════════════════
 -- INITIALIZATION
 --═══════════════════════════════════════════════════════════════
-local VirtualUser = game:GetService("VirtualUser")
-
 Features.SetupSkillCheck()
 Features.SetupChaseAlert()
 Features.SetupAttackAlert()
@@ -1078,7 +1263,6 @@ Features.SetupMatchState()
 Features.AutoParry()
 Features.AntiAFK()
 
--- Reapply movement stats on respawn
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
     Features.ApplyWalkSpeed()
