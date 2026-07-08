@@ -1280,26 +1280,112 @@ Tabs.ESP:Button({ Title = "Refresh All ESP", Callback = function() ESP.ClearAll(
 Tabs.ESP:Button({ Title = "Clear All ESP", Callback = function() ESP.ClearAll(); Util.Notify("ESP", "Cleared", 2) end })
 
 --═══════════════════════════════════════════════════════════════
--- MOVEMENT TAB
+-- MOVEMENT TAB (FIXED)
 --═══════════════════════════════════════════════════════════════
 Tabs.Movement:Section({ Title = "Speed" })
-Tabs.Movement:Slider({ Title = "WalkSpeed", Value = { Min = 16, Max = 100, Default = 16 }, Callback = function(v) State.WalkSpeed = v; Movement.ApplyWalkSpeed() end })
-Tabs.Movement:Slider({ Title = "JumpPower", Value = { Min = 50, Max = 200, Default = 50 }, Callback = function(v) State.JumpPower = v; Movement.ApplyJumpPower() end })
+
+Tabs.Movement:Slider({
+    Title = "WalkSpeed",
+    Value = { Min = 16, Max = 100, Default = 16 },
+    Callback = function(v)
+        State.WalkSpeed = tonumber(v) or 16
+        Movement.ApplyWalkSpeed()
+    end,
+})
+
+Tabs.Movement:Slider({
+    Title = "JumpPower",
+    Value = { Min = 50, Max = 200, Default = 50 },
+    Callback = function(v)
+        State.JumpPower = tonumber(v) or 50
+        Movement.ApplyJumpPower()
+    end,
+})
 
 Tabs.Movement:Section({ Title = "Advanced" })
-Tabs.Movement:Toggle({ Title = "NoClip", Desc = "Walk through walls", Value = false, Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end })
-Tabs.Movement:Toggle({ Title = "Infinite Jump", Desc = "Jump mid-air", Value = false, Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end })
+
+Tabs.Movement:Toggle({
+    Title = "NoClip",
+    Desc  = "Walk through walls",
+    Value = false,
+    Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end,
+})
+
+Tabs.Movement:Toggle({
+    Title = "Infinite Jump",
+    Desc  = "Jump mid-air",
+    Value = false,
+    Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end,
+})
 
 Tabs.Movement:Section({ Title = "Teleport" })
-Tabs.Movement:Button({ Title = "Teleport to Nearest Generator", Callback = Movement.TeleportToNearestGenerator })
 
+Tabs.Movement:Button({
+    Title = "Teleport to Nearest Generator",
+    Callback = Movement.TeleportToNearestGenerator,
+})
+
+-- Player selection: use a dropdown that dynamically refreshes
 local selectedPlayer = ""
-local playerNames = {}
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then table.insert(playerNames, p.Name) end
+
+-- Build initial player list safely
+local function GetPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and typeof(p.Name) == "string" then
+            table.insert(names, p.Name)
+        end
+    end
+    -- Always ensure at least one entry to prevent dropdown errors
+    if #names == 0 then
+        table.insert(names, "(no players)")
+    end
+    return names
 end
-Tabs.Movement:Dropdown({ Title = "Select Player", Values = playerNames, Callback = function(v) selectedPlayer = v end })
-Tabs.Movement:Button({ Title = "Teleport to Selected Player", Callback = function() if selectedPlayer ~= "" then Movement.TeleportToPlayer(selectedPlayer) end end })
+
+local playerDropdown
+pcall(function()
+    playerDropdown = Tabs.Movement:Dropdown({
+        Title = "Select Player",
+        Values = GetPlayerNames(),
+        Value = "",
+        Callback = function(v)
+            -- Handle both string and table returns from WindUI
+            if typeof(v) == "table" then
+                selectedPlayer = v[1] or ""
+            else
+                selectedPlayer = tostring(v or "")
+            end
+        end,
+    })
+end)
+
+Tabs.Movement:Button({
+    Title = "Refresh Player List",
+    Callback = function()
+        if playerDropdown then
+            pcall(function()
+                if playerDropdown.Refresh then
+                    playerDropdown:Refresh(GetPlayerNames())
+                elseif playerDropdown.SetValues then
+                    playerDropdown:SetValues(GetPlayerNames())
+                end
+            end)
+            Util.Notify("Movement", "Player list refreshed", 2)
+        end
+    end,
+})
+
+Tabs.Movement:Button({
+    Title = "Teleport to Selected Player",
+    Callback = function()
+        if selectedPlayer ~= "" and selectedPlayer ~= "(no players)" then
+            Movement.TeleportToPlayer(selectedPlayer)
+        else
+            Util.Notify("Teleport", "No player selected", 3)
+        end
+    end,
+})
 
 --═══════════════════════════════════════════════════════════════
 -- VISUALS TAB
