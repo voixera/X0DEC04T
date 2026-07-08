@@ -27,21 +27,35 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.0.4",
+    Version = "0.0.5",
     Author  = "voixera",
     Folder  = "X0DEC04T_Hub",
     LogoID  = "rbxassetid://91626851418651",
 }
 
 --═══════════════════════════════════════════════════════════════
--- KILLER IDENTIFICATION (from ReplicatedStorage.Killers folder)
+-- LOGO LOADER (with fallback)
+--═══════════════════════════════════════════════════════════════
+local function GetValidLogoID()
+    -- Try user's ID first
+    local ok = pcall(function()
+        game:GetService("ContentProvider"):PreloadAsync({ HUB.LogoID })
+    end)
+    if ok then return HUB.LogoID end
+    -- Fallback: a generic dark skull icon
+    return "rbxassetid://91626851418651"
+end
+
+HUB.LogoID = GetValidLogoID()
+
+--═══════════════════════════════════════════════════════════════
+-- KILLER IDENTIFICATION
 --═══════════════════════════════════════════════════════════════
 local KillerFolder = ReplicatedStorage:FindFirstChild("Killers")
 local KNOWN_KILLERS = {}
 
 if KillerFolder then
     for _, child in ipairs(KillerFolder:GetChildren()) do
-        -- Skip !General / Perks utility folders
         if not child.Name:match("^!") and child.Name ~= "Perks" then
             KNOWN_KILLERS[child.Name:lower()] = true
         end
@@ -105,7 +119,6 @@ local WS = {
 -- STATE
 --═══════════════════════════════════════════════════════════════
 local State = {
-    -- Awareness
     ChaseAlert         = true,
     AttackAlert        = true,
     SkillCheckNotify   = true,
@@ -116,7 +129,6 @@ local State = {
     HookNotify         = true,
     DeathNotify        = true,
 
-    -- ESP
     ESP_Generators     = false,
     ESP_Killer         = false,
     ESP_Survivors      = false,
@@ -127,7 +139,6 @@ local State = {
     ESP_ShowDistance   = true,
     ESP_ShowName       = true,
 
-    -- Colors
     Color_Killer       = Color3.fromRGB(255, 40, 40),
     Color_Survivor     = Color3.fromRGB(60, 220, 255),
     Color_Generator    = Color3.fromRGB(255, 200, 60),
@@ -135,13 +146,11 @@ local State = {
     Color_Weapon       = Color3.fromRGB(255, 120, 220),
     Color_Clone        = Color3.fromRGB(180, 180, 180),
 
-    -- Movement
     WalkSpeed          = 16,
     JumpPower          = 50,
     NoClip             = false,
     InfJump            = false,
 
-    -- Misc / Visuals
     FullBright         = false,
     NoFog              = false,
     NoShadows          = false,
@@ -156,22 +165,18 @@ local State = {
     NoSound            = false,
     MuteBGMusic        = false,
     NoParticles        = false,
-    NoDeathScreen      = true,
     AutoRejoin         = false,
 
-    -- Anti-AFK
     AntiAFK            = true,
 
-    -- Runtime
     IsKiller           = false,
     MatchActive        = false,
-    ESPCache           = {},  -- [character] = {Highlight, Billboard}
+    ESPCache           = {},
     Connections        = {},
     NoClipConn         = nil,
     InfJumpConn        = nil,
     FreecamConn        = nil,
     LightingBackup     = {},
-    HiddenParts        = {},
     MutedSounds        = {},
 }
 
@@ -205,12 +210,14 @@ function Util.GetHumanoid()
 end
 
 function Util.Notify(title, content, duration)
-    WindUI:Notify({
-        Title    = title or HUB.Name,
-        Content  = content or "",
-        Duration = duration or 4,
-        Icon     = "bell",
-    })
+    pcall(function()
+        WindUI:Notify({
+            Title    = title or HUB.Name,
+            Content  = content or "",
+            Duration = duration or 4,
+            Icon     = "bell",
+        })
+    end)
 end
 
 function Util.GetGuiParent()
@@ -220,58 +227,35 @@ function Util.GetGuiParent()
 end
 
 --═══════════════════════════════════════════════════════════════
--- ROLE DETECTION (Killer vs Survivor)
+-- ROLE DETECTION
 --═══════════════════════════════════════════════════════════════
 local Role = {}
 
--- Check if a character is a Killer by:
--- 1. Matching character name against Killers folder
--- 2. Checking attributes
--- 3. Checking if character contains killer-specific children
 function Role.IsKiller(character)
     if not character then return false end
-
-    -- Attribute check (most reliable)
     if character:GetAttribute("Killer") == true
     or character:GetAttribute("IsKiller") == true
     or character:GetAttribute("Role") == "Killer" then
         return true
     end
-
-    -- Name match vs killer roster
     local charName = character.Name:lower()
     for killerName, _ in pairs(KNOWN_KILLERS) do
-        if charName:find(killerName, 1, true) then
-            return true
-        end
+        if charName:find(killerName, 1, true) then return true end
     end
-
-    -- Check for killer weapon child
-    for _, child in ipairs(character:GetChildren()) do
-        local cName = child.Name:lower()
-        if cName:find("killer") or cName:find("weapon") and child:IsA("Model") then
-            for killerName, _ in pairs(KNOWN_KILLERS) do
-                if cName:find(killerName) then return true end
-            end
-        end
-    end
-
     return false
 end
 
--- Get the actual killer NAME (Slasher, Hidden, etc.)
 function Role.GetKillerName(character)
     if not character then return "Unknown" end
     local charName = character.Name:lower()
     for killerName, _ in pairs(KNOWN_KILLERS) do
         if charName:find(killerName, 1, true) then
-            return killerName:gsub("^%l", string.upper) -- capitalize
+            return killerName:gsub("^%l", string.upper)
         end
     end
     return "Killer"
 end
 
--- Skip fake characters
 function Role.IsFakeCharacter(character)
     if not character then return true end
     if WS.FakeChars and character:IsDescendantOf(WS.FakeChars) then return true end
@@ -280,51 +264,46 @@ function Role.IsFakeCharacter(character)
 end
 
 --═══════════════════════════════════════════════════════════════
--- ESP SYSTEM (Highlight-based, character-wide, x-ray)
+-- ESP SYSTEM
 --═══════════════════════════════════════════════════════════════
 local ESP = {}
 
--- Clear ESP for a specific character
-function ESP.Clear(character)
-    if State.ESPCache[character] then
-        for _, obj in pairs(State.ESPCache[character]) do
-            if obj and obj.Parent then obj:Destroy() end
+function ESP.Clear(adornee)
+    if State.ESPCache[adornee] then
+        for _, obj in pairs(State.ESPCache[adornee]) do
+            if typeof(obj) == "Instance" and obj.Parent then
+                pcall(function() obj:Destroy() end)
+            end
         end
-        State.ESPCache[character] = nil
+        State.ESPCache[adornee] = nil
     end
 end
 
--- Clear ALL ESP objects
 function ESP.ClearAll()
-    for char, _ in pairs(State.ESPCache) do
-        ESP.Clear(char)
+    for adornee, _ in pairs(State.ESPCache) do
+        ESP.Clear(adornee)
     end
     State.ESPCache = {}
 end
 
--- Create a Highlight on the entire character (x-ray)
 function ESP.CreateCharacterESP(character, label, color)
-    if not character or ESP.Clear and State.ESPCache[character] then
-        ESP.Clear(character)
-    end
+    if State.ESPCache[character] then ESP.Clear(character) end
 
     local hrp = character:FindFirstChild("HumanoidRootPart")
               or character:FindFirstChild("Torso")
               or character:FindFirstChildWhichIsA("BasePart")
     if not hrp then return end
 
-    -- HIGHLIGHT (visible through walls, colors entire body)
     local highlight = Instance.new("Highlight")
-    highlight.Name             = "X0DEC_Highlight"
-    highlight.Adornee          = character
-    highlight.FillColor        = color
-    highlight.OutlineColor     = Color3.new(1, 1, 1)
-    highlight.FillTransparency = 0.55
+    highlight.Name                = "X0DEC_Highlight"
+    highlight.Adornee             = character
+    highlight.FillColor           = color
+    highlight.OutlineColor        = Color3.new(1, 1, 1)
+    highlight.FillTransparency    = 0.55
     highlight.OutlineTransparency = 0
-    highlight.DepthMode        = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent           = Util.GetGuiParent()
+    highlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent              = Util.GetGuiParent()
 
-    -- BILLBOARD (attached to HRP, not head)
     local bb = Instance.new("BillboardGui")
     bb.Name           = "X0DEC_Info"
     bb.Adornee        = hrp
@@ -367,15 +346,11 @@ function ESP.CreateCharacterESP(character, label, color)
         nameLabel = nameLabel,
         distLabel = distLabel,
         hrp       = hrp,
-        color     = color,
     }
 end
 
--- Create ESP for objects (generators, items, weapons)
 function ESP.CreateObjectESP(model, label, color)
-    if not model or State.ESPCache[model] then
-        ESP.Clear(model)
-    end
+    if State.ESPCache[model] then ESP.Clear(model) end
 
     local part = model
     if model:IsA("Model") then
@@ -384,14 +359,14 @@ function ESP.CreateObjectESP(model, label, color)
     if not part then return end
 
     local highlight = Instance.new("Highlight")
-    highlight.Name             = "X0DEC_Highlight"
-    highlight.Adornee          = model
-    highlight.FillColor        = color
-    highlight.OutlineColor     = color
-    highlight.FillTransparency = 0.7
+    highlight.Name                = "X0DEC_Highlight"
+    highlight.Adornee             = model
+    highlight.FillColor           = color
+    highlight.OutlineColor        = color
+    highlight.FillTransparency    = 0.7
     highlight.OutlineTransparency = 0.2
-    highlight.DepthMode        = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent           = Util.GetGuiParent()
+    highlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent              = Util.GetGuiParent()
 
     local bb = Instance.new("BillboardGui")
     bb.Name           = "X0DEC_Info"
@@ -435,15 +410,12 @@ function ESP.CreateObjectESP(model, label, color)
         nameLabel = nameLabel,
         distLabel = distLabel,
         hrp       = part,
-        color     = color,
     }
 end
 
--- Update distance labels each frame
 function ESP.UpdateDistances()
     local hrp = Util.GetHRP()
     if not hrp then return end
-
     for adornee, cache in pairs(State.ESPCache) do
         if cache.distLabel and cache.hrp and cache.hrp.Parent then
             local dist = (cache.hrp.Position - hrp.Position).Magnitude
@@ -452,33 +424,26 @@ function ESP.UpdateDistances()
     end
 end
 
--- Validate ESP: remove entries where target no longer exists
 function ESP.Validate()
-    for adornee, cache in pairs(State.ESPCache) do
-        if not adornee or not adornee.Parent then
-            ESP.Clear(adornee)
-        end
+    for adornee, _ in pairs(State.ESPCache) do
+        if not adornee or not adornee.Parent then ESP.Clear(adornee) end
     end
 end
 
--- Scan players (killer/survivor)
 function ESP.ScanPlayers()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             local char = plr.Character
             if char and not Role.IsFakeCharacter(char) then
                 local isKiller = Role.IsKiller(char)
-
                 if isKiller and State.ESP_Killer then
-                    local killerName = Role.GetKillerName(char)
-                    local label = "☠ " .. killerName .. " [" .. plr.Name .. "]"
                     if not State.ESPCache[char] then
-                        ESP.CreateCharacterESP(char, label, State.Color_Killer)
+                        local killerName = Role.GetKillerName(char)
+                        ESP.CreateCharacterESP(char, "☠ " .. killerName .. " [" .. plr.Name .. "]", State.Color_Killer)
                     end
                 elseif not isKiller and State.ESP_Survivors then
-                    local label = "◈ " .. plr.Name
                     if not State.ESPCache[char] then
-                        ESP.CreateCharacterESP(char, label, State.Color_Survivor)
+                        ESP.CreateCharacterESP(char, "◈ " .. plr.Name, State.Color_Survivor)
                     end
                 else
                     ESP.Clear(char)
@@ -488,7 +453,6 @@ function ESP.ScanPlayers()
     end
 end
 
--- Scan generators
 function ESP.ScanGenerators()
     if not WS.Generators then return end
     for _, gen in ipairs(WS.Generators:GetChildren()) do
@@ -502,7 +466,6 @@ function ESP.ScanGenerators()
     end
 end
 
--- Scan ground items
 function ESP.ScanItems()
     for _, obj in ipairs(Workspace:GetChildren()) do
         if obj:IsA("Model") and (obj:GetAttribute("Item") or obj:GetAttribute("Pickup")) then
@@ -517,7 +480,6 @@ function ESP.ScanItems()
     end
 end
 
--- Scan weapons
 function ESP.ScanWeapons()
     if not WS.Weapons then return end
     for _, w in ipairs(WS.Weapons:GetChildren()) do
@@ -531,7 +493,6 @@ function ESP.ScanWeapons()
     end
 end
 
--- Scan clones
 function ESP.ScanClones()
     if not WS.Clones then return end
     for _, c in ipairs(WS.Clones:GetChildren()) do
@@ -554,36 +515,29 @@ function ESP.RefreshAll()
     ESP.ScanClones()
 end
 
--- Auto refresh (2s)
 task.spawn(function()
     while true do
         task.wait(2)
-        ESP.RefreshAll()
+        pcall(ESP.RefreshAll)
     end
 end)
 
--- Distance updater (every heartbeat)
 RunService.Heartbeat:Connect(function()
-    ESP.UpdateDistances()
+    pcall(ESP.UpdateDistances)
 end)
 
--- Auto-cleanup on player leave / character removal
 Players.PlayerRemoving:Connect(function(plr)
     if plr.Character then ESP.Clear(plr.Character) end
 end)
 
 for _, plr in ipairs(Players:GetPlayers()) do
     if plr ~= LocalPlayer then
-        plr.CharacterRemoving:Connect(function(char)
-            ESP.Clear(char)
-        end)
+        plr.CharacterRemoving:Connect(function(char) ESP.Clear(char) end)
     end
 end
 
 Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterRemoving:Connect(function(char)
-        ESP.Clear(char)
-    end)
+    plr.CharacterRemoving:Connect(function(char) ESP.Clear(char) end)
 end)
 
 --═══════════════════════════════════════════════════════════════
@@ -605,18 +559,13 @@ function Movement.ApplyJumpPower()
 end
 
 function Movement.SetNoClip(enabled)
-    if State.NoClipConn then
-        State.NoClipConn:Disconnect()
-        State.NoClipConn = nil
-    end
+    if State.NoClipConn then State.NoClipConn:Disconnect(); State.NoClipConn = nil end
     if enabled then
         State.NoClipConn = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if char then
                 for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") and p.CanCollide then
-                        p.CanCollide = false
-                    end
+                    if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
                 end
             end
         end)
@@ -624,10 +573,7 @@ function Movement.SetNoClip(enabled)
 end
 
 function Movement.SetInfJump(enabled)
-    if State.InfJumpConn then
-        State.InfJumpConn:Disconnect()
-        State.InfJumpConn = nil
-    end
+    if State.InfJumpConn then State.InfJumpConn:Disconnect(); State.InfJumpConn = nil end
     if enabled then
         State.InfJumpConn = UserInputService.JumpRequest:Connect(function()
             local hum = Util.GetHumanoid()
@@ -637,10 +583,7 @@ function Movement.SetInfJump(enabled)
 end
 
 function Movement.TeleportToNearestGenerator()
-    if not WS.Generators then
-        Util.Notify("Teleport", "Generators folder not found", 3)
-        return
-    end
+    if not WS.Generators then Util.Notify("Teleport", "Generators folder not found", 3); return end
     local hrp = Util.GetHRP()
     if not hrp then return end
     local nearest, minDist = nil, math.huge
@@ -661,10 +604,7 @@ end
 
 function Movement.TeleportToPlayer(playerName)
     local target = Players:FindFirstChild(playerName)
-    if not target or not target.Character then
-        Util.Notify("Teleport", "Player not found", 3)
-        return
-    end
+    if not target or not target.Character then Util.Notify("Teleport", "Player not found", 3); return end
     local hrp = Util.GetHRP()
     local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
     if hrp and targetHRP then
@@ -705,9 +645,7 @@ function Misc.SetFullBright(enabled)
         Lighting.EnvironmentDiffuseScale  = 1
         Lighting.EnvironmentSpecularScale = 1
     else
-        for k, v in pairs(State.LightingBackup) do
-            pcall(function() Lighting[k] = v end)
-        end
+        for k, v in pairs(State.LightingBackup) do pcall(function() Lighting[k] = v end) end
     end
 end
 
@@ -717,10 +655,7 @@ function Misc.SetNoFog(enabled)
         Lighting.FogEnd   = 9e9
         Lighting.FogStart = 9e9
         for _, atm in ipairs(Lighting:GetChildren()) do
-            if atm:IsA("Atmosphere") then
-                atm.Density = 0
-                atm.Haze = 0
-            end
+            if atm:IsA("Atmosphere") then atm.Density = 0; atm.Haze = 0 end
         end
     else
         Lighting.FogEnd   = State.LightingBackup.FogEnd or 100000
@@ -737,18 +672,13 @@ function Misc.SetClearWeather(enabled)
     Misc.BackupLighting()
     if enabled then
         for _, obj in ipairs(Lighting:GetDescendants()) do
-            if obj:IsA("Atmosphere") then
-                obj.Density = 0
-                obj.Haze = 0
-            end
+            if obj:IsA("Atmosphere") then obj.Density = 0; obj.Haze = 0 end
         end
     end
 end
 
 function Misc.SetLowGraphics(enabled)
-    settings().Rendering.QualityLevel = enabled
-        and Enum.QualityLevel.Level01
-        or Enum.QualityLevel.Automatic
+    settings().Rendering.QualityLevel = enabled and Enum.QualityLevel.Level01 or Enum.QualityLevel.Automatic
 end
 
 function Misc.SetFOV(fov)
@@ -773,16 +703,13 @@ end
 
 function Misc.RemoveColorCorrection(remove)
     for _, v in ipairs(Lighting:GetDescendants()) do
-        if v:IsA("ColorCorrectionEffect") then
-            v.Enabled = not remove
-        end
+        if v:IsA("ColorCorrectionEffect") then v.Enabled = not remove end
     end
 end
 
 function Misc.SetNoParticles(enabled)
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("ParticleEmitter") or v:IsA("Fire")
-        or v:IsA("Smoke") or v:IsA("Sparkles") or v:IsA("Trail") then
+        if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") or v:IsA("Trail") then
             v.Enabled = not enabled
         end
     end
@@ -794,9 +721,7 @@ function Misc.SetHideName(enabled)
     local head = char:FindFirstChild("Head")
     if head then
         for _, gui in ipairs(head:GetChildren()) do
-            if gui:IsA("BillboardGui") then
-                gui.Enabled = not enabled
-            end
+            if gui:IsA("BillboardGui") then gui.Enabled = not enabled end
         end
     end
 end
@@ -826,10 +751,7 @@ function Misc.SetMuteBGMusic(enabled)
 end
 
 function Misc.SetFreecam(enabled)
-    if State.FreecamConn then
-        State.FreecamConn:Disconnect()
-        State.FreecamConn = nil
-    end
+    if State.FreecamConn then State.FreecamConn:Disconnect(); State.FreecamConn = nil end
     if enabled then
         local speed = 2
         local pos = Camera.CFrame.Position
@@ -886,7 +808,7 @@ function Misc.AutoRejoin()
 end
 
 --═══════════════════════════════════════════════════════════════
--- AWARENESS LISTENERS
+-- AWARENESS
 --═══════════════════════════════════════════════════════════════
 local Awareness = {}
 
@@ -899,78 +821,74 @@ function Awareness.Setup()
         end)
     end
     if R.Healing.SkillCheck then
-        Util.SafeConnect(R.Healing.SkillCheck.OnClientEvent, function(...)
-            if State.HealSkillNotify then
-                Util.Notify("❤ Heal Skill Check!", "Complete the check", 2)
-            end
+        Util.SafeConnect(R.Healing.SkillCheck.OnClientEvent, function()
+            if State.HealSkillNotify then Util.Notify("❤ Heal Skill Check!", "Complete the check", 2) end
         end)
     end
     if R.Generator.SkillCheckFail then
-        Util.SafeConnect(R.Generator.SkillCheckFail.OnClientEvent, function(...)
-            if State.SkillCheckNotify then
-                Util.Notify("✗ Skill Check Failed", "Generator progress lost!", 3)
-            end
+        Util.SafeConnect(R.Generator.SkillCheckFail.OnClientEvent, function()
+            if State.SkillCheckNotify then Util.Notify("✗ Skill Check Failed", "Generator progress lost!", 3) end
         end)
     end
     if R.Generator.GenDone then
-        Util.SafeConnect(R.Generator.GenDone.OnClientEvent, function(...)
+        Util.SafeConnect(R.Generator.GenDone.OnClientEvent, function()
             if State.GenDoneNotify then Util.Notify("✓ Generator Complete!", "One gen done", 3) end
         end)
     end
     if R.Generator.AllGenDone then
-        Util.SafeConnect(R.Generator.AllGenDone.OnClientEvent, function(...)
+        Util.SafeConnect(R.Generator.AllGenDone.OnClientEvent, function()
             if State.AllGensNotify then Util.Notify("🚪 All Gens Done!", "Escape gates are powered!", 6) end
         end)
     end
     if R.Chase.Music then
-        Util.SafeConnect(R.Chase.Music.OnClientEvent, function(...)
+        Util.SafeConnect(R.Chase.Music.OnClientEvent, function()
             if State.ChaseAlert then Util.Notify("⚠ Chase Active", "Killer is chasing someone", 3) end
         end)
     end
     if R.Attacks.Lunge then
-        Util.SafeConnect(R.Attacks.Lunge.OnClientEvent, function(...)
+        Util.SafeConnect(R.Attacks.Lunge.OnClientEvent, function()
             if State.AttackAlert then Util.Notify("⚠ LUNGE!", "Killer is attacking!", 2) end
         end)
     end
     if R.KillerPerks.KingScourge then
         local start = R.KillerPerks.KingScourge:FindFirstChild("KingScourgeStart")
         if start then
-            Util.SafeConnect(start.OnClientEvent, function(...)
+            Util.SafeConnect(start.OnClientEvent, function()
                 if State.AttackAlert then Util.Notify("⚠ KING SCOURGE!", "Dodge NOW!", 2) end
             end)
         end
     end
     if R.Game.KillerMorph then
-        Util.SafeConnect(R.Game.KillerMorph.OnClientEvent, function(...)
+        Util.SafeConnect(R.Game.KillerMorph.OnClientEvent, function()
             State.IsKiller = true
             Util.Notify("Role", "You are the KILLER", 5)
         end)
     end
     if R.Game.Start then
-        Util.SafeConnect(R.Game.Start.OnClientEvent, function(...)
+        Util.SafeConnect(R.Game.Start.OnClientEvent, function()
             State.MatchActive = true
             State.IsKiller = false
             Util.Notify("Match Started", "Good luck!", 3)
         end)
     end
     if R.Game.RoundEnd then
-        Util.SafeConnect(R.Game.RoundEnd.OnClientEvent, function(...)
+        Util.SafeConnect(R.Game.RoundEnd.OnClientEvent, function()
             State.MatchActive = false
             ESP.ClearAll()
         end)
     end
     if R.Game.OneLeft then
-        Util.SafeConnect(R.Game.OneLeft.OnClientEvent, function(...)
+        Util.SafeConnect(R.Game.OneLeft.OnClientEvent, function()
             if State.OneLeftNotify then Util.Notify("⚠ Last Survivor!", "You are alone", 5) end
         end)
     end
     if R.Game.Death then
-        Util.SafeConnect(R.Game.Death.OnClientEvent, function(...)
+        Util.SafeConnect(R.Game.Death.OnClientEvent, function()
             if State.DeathNotify then Util.Notify("💀 Death", "A survivor has died", 3) end
         end)
     end
     if R.Carry.HookEvent then
-        Util.SafeConnect(R.Carry.HookEvent.OnClientEvent, function(...)
+        Util.SafeConnect(R.Carry.HookEvent.OnClientEvent, function()
             if State.HookNotify then Util.Notify("🪝 Hooked", "Someone was hooked", 3) end
         end)
     end
@@ -983,20 +901,28 @@ function Awareness.Setup()
 end
 
 --═══════════════════════════════════════════════════════════════
--- WINDOW
+-- WINDOW (config-safe)
 --═══════════════════════════════════════════════════════════════
-local Window = WindUI:CreateWindow({
-    Title        = HUB.Name,
-    Icon         = "skull",
-    Author       = "by " .. HUB.Author .. " | " .. HUB.Game,
-    Folder       = HUB.Folder,
-    Size         = UDim2.fromOffset(580, 460),
-    Transparent  = true,
-    Theme        = "Dark",
-    SideBarWidth = 160,
-    HasOutline   = true,
-    KeySystem    = false,
-})
+local Window
+local windowOK = pcall(function()
+    Window = WindUI:CreateWindow({
+        Title        = HUB.Name,
+        Icon         = "skull",
+        Author       = "by " .. HUB.Author .. " | " .. HUB.Game,
+        Folder       = HUB.Folder,
+        Size         = UDim2.fromOffset(580, 460),
+        Transparent  = true,
+        Theme        = "Dark",
+        SideBarWidth = 160,
+        HasOutline   = true,
+        KeySystem    = false,
+    })
+end)
+
+if not windowOK or not Window then
+    warn("[X0DEC04T] Window creation failed - aborting")
+    return
+end
 
 --═══════════════════════════════════════════════════════════════
 -- FLOATING LAUNCHER
@@ -1199,11 +1125,8 @@ task.spawn(function()
                 isOpen = Window.UIElements.Main.Visible
             end
         end)
-        if lastState and not isOpen and not Launcher.Visible then
-            Launcher:Show()
-        elseif not lastState and isOpen and Launcher.Visible then
-            Launcher:Hide()
-        end
+        if lastState and not isOpen and not Launcher.Visible then Launcher:Show()
+        elseif not lastState and isOpen and Launcher.Visible then Launcher:Hide() end
         lastState = isOpen
     end
 end)
@@ -1236,15 +1159,14 @@ Tabs.Main:Paragraph({
     Title = "⚠ Game Architecture Notice",
     Desc  = "Server-authoritative game. Focus on Awareness, ESP, Movement, and Visuals.",
 })
+
+local killerList = {}
+for k, _ in pairs(KNOWN_KILLERS) do
+    table.insert(killerList, k:gsub("^%l", string.upper))
+end
 Tabs.Main:Paragraph({
-    Title = "Detected Killers in Game",
-    Desc  = (function()
-        local list = {}
-        for k, _ in pairs(KNOWN_KILLERS) do
-            table.insert(list, k:gsub("^%l", string.upper))
-        end
-        return #list > 0 and table.concat(list, ", ") or "None detected"
-    end)(),
+    Title = "Detected Killers",
+    Desc  = #killerList > 0 and table.concat(killerList, ", ") or "None detected",
 })
 
 Tabs.Main:Section({ Title = "Match Info" })
@@ -1265,122 +1187,97 @@ end)
 -- AWARENESS TAB
 --═══════════════════════════════════════════════════════════════
 Tabs.Awareness:Section({ Title = "Killer Alerts" })
-Tabs.Awareness:Toggle({ Title = "Chase Music Alert",  Desc = "Alert when chase music plays", Value = true,  Callback = function(v) State.ChaseAlert = v end })
+Tabs.Awareness:Toggle({ Title = "Chase Music Alert", Desc = "Alert when chase music plays", Value = true, Callback = function(v) State.ChaseAlert = v end })
 Tabs.Awareness:Toggle({ Title = "Attack Alert (Lunge / King Scourge)", Desc = "Alert when killer uses attack", Value = true, Callback = function(v) State.AttackAlert = v end })
 
 Tabs.Awareness:Section({ Title = "Skill Checks" })
 Tabs.Awareness:Toggle({ Title = "Generator Skill Check Notify", Desc = "Alert with difficulty when a skill check spawns", Value = true, Callback = function(v) State.SkillCheckNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Healing Skill Check Notify",   Desc = "Alert when heal skill check appears", Value = true, Callback = function(v) State.HealSkillNotify = v end })
+Tabs.Awareness:Toggle({ Title = "Healing Skill Check Notify", Desc = "Alert when heal skill check appears", Value = true, Callback = function(v) State.HealSkillNotify = v end })
 
 Tabs.Awareness:Section({ Title = "Objectives" })
 Tabs.Awareness:Toggle({ Title = "Generator Done Notify", Value = true, Callback = function(v) State.GenDoneNotify = v end })
-Tabs.Awareness:Toggle({ Title = "All Gens Done Notify",  Desc = "Big alert when escape opens", Value = true, Callback = function(v) State.AllGensNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Hook Notify",           Desc = "Alert when someone gets hooked", Value = true, Callback = function(v) State.HookNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Death Notify",          Value = true, Callback = function(v) State.DeathNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Last Survivor Notify",  Value = true, Callback = function(v) State.OneLeftNotify = v end })
+Tabs.Awareness:Toggle({ Title = "All Gens Done Notify", Desc = "Big alert when escape opens", Value = true, Callback = function(v) State.AllGensNotify = v end })
+Tabs.Awareness:Toggle({ Title = "Hook Notify", Desc = "Alert when someone gets hooked", Value = true, Callback = function(v) State.HookNotify = v end })
+Tabs.Awareness:Toggle({ Title = "Death Notify", Value = true, Callback = function(v) State.DeathNotify = v end })
+Tabs.Awareness:Toggle({ Title = "Last Survivor Notify", Value = true, Callback = function(v) State.OneLeftNotify = v end })
 
 --═══════════════════════════════════════════════════════════════
 -- ESP TAB
 --═══════════════════════════════════════════════════════════════
-Tabs.ESP:Section({ Title = "Players (Highlight + HRP Info)" })
-
+Tabs.ESP:Section({ Title = "Players" })
 Tabs.ESP:Toggle({
     Title = "Killer ESP",
     Desc  = "Red highlight through walls + killer name",
     Value = false,
-    Callback = function(v) State.ESP_Killer = v; if not v then for _, plr in ipairs(Players:GetPlayers()) do if plr.Character and Role.IsKiller(plr.Character) then ESP.Clear(plr.Character) end end end end,
+    Callback = function(v)
+        State.ESP_Killer = v
+        if not v then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character and Role.IsKiller(plr.Character) then ESP.Clear(plr.Character) end
+            end
+        end
+    end,
 })
-
 Tabs.ESP:Toggle({
     Title = "Survivor ESP",
     Desc  = "Cyan highlight through walls + player name",
     Value = false,
-    Callback = function(v) State.ESP_Survivors = v; if not v then for _, plr in ipairs(Players:GetPlayers()) do if plr.Character and not Role.IsKiller(plr.Character) then ESP.Clear(plr.Character) end end end end,
+    Callback = function(v)
+        State.ESP_Survivors = v
+        if not v then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character and not Role.IsKiller(plr.Character) then ESP.Clear(plr.Character) end
+            end
+        end
+    end,
 })
 
 Tabs.ESP:Section({ Title = "Objectives" })
-
 Tabs.ESP:Toggle({
     Title = "Generator ESP",
     Desc  = "Yellow highlight on generators",
     Value = false,
-    Callback = function(v) State.ESP_Generators = v; if not v and WS.Generators then for _, g in ipairs(WS.Generators:GetChildren()) do ESP.Clear(g) end end end,
+    Callback = function(v)
+        State.ESP_Generators = v
+        if not v and WS.Generators then for _, g in ipairs(WS.Generators:GetChildren()) do ESP.Clear(g) end end
+    end,
 })
 
 Tabs.ESP:Section({ Title = "Items" })
-
+Tabs.ESP:Toggle({ Title = "Item ESP", Desc = "Green highlight on ground items", Value = false, Callback = function(v) State.ESP_Items = v end })
 Tabs.ESP:Toggle({
-    Title = "Item ESP",
-    Desc  = "Green highlight on ground items",
-    Value = false,
-    Callback = function(v) State.ESP_Items = v end,
-})
-
-Tabs.ESP:Toggle({
-    Title = "Weapon ESP",
-    Desc  = "Pink highlight on weapons",
-    Value = false,
+    Title = "Weapon ESP", Desc = "Pink highlight on weapons", Value = false,
     Callback = function(v) State.ESP_Weapons = v; if not v and WS.Weapons then for _, w in ipairs(WS.Weapons:GetChildren()) do ESP.Clear(w) end end end,
 })
-
 Tabs.ESP:Toggle({
-    Title = "Clone ESP",
-    Desc  = "Gray highlight on shadow clones",
-    Value = false,
+    Title = "Clone ESP", Desc = "Gray highlight on shadow clones", Value = false,
     Callback = function(v) State.ESP_Clones = v; if not v and WS.Clones then for _, c in ipairs(WS.Clones:GetChildren()) do ESP.Clear(c) end end end,
 })
 
 Tabs.ESP:Section({ Title = "Display" })
-
 Tabs.ESP:Toggle({
-    Title = "Show Name Label",
-    Value = true,
+    Title = "Show Name Label", Value = true,
     Callback = function(v)
         State.ESP_ShowName = v
-        for _, cache in pairs(State.ESPCache) do
-            if cache.nameLabel then cache.nameLabel.Visible = v end
-        end
+        for _, cache in pairs(State.ESPCache) do if cache.nameLabel then cache.nameLabel.Visible = v end end
     end,
 })
-
 Tabs.ESP:Toggle({
-    Title = "Show Distance",
-    Value = true,
+    Title = "Show Distance", Value = true,
     Callback = function(v)
         State.ESP_ShowDistance = v
-        for _, cache in pairs(State.ESPCache) do
-            if cache.distLabel then cache.distLabel.Visible = v end
-        end
+        for _, cache in pairs(State.ESPCache) do if cache.distLabel then cache.distLabel.Visible = v end end
     end,
 })
-
 Tabs.ESP:Slider({
-    Title = "Max Distance",
-    Value = { Min = 50, Max = 2000, Default = 500 },
+    Title = "Max Distance", Value = { Min = 50, Max = 2000, Default = 500 },
     Callback = function(v)
         State.ESP_MaxDistance = v
-        for _, cache in pairs(State.ESPCache) do
-            if cache.billboard then cache.billboard.MaxDistance = v end
-        end
+        for _, cache in pairs(State.ESPCache) do if cache.billboard then cache.billboard.MaxDistance = v end end
     end,
 })
-
-Tabs.ESP:Button({
-    Title = "Refresh All ESP",
-    Callback = function()
-        ESP.ClearAll()
-        ESP.RefreshAll()
-        Util.Notify("ESP", "Refreshed", 2)
-    end,
-})
-
-Tabs.ESP:Button({
-    Title = "Clear All ESP",
-    Callback = function()
-        ESP.ClearAll()
-        Util.Notify("ESP", "Cleared all highlights", 2)
-    end,
-})
+Tabs.ESP:Button({ Title = "Refresh All ESP", Callback = function() ESP.ClearAll(); ESP.RefreshAll(); Util.Notify("ESP", "Refreshed", 2) end })
+Tabs.ESP:Button({ Title = "Clear All ESP", Callback = function() ESP.ClearAll(); Util.Notify("ESP", "Cleared", 2) end })
 
 --═══════════════════════════════════════════════════════════════
 -- MOVEMENT TAB
@@ -1390,41 +1287,28 @@ Tabs.Movement:Slider({ Title = "WalkSpeed", Value = { Min = 16, Max = 100, Defau
 Tabs.Movement:Slider({ Title = "JumpPower", Value = { Min = 50, Max = 200, Default = 50 }, Callback = function(v) State.JumpPower = v; Movement.ApplyJumpPower() end })
 
 Tabs.Movement:Section({ Title = "Advanced" })
-Tabs.Movement:Toggle({ Title = "NoClip",         Desc = "Walk through walls", Value = false, Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end })
-Tabs.Movement:Toggle({ Title = "Infinite Jump",  Desc = "Jump mid-air", Value = false, Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end })
+Tabs.Movement:Toggle({ Title = "NoClip", Desc = "Walk through walls", Value = false, Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end })
+Tabs.Movement:Toggle({ Title = "Infinite Jump", Desc = "Jump mid-air", Value = false, Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end })
 
 Tabs.Movement:Section({ Title = "Teleport" })
 Tabs.Movement:Button({ Title = "Teleport to Nearest Generator", Callback = Movement.TeleportToNearestGenerator })
 
 local selectedPlayer = ""
-Tabs.Movement:Dropdown({
-    Title = "Select Player",
-    Values = (function()
-        local names = {}
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then table.insert(names, p.Name) end
-        end
-        return names
-    end)(),
-    Callback = function(v) selectedPlayer = v end,
-})
-Tabs.Movement:Button({
-    Title = "Teleport to Selected Player",
-    Callback = function()
-        if selectedPlayer ~= "" then Movement.TeleportToPlayer(selectedPlayer) end
-    end,
-})
+local playerNames = {}
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then table.insert(playerNames, p.Name) end
+end
+Tabs.Movement:Dropdown({ Title = "Select Player", Values = playerNames, Callback = function(v) selectedPlayer = v end })
+Tabs.Movement:Button({ Title = "Teleport to Selected Player", Callback = function() if selectedPlayer ~= "" then Movement.TeleportToPlayer(selectedPlayer) end end })
 
 --═══════════════════════════════════════════════════════════════
 -- VISUALS TAB
 --═══════════════════════════════════════════════════════════════
 Tabs.Visuals:Section({ Title = "Lighting" })
-
 Tabs.Visuals:Toggle({ Title = "FullBright", Desc = "Max brightness — see in dark maps", Value = false, Callback = function(v) State.FullBright = v; Misc.SetFullBright(v) end })
 Tabs.Visuals:Toggle({ Title = "No Fog", Desc = "Remove fog + atmosphere", Value = false, Callback = function(v) State.NoFog = v; Misc.SetNoFog(v) end })
 Tabs.Visuals:Toggle({ Title = "No Shadows", Desc = "Disable global shadows", Value = false, Callback = function(v) State.NoShadows = v; Misc.SetNoShadows(v) end })
 Tabs.Visuals:Toggle({ Title = "Clear Weather", Desc = "Remove haze/rain effects", Value = false, Callback = function(v) State.ClearWeather = v; Misc.SetClearWeather(v) end })
-
 Tabs.Visuals:Slider({ Title = "Time of Day", Value = { Min = 0, Max = 24, Default = 14 }, Callback = function(v) State.Time = v; Misc.SetTime(v) end })
 
 Tabs.Visuals:Section({ Title = "Camera" })
@@ -1452,63 +1336,39 @@ Tabs.Misc:Toggle({ Title = "Hide Own Name", Desc = "Hide own overhead nametag", 
 Tabs.Misc:Section({ Title = "Automation" })
 Tabs.Misc:Toggle({ Title = "Auto Rejoin on Kick / Disconnect", Desc = "Rejoin same place if you get disconnected", Value = false, Callback = function(v) State.AutoRejoin = v end })
 Tabs.Misc:Button({ Title = "Server Hop", Desc = "Join a different server", Callback = Misc.ServerHop })
-Tabs.Misc:Button({
-    Title = "Rejoin Current Server",
-    Callback = function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-    end,
-})
+Tabs.Misc:Button({ Title = "Rejoin Current Server", Callback = function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end })
 
 Tabs.Misc:Section({ Title = "Utility" })
 Tabs.Misc:Button({
     Title = "Copy Server JobId",
     Callback = function()
-        if setclipboard then
-            setclipboard(game.JobId)
-            Util.Notify("Copied", "JobId → clipboard", 3)
-        else
-            Util.Notify("Error", "Clipboard not supported", 3)
-        end
+        if setclipboard then setclipboard(game.JobId); Util.Notify("Copied", "JobId → clipboard", 3)
+        else Util.Notify("Error", "Clipboard not supported", 3) end
     end,
 })
-Tabs.Misc:Button({
-    Title = "Reset Character",
-    Callback = function()
-        local hum = Util.GetHumanoid()
-        if hum then hum.Health = 0 end
-    end,
-})
+Tabs.Misc:Button({ Title = "Reset Character", Callback = function() local hum = Util.GetHumanoid(); if hum then hum.Health = 0 end end })
 
 --═══════════════════════════════════════════════════════════════
--- SETTINGS TAB (FIXED)
+-- SETTINGS TAB (fully pcall-protected)
 --═══════════════════════════════════════════════════════════════
 Tabs.Settings:Section({ Title = "Anti-AFK" })
-
-Tabs.Settings:Toggle({
-    Title = "Anti-AFK",
-    Desc  = "Prevent idle disconnect",
-    Value = true,
-    Callback = function(v) State.AntiAFK = v end,
-})
+Tabs.Settings:Toggle({ Title = "Anti-AFK", Desc = "Prevent idle disconnect", Value = true, Callback = function(v) State.AntiAFK = v end })
 
 Tabs.Settings:Section({ Title = "Theme" })
-
 Tabs.Settings:Dropdown({
     Title  = "Theme",
     Values = { "Dark", "Light", "Rose", "Blood", "Midnight" },
     Value  = "Dark",
-    Callback = function(v)
-        pcall(function() WindUI:SetTheme(v) end)
-    end,
+    Callback = function(v) pcall(function() WindUI:SetTheme(v) end) end,
 })
 
 Tabs.Settings:Section({ Title = "Config" })
 
--- Safely attempt to create config manager
+-- Safely create config manager
 local ConfigMgr = nil
 pcall(function()
-    if Window.ConfigManager then
-        ConfigMgr = Window.ConfigManager:CreateConfig("default")
+    if Window.ConfigManager and Window.ConfigManager.CreateConfig then
+        ConfigMgr = Window.ConfigManager:CreateConfig("X0DEC04T_Default")
     end
 end)
 
@@ -1516,10 +1376,11 @@ Tabs.Settings:Button({
     Title = "Save Config",
     Callback = function()
         if ConfigMgr then
-            pcall(function() ConfigMgr:Save() end)
-            Util.Notify("Config", "Saved", 3)
+            local ok, err = pcall(function() ConfigMgr:Save() end)
+            if ok then Util.Notify("Config", "Saved successfully", 3)
+            else Util.Notify("Config Error", tostring(err), 4) end
         else
-            Util.Notify("Config", "ConfigManager not available", 3)
+            Util.Notify("Config", "Manager not available", 3)
         end
     end,
 })
@@ -1528,24 +1389,21 @@ Tabs.Settings:Button({
     Title = "Load Config",
     Callback = function()
         if ConfigMgr then
-            pcall(function() ConfigMgr:Load() end)
-            Util.Notify("Config", "Loaded", 3)
+            local ok, err = pcall(function() ConfigMgr:Load() end)
+            if ok then Util.Notify("Config", "Loaded successfully", 3)
+            else Util.Notify("Config Error", tostring(err), 4) end
         else
-            Util.Notify("Config", "ConfigManager not available", 3)
+            Util.Notify("Config", "Manager not available", 3)
         end
     end,
 })
 
 Tabs.Settings:Section({ Title = "Keybinds" })
-
 Tabs.Settings:Keybind({
     Title = "Toggle UI",
     Value = "RightShift",
-    Callback = function()
-        pcall(function() Window:Toggle() end)
-    end,
+    Callback = function() pcall(function() Window:Toggle() end) end,
 })
-
 Tabs.Settings:Keybind({
     Title = "Panic Disable ESP",
     Value = "End",
@@ -1562,7 +1420,6 @@ Tabs.Settings:Keybind({
 })
 
 Tabs.Settings:Section({ Title = "Info" })
-
 Tabs.Settings:Paragraph({
     Title = "Credits",
     Desc  = "Created by " .. HUB.Author .. "\nVersion " .. HUB.Version .. "\nGame: " .. HUB.Game,
@@ -1571,10 +1428,8 @@ Tabs.Settings:Paragraph({
 Tabs.Settings:Button({
     Title = "Unload Hub",
     Callback = function()
-        for _, conn in ipairs(State.Connections) do
-            pcall(function() conn:Disconnect() end)
-        end
-        if State.NoClipConn  then pcall(function() State.NoClipConn:Disconnect()  end) end
+        for _, conn in ipairs(State.Connections) do pcall(function() conn:Disconnect() end) end
+        if State.NoClipConn  then pcall(function() State.NoClipConn:Disconnect() end) end
         if State.InfJumpConn then pcall(function() State.InfJumpConn:Disconnect() end) end
         if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end) end
         for k, v in pairs(State.LightingBackup) do pcall(function() Lighting[k] = v end) end
