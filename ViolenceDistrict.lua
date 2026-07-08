@@ -24,146 +24,49 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.0.1",
+    Version = "0.0.2",
     Author  = "voixera",
     Folder  = "X0DEC04T_Hub",
-    ConfigFolder = "X0DEC04T_Hub/Configs",
     LogoID  = "rbxassetid://91626851418651",
 }
 
 --═══════════════════════════════════════════════════════════════
--- REMOTE REFERENCES
+-- REMOTE REFERENCES (listeners only)
 --═══════════════════════════════════════════════════════════════
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local R = {
     Generator = {
-        Repair            = Remotes.Generator:FindFirstChild("RepairEvent"),
-        RepairAnim        = Remotes.Generator:FindFirstChild("RepairAnim"),
-        RepairVFX         = Remotes.Generator:FindFirstChild("RepairVFX"),
         SkillCheck        = Remotes.Generator:FindFirstChild("SkillCheckEvent"),
-        SkillCheckResult  = Remotes.Generator:FindFirstChild("SkillCheckResultEvent"),
         SkillCheckFail    = Remotes.Generator:FindFirstChild("SkillCheckFailEvent"),
-        SkillCheckValid   = Remotes.Generator:FindFirstChild("Skillcheckvalidated"),
         GenDone           = Remotes.Generator:FindFirstChild("GenDone"),
         AllGenDone        = Remotes.Generator:FindFirstChild("allgendone"),
         EscapeTime        = Remotes.Generator:FindFirstChild("Escapetime"),
-        BreakGenAnim      = Remotes.Generator:FindFirstChild("BreakGenAnim"),
-        BreakGenCommit    = Remotes.Generator:FindFirstChild("BreakGenCommit"),
-        BreakGenEvent     = Remotes.Generator:FindFirstChild("BreakGenEvent"),
-        BreakGenReject    = Remotes.Generator:FindFirstChild("BreakGenReject"),
     },
-
-    Exit = {
-        LeverEvent = Remotes.Exit:FindFirstChild("LeverEvent"),
-        LeverAnim  = Remotes.Exit:FindFirstChild("LeverAnim"),
-        Gate       = Remotes.Exit:FindFirstChild("gate"),
-    },
-
     Healing = {
-        HealEvent         = Remotes.Healing:FindFirstChild("HealEvent"),
-        HealAnim          = Remotes.Healing:FindFirstChild("HealAnim"),
-        HealAnimRec       = Remotes.Healing:FindFirstChild("HealAnimRec"),
-        HealDone          = Remotes.Healing:FindFirstChild("Healdone"),
-        StopHealing       = Remotes.Healing:FindFirstChild("Stophealing"),
-        Reset             = Remotes.Healing:FindFirstChild("Reset"),
-        DisplayBlood      = Remotes.Healing:FindFirstChild("DisplayBlood"),
-        SkillCheck        = Remotes.Healing:FindFirstChild("SkillCheckEvent"),
-        SkillCheckResult  = Remotes.Healing:FindFirstChild("SkillCheckResultEvent"),
-        SkillCheckFail    = Remotes.Healing:FindFirstChild("SkillCheckFailEvent"),
-        SkillCheckValid   = Remotes.Healing:FindFirstChild("Skillcheckvalidated"),
+        SkillCheck = Remotes.Healing:FindFirstChild("SkillCheckEvent"),
     },
-
-    Carry = {
-        PlayAnimation       = Remotes.Carry:FindFirstChild("PlayAnimation"),
-        CarryAnim           = Remotes.Carry:FindFirstChild("CarryAnim"),
-        CarrySurvivor       = Remotes.Carry:FindFirstChild("CarrySurvivorEvent"),
-        DropSurvivor        = Remotes.Carry:FindFirstChild("DropSurvivorEvent"),
-        GetCarriedAnim      = Remotes.Carry:FindFirstChild("GetCarriedAnim"),
-        HookCommit          = Remotes.Carry:FindFirstChild("HookCommit"),
-        HookEvent           = Remotes.Carry:FindFirstChild("HookEvent"),
-        HookSuccess         = Remotes.Carry:FindFirstChild("HookEventsucceess"),
-        HookPhase           = Remotes.Carry:FindFirstChild("HookPhase"),
-        HookReject          = Remotes.Carry:FindFirstChild("HookReject"),
-        SelfUnhook          = Remotes.Carry:FindFirstChild("SelfUnHookEvent"),
-        Unhook              = Remotes.Carry:FindFirstChild("UnHookEvent"),
-        UnhookSuccess       = Remotes.Carry:FindFirstChild("UnhookSuccess"),
-    },
-
     Chase = {
         Music = Remotes.Chase:FindFirstChild("ChaseMusicEvent"),
-        Run   = Remotes.Chase:FindFirstChild("Runevent"),
     },
-
     Attacks = {
-        BasicAttack  = Remotes.Attacks:FindFirstChild("BasicAttack"),
-        AfterAttack  = Remotes.Attacks:FindFirstChild("AfterAttack"),
-        Lunge        = Remotes.Attacks:FindFirstChild("Lunge"),
-        LungeDetect  = Remotes.Attacks:FindFirstChild("LungeDetect"),
-        TrailEvent   = Remotes.Attacks:FindFirstChild("TrailEvent"),
-        Hit          = Remotes.Attacks:FindFirstChild("hit"),
+        Lunge       = Remotes.Attacks:FindFirstChild("Lunge"),
+        BasicAttack = Remotes.Attacks:FindFirstChild("BasicAttack"),
     },
-
     KillerPerks = {
-        AbyssalCovenant   = Remotes.KillerPerks:FindFirstChild("Abyssal Covenant"),
-        ResentmentClinger = Remotes.KillerPerks:FindFirstChild("Resentment Clinger"),
-        KingScourge       = Remotes.KillerPerks:FindFirstChild("kingscourge"),
-        ActivateBindable  = Remotes.KillerPerks:FindFirstChild("Activatecdbindable"),
-        ActivateRemote    = Remotes.KillerPerks:FindFirstChild("Activatecdremote"),
-        StackRemote       = Remotes.KillerPerks:FindFirstChild("StackRemote"),
+        KingScourge = Remotes.KillerPerks:FindFirstChild("kingscourge"),
     },
-
-    Items = {
-        Adrenaline    = Remotes.Items:FindFirstChild("Adrenaline Shot"),
-        Bandage       = Remotes.Items:FindFirstChild("Bandage"),
-        Flashlight    = Remotes.Items:FindFirstChild("Flashlight"),
-        Gate          = Remotes.Items:FindFirstChild("Gate"),
-        HolyWater     = Remotes.Items:FindFirstChild("Holy Water"),
-        ParryingDagger= Remotes.Items:FindFirstChild("Parrying Dagger"),
-        RiotShield    = Remotes.Items:FindFirstChild("Riot Shield"),
-        ShadowClone   = Remotes.Items:FindFirstChild("Shadow Clone"),
-        Tracker       = Remotes.Items:FindFirstChild("Tracker"),
-        TwistOfFate   = Remotes.Items:FindFirstChild("Twist of Fate"),
-        WaxCandle     = Remotes.Items:FindFirstChild("WaxBound Candle"),
-    },
-
-    Mechanics = {
-        Crouch            = Remotes.Mechanics:FindFirstChild("Crouch"),
-        Fall              = Remotes.Mechanics:FindFirstChild("Fall"),
-        Teleport          = Remotes.Mechanics:FindFirstChild("Teleportcharacter"),
-        SyncPos           = Remotes.Mechanics:FindFirstChild("syncPosition"),
-        CancelAction      = Remotes.Mechanics:FindFirstChild("cancelaction"),
-        SpecialAttack     = Remotes.Mechanics:FindFirstChild("Specialattack"),
-        PalletStun        = Remotes.Mechanics:FindFirstChild("PalletStun"),
-        ParriedBindable   = Remotes.Mechanics:FindFirstChild("Parriedbindable"),
-        ParriedClient     = Remotes.Mechanics:FindFirstChild("parriedclient"),
-        GotKnocked        = Remotes.Mechanics:FindFirstChild("gotknocked"),
-        MoriEnd           = Remotes.Mechanics:FindFirstChild("moriend"),
-        ApplyMori         = Remotes.Mechanics:FindFirstChild("Applymori"),
-        ApplySP           = Remotes.Mechanics:FindFirstChild("Applysp"),
-        ChangeAttribute   = Remotes.Mechanics:FindFirstChild("ChangeAttribute"),
-        NetRemote         = Remotes.Mechanics:FindFirstChild("NetRemote"),
-    },
-
     Game = {
-        Start             = Remotes.Game:FindFirstChild("Start"),
-        RoundEnd          = Remotes.Game:FindFirstChild("RoundEnd"),
-        RoundEndEvent     = Remotes.Game:FindFirstChild("RoundEndEvent"),
-        LoadMap           = Remotes.Game:FindFirstChild("LoadMap"),
-        Loaded            = Remotes.Game:FindFirstChild("Loaded"),
-        KillerMorph       = Remotes.Game:FindFirstChild("KillerMorph"),
-        OneLeft           = Remotes.Game:FindFirstChild("Oneleft"),
-        Death             = Remotes.Game:FindFirstChild("death"),
-        IdleRefresh       = Remotes.Game:FindFirstChild("IdleRefreshEvent"),
-        EquipItems        = Remotes.Game:FindFirstChild("EquipItems"),
-        EndGame           = Remotes.Game:FindFirstChild("endgame"),
-        PlayerAction      = Remotes.Game:FindFirstChild("PlayerActionEvent"),
+        Start       = Remotes.Game:FindFirstChild("Start"),
+        RoundEnd    = Remotes.Game:FindFirstChild("RoundEnd"),
+        KillerMorph = Remotes.Game:FindFirstChild("KillerMorph"),
+        OneLeft     = Remotes.Game:FindFirstChild("Oneleft"),
+        Death       = Remotes.Game:FindFirstChild("death"),
     },
-
-    Events = {
-        Christmas = Remotes.Events:FindFirstChild("Christmas"),
-        Halloween = Remotes.Events:FindFirstChild("Halloween"),
-        Medal     = Remotes.Events:FindFirstChild("Medal"),
+    Carry = {
+        HookEvent   = Remotes.Carry:FindFirstChild("HookEvent"),
+        UnhookEvent = Remotes.Carry:FindFirstChild("UnHookEvent"),
+        HookPhase   = Remotes.Carry:FindFirstChild("HookPhase"),
     },
 }
 
@@ -171,85 +74,65 @@ local R = {
 -- WORKSPACE REFERENCES
 --═══════════════════════════════════════════════════════════════
 local WS = {
-    Interactables = Workspace:FindFirstChild("Interactables"),
-    Map           = Workspace:FindFirstChild("Map"),
-    Mazes         = Workspace:FindFirstChild("Mazes"),
-    Clones        = Workspace:FindFirstChild("Clones"),
-    FakeChars     = Workspace:FindFirstChild("FakeCharacters"),
-    Weapons       = Workspace:FindFirstChild("Weapons"),
-    Lobby         = Workspace:FindFirstChild("Lobby"),
+    Map        = Workspace:FindFirstChild("Map"),
+    Generators = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Generators"),
+    Mazes      = Workspace:FindFirstChild("Mazes"),
+    Clones     = Workspace:FindFirstChild("Clones"),
+    FakeChars  = Workspace:FindFirstChild("FakeCharacters"),
+    Weapons    = Workspace:FindFirstChild("Weapons"),
+    Lobby      = Workspace:FindFirstChild("Lobby"),
 }
 
 --═══════════════════════════════════════════════════════════════
--- STATE MANAGER
+-- STATE
 --═══════════════════════════════════════════════════════════════
 local State = {
-    AutoRepair       = false,
-    AutoSkillCheck   = false,
-    SkillCheckMode   = "Perfect",
-    SkillCheckNotify = false,
-    AutoExit         = false,
-    NotifyAllGens    = true,
-    AutoHealTeam     = false,
-    AutoHealSelf     = false,
-    AutoHealSkill    = false,
-    AutoParry        = false,
-    AutoFlashlight   = false,
-    AutoRiotRush     = false,
-    AutoTwistFate    = false,
-    AutoHolyWater    = false,
-    AutoSelfUnhook   = false,
-    AutoUnhookTeam   = false,
-    AutoWiggle       = false,
-    InfiniteSprint   = false,
-    AntiAFK          = true,
-    ESP_Killer       = false,
-    ESP_Survivors    = false,
-    ESP_Generators   = false,
-    ESP_Exits        = false,
-    ESP_Items        = false,
-    ESP_Hooks        = false,
-    ChaseAlert       = false,
-    AttackAlert      = false,
-    KillerAlert      = false,
-    WalkSpeed        = 16,
-    JumpPower        = 50,
-    NoClip           = false,
-    AutoGifts        = false,
-    AutoMedals       = false,
-    IsKiller         = false,
-    MatchActive      = false,
-    ESPObjects       = {},
-    Connections      = {},
+    -- Awareness
+    ChaseAlert         = true,
+    AttackAlert        = true,
+    SkillCheckNotify   = true,
+    HealSkillNotify    = true,
+    GenDoneNotify      = true,
+    AllGensNotify      = true,
+    OneLeftNotify      = true,
+    HookNotify         = true,
+    DeathNotify        = true,
+
+    -- ESP
+    ESP_Generators     = false,
+    ESP_Killer         = false,
+    ESP_Survivors      = false,
+    ESP_Items          = false,
+    ESP_Weapons        = false,
+    ESP_Clones         = false,
+    ESP_MaxDistance    = 500,
+
+    -- Movement
+    WalkSpeed          = 16,
+    JumpPower          = 50,
+    NoClip             = false,
+    InfJump            = false,
+
+    -- Anti-AFK
+    AntiAFK            = true,
+
+    -- Runtime
+    IsKiller           = false,
+    MatchActive        = false,
+    ESPObjects         = {},
+    Connections        = {},
+    NoClipConn         = nil,
+    InfJumpConn        = nil,
 }
 
 --═══════════════════════════════════════════════════════════════
--- UTILITY FUNCTIONS
+-- UTILITY
 --═══════════════════════════════════════════════════════════════
 local Util = {}
 
-function Util.SafeFire(remote, ...)
-    if not remote then
-        warn("[X0DEC04T] Remote missing:", debug.traceback())
-        return false
-    end
-    local args = {...}
-    local ok, err = pcall(function()
-        if remote:IsA("RemoteEvent") then
-            remote:FireServer(table.unpack(args))
-        elseif remote:IsA("RemoteFunction") then
-            return remote:InvokeServer(table.unpack(args))
-        end
-    end)
-    if not ok then warn("[X0DEC04T] Fire failed:", err) end
-    return ok
-end
-
 function Util.SafeConnect(signal, callback)
     if not signal then return nil end
-    local ok, conn = pcall(function()
-        return signal:Connect(callback)
-    end)
+    local ok, conn = pcall(function() return signal:Connect(callback) end)
     if ok and conn then
         table.insert(State.Connections, conn)
         return conn
@@ -262,18 +145,13 @@ function Util.GetCharacter()
 end
 
 function Util.GetHRP()
-    local char = Util.GetCharacter()
-    return char:FindFirstChild("HumanoidRootPart")
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
 
 function Util.GetHumanoid()
-    local char = Util.GetCharacter()
-    return char:FindFirstChildOfClass("Humanoid")
-end
-
-function Util.Distance(a, b)
-    if not a or not b then return math.huge end
-    return (a.Position - b.Position).Magnitude
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildOfClass("Humanoid")
 end
 
 function Util.Notify(title, content, duration)
@@ -285,6 +163,12 @@ function Util.Notify(title, content, duration)
     })
 end
 
+function Util.GetGuiParent()
+    local parent = CoreGui
+    pcall(function() if gethui then parent = gethui() end end)
+    return parent
+end
+
 function Util.CleanupESP()
     for _, obj in pairs(State.ESPObjects) do
         if obj and obj.Parent then obj:Destroy() end
@@ -292,211 +176,337 @@ function Util.CleanupESP()
     State.ESPObjects = {}
 end
 
-function Util.GetGuiParent()
-    local parent = CoreGui
-    pcall(function()
-        if gethui then parent = gethui() end
-    end)
-    return parent
-end
-
 --═══════════════════════════════════════════════════════════════
 -- ESP SYSTEM
 --═══════════════════════════════════════════════════════════════
 local ESP = {}
 
-function ESP.CreateBillboard(adornee, text, color)
-    if not adornee then return nil end
+function ESP.CreateTag(adornee, text, color)
+    if not adornee then return end
+
+    -- Try to attach to primary part
+    local part = adornee
+    if adornee:IsA("Model") then
+        part = adornee.PrimaryPart
+              or adornee:FindFirstChildWhichIsA("BasePart")
+    end
+    if not part then return end
+
     local bb = Instance.new("BillboardGui")
-    bb.Name = "X0DEC04T_ESP"
-    bb.Adornee = adornee
-    bb.Size = UDim2.new(0, 200, 0, 50)
-    bb.StudsOffset = Vector3.new(0, 3, 0)
-    bb.AlwaysOnTop = true
+    bb.Name           = "X0DEC_ESP"
+    bb.Adornee        = part
+    bb.Size           = UDim2.new(0, 180, 0, 50)
+    bb.StudsOffset    = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop    = true
     bb.LightInfluence = 0
+    bb.MaxDistance    = State.ESP_MaxDistance
+    bb.Parent         = Util.GetGuiParent()
+
+    local frame = Instance.new("Frame")
+    frame.Size                   = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.Parent                 = bb
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Size                   = UDim2.new(1, 0, 0.6, 0)
     label.BackgroundTransparency = 1
-    label.Text = text or "ESP"
-    label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    label.Text                   = text
+    label.TextColor3             = color or Color3.fromRGB(255, 255, 255)
     label.TextStrokeTransparency = 0
-    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-    label.Font = Enum.Font.GothamBold
-    label.TextScaled = true
-    label.Parent = bb
+    label.TextStrokeColor3       = Color3.new(0, 0, 0)
+    label.Font                   = Enum.Font.GothamBold
+    label.TextSize               = 14
+    label.Parent                 = frame
 
-    bb.Parent = Util.GetGuiParent()
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name                   = "Distance"
+    distLabel.Size                   = UDim2.new(1, 0, 0.4, 0)
+    distLabel.Position               = UDim2.new(0, 0, 0.6, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text                   = "0m"
+    distLabel.TextColor3             = Color3.fromRGB(200, 200, 200)
+    distLabel.TextStrokeTransparency = 0
+    distLabel.Font                   = Enum.Font.Gotham
+    distLabel.TextSize               = 12
+    distLabel.Parent                 = frame
+
     table.insert(State.ESPObjects, bb)
-    return bb, label
+    return bb, label, distLabel
 end
 
-function ESP.ScanInteractables()
-    if not WS.Interactables then return end
-    for _, obj in ipairs(WS.Interactables:GetChildren()) do
-        -- Placeholder - awaiting Interactables verification
+function ESP.UpdateDistances()
+    local hrp = Util.GetHRP()
+    if not hrp then return end
+
+    for _, bb in ipairs(State.ESPObjects) do
+        if bb.Parent and bb.Adornee then
+            local dist = (bb.Adornee.Position - hrp.Position).Magnitude
+            local distLabel = bb:FindFirstChild("Distance", true)
+            if distLabel then
+                distLabel.Text = math.floor(dist) .. "m"
+            end
+        end
+    end
+end
+
+function ESP.ScanGenerators()
+    if not State.ESP_Generators or not WS.Generators then return end
+    for _, gen in ipairs(WS.Generators:GetChildren()) do
+        ESP.CreateTag(gen, "⚡ Generator: " .. gen.Name, Color3.fromRGB(255, 200, 60))
+    end
+end
+
+function ESP.ScanPlayers()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local isKiller = plr.Character:GetAttribute("Killer")
+                          or plr.Character:GetAttribute("IsKiller")
+                          or plr.Character.Name:lower():match("killer")
+
+            if isKiller and State.ESP_Killer then
+                ESP.CreateTag(plr.Character, "☠ KILLER: " .. plr.Name, Color3.fromRGB(255, 60, 60))
+            elseif not isKiller and State.ESP_Survivors then
+                ESP.CreateTag(plr.Character, "◈ " .. plr.Name, Color3.fromRGB(60, 200, 255))
+            end
+        end
+    end
+end
+
+function ESP.ScanItems()
+    if not State.ESP_Items then return end
+    local itemsFolder = ReplicatedStorage:FindFirstChild("Items")
+    -- Ground items: check Workspace for spawned pickups
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") and (obj:GetAttribute("Item") or obj:GetAttribute("Pickup")) then
+            ESP.CreateTag(obj, "🎒 " .. obj.Name, Color3.fromRGB(180, 255, 100))
+        end
+    end
+end
+
+function ESP.ScanWeapons()
+    if not State.ESP_Weapons or not WS.Weapons then return end
+    for _, w in ipairs(WS.Weapons:GetDescendants()) do
+        if w:IsA("Model") or (w:IsA("BasePart") and w.Name:lower():match("weapon")) then
+            ESP.CreateTag(w, "⚔ " .. w.Name, Color3.fromRGB(255, 100, 200))
+        end
+    end
+end
+
+function ESP.ScanClones()
+    if not State.ESP_Clones or not WS.Clones then return end
+    for _, c in ipairs(WS.Clones:GetChildren()) do
+        ESP.CreateTag(c, "👥 Clone", Color3.fromRGB(150, 150, 255))
     end
 end
 
 function ESP.RefreshAll()
     Util.CleanupESP()
-    if State.ESP_Generators then ESP.ScanInteractables() end
+    ESP.ScanGenerators()
+    ESP.ScanPlayers()
+    ESP.ScanItems()
+    ESP.ScanWeapons()
+    ESP.ScanClones()
 end
 
---═══════════════════════════════════════════════════════════════
--- FEATURE STUBS (Awaiting Argument Verification)
---═══════════════════════════════════════════════════════════════
-local Features = {}
-
-function Features.AutoRepair()
-    task.spawn(function()
-        while State.AutoRepair do
-            -- TODO: VERIFY ARGS for R.Generator.Repair
-            task.wait(0.5)
+-- Auto refresh
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if State.ESP_Generators or State.ESP_Killer or State.ESP_Survivors
+        or State.ESP_Items or State.ESP_Weapons or State.ESP_Clones then
+            ESP.RefreshAll()
         end
-    end)
+    end
+end)
+
+-- Distance updater
+RunService.Heartbeat:Connect(function()
+    ESP.UpdateDistances()
+end)
+
+--═══════════════════════════════════════════════════════════════
+-- MOVEMENT FEATURES
+--═══════════════════════════════════════════════════════════════
+local Movement = {}
+
+function Movement.ApplyWalkSpeed()
+    local hum = Util.GetHumanoid()
+    if hum then hum.WalkSpeed = State.WalkSpeed end
 end
 
-function Features.SetupSkillCheck()
-    if R.Generator.SkillCheck then
-        Util.SafeConnect(R.Generator.SkillCheck.OnClientEvent, function(...)
-            if State.SkillCheckNotify then
-                Util.Notify("Skill Check!", "Generator skill check triggered")
-            end
-            if State.AutoSkillCheck then
-                -- TODO: VERIFY ARGS for R.Generator.SkillCheckResult
+function Movement.ApplyJumpPower()
+    local hum = Util.GetHumanoid()
+    if hum then
+        hum.JumpPower = State.JumpPower
+        hum.UseJumpPower = true
+    end
+end
+
+function Movement.SetNoClip(enabled)
+    if State.NoClipConn then
+        State.NoClipConn:Disconnect()
+        State.NoClipConn = nil
+    end
+
+    if enabled then
+        State.NoClipConn = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if char then
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then
+                        p.CanCollide = false
+                    end
+                end
             end
         end)
     end
+end
+
+function Movement.SetInfJump(enabled)
+    if State.InfJumpConn then
+        State.InfJumpConn:Disconnect()
+        State.InfJumpConn = nil
+    end
+
+    if enabled then
+        State.InfJumpConn = UserInputService.JumpRequest:Connect(function()
+            local hum = Util.GetHumanoid()
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end)
+    end
+end
+
+function Movement.TeleportToNearestGenerator()
+    if not WS.Generators then
+        Util.Notify("Teleport", "Generators folder not found", 3)
+        return
+    end
+    local hrp = Util.GetHRP()
+    if not hrp then return end
+
+    local nearest, minDist = nil, math.huge
+    for _, gen in ipairs(WS.Generators:GetChildren()) do
+        local part = gen.PrimaryPart or gen:FindFirstChildWhichIsA("BasePart")
+        if part then
+            local d = (part.Position - hrp.Position).Magnitude
+            if d < minDist then
+                minDist = d
+                nearest = part
+            end
+        end
+    end
+
+    if nearest then
+        hrp.CFrame = nearest.CFrame + Vector3.new(0, 3, 0)
+        Util.Notify("Teleport", "Sent to nearest generator (" .. math.floor(minDist) .. "m)", 3)
+    else
+        Util.Notify("Teleport", "No generators found", 3)
+    end
+end
+
+function Movement.TeleportToPlayer(playerName)
+    local target = Players:FindFirstChild(playerName)
+    if not target or not target.Character then
+        Util.Notify("Teleport", "Player not found", 3)
+        return
+    end
+    local hrp = Util.GetHRP()
+    local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and targetHRP then
+        hrp.CFrame = targetHRP.CFrame + Vector3.new(0, 0, 3)
+        Util.Notify("Teleport", "Sent to " .. playerName, 3)
+    end
+end
+
+--═══════════════════════════════════════════════════════════════
+-- AWARENESS LISTENERS
+--═══════════════════════════════════════════════════════════════
+local Awareness = {}
+
+function Awareness.Setup()
+    -- Skill Check Notifications
+    if R.Generator.SkillCheck then
+        Util.SafeConnect(R.Generator.SkillCheck.OnClientEvent, function(gen, point, kind, difficulty)
+            if State.SkillCheckNotify then
+                Util.Notify("⚡ Skill Check!",
+                    "Difficulty: " .. tostring(difficulty or "?"), 2)
+            end
+        end)
+    end
+
     if R.Healing.SkillCheck then
         Util.SafeConnect(R.Healing.SkillCheck.OnClientEvent, function(...)
-            if State.AutoHealSkill then
-                -- TODO: VERIFY ARGS for R.Healing.SkillCheckResult
+            if State.HealSkillNotify then
+                Util.Notify("❤ Heal Skill Check!", "Complete the check", 2)
             end
         end)
     end
-end
 
-function Features.AutoExit()
-    task.spawn(function()
-        while State.AutoExit do
-            -- TODO: VERIFY ARGS for R.Exit.LeverEvent
-            task.wait(0.5)
-        end
-    end)
-end
-
-function Features.AutoHealTeam()
-    task.spawn(function()
-        while State.AutoHealTeam do
-            -- TODO: VERIFY ARGS for R.Healing.HealEvent
-            task.wait(0.5)
-        end
-    end)
-end
-
-function Features.AutoHealSelf()
-    task.spawn(function()
-        while State.AutoHealSelf do
-            -- TODO: VERIFY ARGS for R.Items.Bandage.Fire
-            task.wait(1)
-        end
-    end)
-end
-
-function Features.AutoParry()
-    if R.Attacks.Lunge then
-        Util.SafeConnect(R.Attacks.Lunge.OnClientEvent, function(...)
-            if State.AutoParry then
-                -- TODO: VERIFY ARGS for R.Items.ParryingDagger.parry
+    -- Skill check failure
+    if R.Generator.SkillCheckFail then
+        Util.SafeConnect(R.Generator.SkillCheckFail.OnClientEvent, function(...)
+            if State.SkillCheckNotify then
+                Util.Notify("✗ Skill Check Failed", "Generator progress lost!", 3)
             end
         end)
     end
-end
 
-function Features.AutoSelfUnhook()
-    task.spawn(function()
-        while State.AutoSelfUnhook do
-            -- TODO: VERIFY ARGS for R.Carry.SelfUnhook
-            task.wait(1)
-        end
-    end)
-end
+    -- Gen done
+    if R.Generator.GenDone then
+        Util.SafeConnect(R.Generator.GenDone.OnClientEvent, function(...)
+            if State.GenDoneNotify then
+                Util.Notify("✓ Generator Complete!", "One gen done", 3)
+            end
+        end)
+    end
 
-function Features.AutoUnhookTeam()
-    task.spawn(function()
-        while State.AutoUnhookTeam do
-            -- TODO: VERIFY ARGS for R.Carry.Unhook
-            task.wait(0.5)
-        end
-    end)
-end
+    -- All gens done
+    if R.Generator.AllGenDone then
+        Util.SafeConnect(R.Generator.AllGenDone.OnClientEvent, function(...)
+            if State.AllGensNotify then
+                Util.Notify("🚪 All Gens Done!", "Escape gates are powered!", 6)
+            end
+        end)
+    end
 
-function Features.AutoWiggle()
-    task.spawn(function()
-        while State.AutoWiggle do
-            -- TODO: VERIFY ARGS for R.Carry.DropSurvivor
-            task.wait(0.1)
-        end
-    end)
-end
-
-function Features.InfiniteSprint()
-    task.spawn(function()
-        while State.InfiniteSprint do
-            -- TODO: VERIFY ARGS for R.Chase.Run
-            task.wait(0.5)
-        end
-    end)
-end
-
-function Features.AntiAFK()
-    Util.SafeConnect(LocalPlayer.Idled, function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
-    end)
-end
-
-function Features.SetupChaseAlert()
+    -- Chase music
     if R.Chase.Music then
         Util.SafeConnect(R.Chase.Music.OnClientEvent, function(...)
             if State.ChaseAlert then
-                Util.Notify("Chase!", "Killer is chasing someone", 3)
+                Util.Notify("⚠ Chase Active", "Killer is chasing someone", 3)
             end
         end)
     end
-end
 
-function Features.SetupAttackAlert()
+    -- Attack alerts
     if R.Attacks.Lunge then
         Util.SafeConnect(R.Attacks.Lunge.OnClientEvent, function(...)
             if State.AttackAlert then
-                Util.Notify("Attack!", "Killer is lunging!", 2)
+                Util.Notify("⚠ LUNGE!", "Killer is attacking!", 2)
             end
         end)
     end
+
     if R.KillerPerks.KingScourge then
         local start = R.KillerPerks.KingScourge:FindFirstChild("KingScourgeStart")
         if start then
             Util.SafeConnect(start.OnClientEvent, function(...)
                 if State.AttackAlert then
-                    Util.Notify("King Scourge!", "Dodge incoming attack!", 2)
+                    Util.Notify("⚠ KING SCOURGE!", "Dodge NOW!", 2)
                 end
             end)
         end
     end
-end
 
-function Features.SetupKillerDetection()
+    -- Killer detection
     if R.Game.KillerMorph then
         Util.SafeConnect(R.Game.KillerMorph.OnClientEvent, function(...)
             State.IsKiller = true
-            Util.Notify("Role Assigned", "You are the KILLER - survivor features disabled", 5)
+            Util.Notify("Role", "You are the KILLER", 5)
         end)
     end
-end
 
-function Features.SetupMatchState()
+    -- Match state
     if R.Game.Start then
         Util.SafeConnect(R.Game.Start.OnClientEvent, function(...)
             State.MatchActive = true
@@ -504,52 +514,52 @@ function Features.SetupMatchState()
             Util.Notify("Match Started", "Good luck!", 3)
         end)
     end
+
     if R.Game.RoundEnd then
         Util.SafeConnect(R.Game.RoundEnd.OnClientEvent, function(...)
             State.MatchActive = false
             Util.CleanupESP()
         end)
     end
-    if R.Generator.AllGenDone then
-        Util.SafeConnect(R.Generator.AllGenDone.OnClientEvent, function(...)
-            if State.NotifyAllGens then
-                Util.Notify("Gens Complete!", "All generators finished - find the exit!", 5)
-            end
-        end)
-    end
+
+    -- One left
     if R.Game.OneLeft then
         Util.SafeConnect(R.Game.OneLeft.OnClientEvent, function(...)
-            Util.Notify("Last Survivor!", "You are the last one alive", 5)
+            if State.OneLeftNotify then
+                Util.Notify("⚠ Last Survivor!", "You are alone", 5)
+            end
         end)
     end
-end
 
-function Features.ApplyWalkSpeed()
-    local hum = Util.GetHumanoid()
-    if hum then hum.WalkSpeed = State.WalkSpeed end
-end
-
-function Features.ApplyJumpPower()
-    local hum = Util.GetHumanoid()
-    if hum then hum.JumpPower = State.JumpPower end
-end
-
-function Features.NoClip()
-    task.spawn(function()
-        while State.NoClip do
-            local char = Util.GetCharacter()
-            if char then
-                for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") then p.CanCollide = false end
-                end
+    -- Death
+    if R.Game.Death then
+        Util.SafeConnect(R.Game.Death.OnClientEvent, function(...)
+            if State.DeathNotify then
+                Util.Notify("💀 Death", "A survivor has died", 3)
             end
-            task.wait(0.1)
+        end)
+    end
+
+    -- Hooks
+    if R.Carry.HookEvent then
+        Util.SafeConnect(R.Carry.HookEvent.OnClientEvent, function(...)
+            if State.HookNotify then
+                Util.Notify("🪝 Hooked", "Someone was hooked", 3)
+            end
+        end)
+    end
+
+    -- Anti-AFK
+    Util.SafeConnect(LocalPlayer.Idled, function()
+        if State.AntiAFK then
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
         end
     end)
 end
 
 --═══════════════════════════════════════════════════════════════
--- WINDOW CREATION
+-- WINDOW
 --═══════════════════════════════════════════════════════════════
 local Window = WindUI:CreateWindow({
     Title        = HUB.Name,
@@ -565,7 +575,7 @@ local Window = WindUI:CreateWindow({
 })
 
 --═══════════════════════════════════════════════════════════════
--- FLOATING LAUNCHER (Minimize Replacement)
+-- FLOATING LAUNCHER
 --═══════════════════════════════════════════════════════════════
 local Launcher = {}
 Launcher.Instance = nil
@@ -662,16 +672,14 @@ function Launcher:Build()
     Label.ZIndex                 = 11
     Label.Parent                 = Button
 
-    -- Hover animations
-    local hoverIn  = TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Size = UDim2.fromOffset(165, 54) })
-    local hoverOut = TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Size = UDim2.fromOffset(155, 50) })
+    local hoverIn  = TweenService:Create(Button, TweenInfo.new(0.2), { Size = UDim2.fromOffset(165, 54) })
+    local hoverOut = TweenService:Create(Button, TweenInfo.new(0.2), { Size = UDim2.fromOffset(155, 50) })
     local glowIn   = TweenService:Create(Glow, TweenInfo.new(0.2), { ImageTransparency = 0.3 })
     local glowOut  = TweenService:Create(Glow, TweenInfo.new(0.2), { ImageTransparency = 0.55 })
 
     Button.MouseEnter:Connect(function() hoverIn:Play(); glowIn:Play() end)
     Button.MouseLeave:Connect(function() hoverOut:Play(); glowOut:Play() end)
 
-    -- Pulsing glow
     task.spawn(function()
         while Glow.Parent do
             TweenService:Create(Glow, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.4 }):Play()
@@ -681,13 +689,7 @@ function Launcher:Build()
         end
     end)
 
-    -- Drag (PC + Mobile)
-    local dragging      = false
-    local dragStart     = nil
-    local startPos      = nil
-    local dragThreshold = 5
-    local didDrag       = false
-
+    local dragging, dragStart, startPos, didDrag = false, nil, nil, false
     Button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
@@ -695,7 +697,6 @@ function Launcher:Build()
             didDrag   = false
             dragStart = input.Position
             startPos  = Button.Position
-
             local conn
             conn = input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
@@ -710,7 +711,7 @@ function Launcher:Build()
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
-            if delta.Magnitude > dragThreshold then didDrag = true end
+            if delta.Magnitude > 5 then didDrag = true end
             Button.Position = UDim2.new(
                 startPos.X.Scale, startPos.X.Offset + delta.X,
                 startPos.Y.Scale, startPos.Y.Offset + delta.Y
@@ -733,7 +734,6 @@ function Launcher:Show()
     if not self.Gui then self:Build() end
     self.Gui.Enabled = true
     self.Visible    = true
-
     self.Instance.Size = UDim2.fromOffset(0, 50)
     TweenService:Create(self.Instance, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
         Size = UDim2.fromOffset(155, 50),
@@ -747,39 +747,25 @@ end
 
 function Launcher:RestoreWindow()
     pcall(function()
-        if Window.Open then
-            Window:Open()
-        elseif Window.SetVisibility then
-            Window:SetVisibility(true)
-        else
-            Window:Toggle()
-        end
+        if Window.Open then Window:Open()
+        elseif Window.SetVisibility then Window:SetVisibility(true)
+        else Window:Toggle() end
     end)
 end
 
 function Launcher:MinimizeWindow()
     pcall(function()
-        if Window.Close then
-            Window:Close()
-        elseif Window.SetVisibility then
-            Window:SetVisibility(false)
-        else
-            Window:Toggle()
-        end
+        if Window.Close then Window:Close()
+        elseif Window.SetVisibility then Window:SetVisibility(false)
+        else Window:Toggle() end
     end)
     self:Show()
 end
 
--- Hook minimize event
 pcall(function()
-    if Window.OnClose then
-        Window:OnClose(function()
-            Launcher:MinimizeWindow()
-        end)
-    end
+    if Window.OnClose then Window:OnClose(function() Launcher:MinimizeWindow() end) end
 end)
 
--- Fallback state monitor for older WindUI versions
 task.spawn(function()
     local lastState = true
     while task.wait(0.3) do
@@ -804,18 +790,12 @@ Launcher:Build()
 -- TABS
 --═══════════════════════════════════════════════════════════════
 local Tabs = {
-    Main       = Window:Tab({ Title = "Main",        Icon = "home"       }),
-    Generator  = Window:Tab({ Title = "Generator",   Icon = "zap"        }),
-    Escape     = Window:Tab({ Title = "Escape",      Icon = "door-open"  }),
-    Healing    = Window:Tab({ Title = "Healing",     Icon = "heart"      }),
-    Items      = Window:Tab({ Title = "Items",       Icon = "backpack"   }),
-    Survival   = Window:Tab({ Title = "Survival",    Icon = "shield"     }),
-    ESP        = Window:Tab({ Title = "ESP",         Icon = "eye"        }),
-    Movement   = Window:Tab({ Title = "Movement",    Icon = "footprints" }),
-    Events     = Window:Tab({ Title = "Events",      Icon = "gift"       }),
-    Settings   = Window:Tab({ Title = "Settings",    Icon = "settings"   }),
+    Main      = Window:Tab({ Title = "Main",      Icon = "home"       }),
+    Awareness = Window:Tab({ Title = "Awareness", Icon = "bell"       }),
+    ESP       = Window:Tab({ Title = "ESP",       Icon = "eye"        }),
+    Movement  = Window:Tab({ Title = "Movement",  Icon = "footprints" }),
+    Settings  = Window:Tab({ Title = "Settings",  Icon = "settings"   }),
 }
-
 Window:SelectTab(1)
 
 --═══════════════════════════════════════════════════════════════
@@ -825,215 +805,96 @@ Tabs.Main:Section({ Title = "Welcome" })
 
 Tabs.Main:Paragraph({
     Title = HUB.Name,
-    Desc  = "Premium hub for " .. HUB.Game .. "\nVersion " .. HUB.Version .. " | Created by " .. HUB.Author,
+    Desc  = "Premium hub for " .. HUB.Game .. "\nVersion " .. HUB.Version .. " by " .. HUB.Author,
 })
 
 Tabs.Main:Paragraph({
-    Title = "⚠ Skeleton Build Notice",
-    Desc  = "This build has full UI, config, theme, and keybind systems ready. Feature FireServer arguments require Remote Spy verification and are marked TODO in source.",
+    Title = "⚠ Game Architecture Notice",
+    Desc  = "This game uses server-authoritative proximity interactions. Auto-Repair/Heal features are not possible via remotes. This hub focuses on Awareness, ESP, and Movement.",
 })
 
 Tabs.Main:Section({ Title = "Match Info" })
 
-local RoleLabel = Tabs.Main:Paragraph({ Title = "Your Role", Desc = "Waiting for match..." })
+local RoleLabel = Tabs.Main:Paragraph({ Title = "Your Role", Desc = "Waiting..." })
+local MatchLabel = Tabs.Main:Paragraph({ Title = "Match State", Desc = "Waiting..." })
 
 task.spawn(function()
     while true do
         pcall(function()
-            RoleLabel:SetDesc(State.IsKiller and "KILLER (features limited)" or "SURVIVOR")
+            RoleLabel:SetDesc(State.IsKiller and "🔪 KILLER" or "🏃 SURVIVOR")
+            MatchLabel:SetDesc(State.MatchActive and "🟢 In Match" or "🔴 Lobby")
         end)
         task.wait(1)
     end
 end)
 
 --═══════════════════════════════════════════════════════════════
--- GENERATOR TAB
+-- AWARENESS TAB
 --═══════════════════════════════════════════════════════════════
-Tabs.Generator:Section({ Title = "Repair" })
+Tabs.Awareness:Section({ Title = "Killer Alerts" })
 
-Tabs.Generator:Toggle({
-    Title = "Auto Repair Generator",
-    Desc  = "Automatically holds repair on nearest generator",
-    Value = false,
-    Callback = function(v)
-        State.AutoRepair = v
-        if v then Features.AutoRepair() end
-    end,
+Tabs.Awareness:Toggle({
+    Title = "Chase Music Alert",
+    Desc  = "Alert when chase music plays",
+    Value = true,
+    Callback = function(v) State.ChaseAlert = v end,
 })
 
-Tabs.Generator:Section({ Title = "Skill Check" })
-
-Tabs.Generator:Toggle({
-    Title = "Auto Skill Check",
-    Desc  = "Auto-completes skill checks (requires arg verification)",
-    Value = false,
-    Callback = function(v) State.AutoSkillCheck = v end,
+Tabs.Awareness:Toggle({
+    Title = "Attack Alert (Lunge / King Scourge)",
+    Desc  = "Alert when killer uses attack",
+    Value = true,
+    Callback = function(v) State.AttackAlert = v end,
 })
 
-Tabs.Generator:Dropdown({
-    Title  = "Skill Check Mode",
-    Values = { "Perfect", "Good" },
-    Value  = "Perfect",
-    Callback = function(v) State.SkillCheckMode = v end,
-})
+Tabs.Awareness:Section({ Title = "Skill Checks" })
 
-Tabs.Generator:Toggle({
-    Title = "Skill Check Notifications",
-    Desc  = "Notify when a skill check appears",
-    Value = false,
+Tabs.Awareness:Toggle({
+    Title = "Generator Skill Check Notify",
+    Desc  = "Alert with difficulty when a skill check spawns",
+    Value = true,
     Callback = function(v) State.SkillCheckNotify = v end,
 })
 
---═══════════════════════════════════════════════════════════════
--- ESCAPE TAB
---═══════════════════════════════════════════════════════════════
-Tabs.Escape:Section({ Title = "Exit Gates" })
-
-Tabs.Escape:Toggle({
-    Title = "Auto Open Exit",
-    Desc  = "Auto-pulls exit lever when possible",
-    Value = false,
-    Callback = function(v)
-        State.AutoExit = v
-        if v then Features.AutoExit() end
-    end,
-})
-
-Tabs.Escape:Toggle({
-    Title = "Notify All Gens Complete",
-    Desc  = "Alert when all generators finish",
+Tabs.Awareness:Toggle({
+    Title = "Healing Skill Check Notify",
+    Desc  = "Alert when heal skill check appears",
     Value = true,
-    Callback = function(v) State.NotifyAllGens = v end,
+    Callback = function(v) State.HealSkillNotify = v end,
 })
 
---═══════════════════════════════════════════════════════════════
--- HEALING TAB
---═══════════════════════════════════════════════════════════════
-Tabs.Healing:Section({ Title = "Team Healing" })
+Tabs.Awareness:Section({ Title = "Objectives" })
 
-Tabs.Healing:Toggle({
-    Title = "Auto Heal Teammates",
-    Desc  = "Heal nearby wounded survivors",
-    Value = false,
-    Callback = function(v)
-        State.AutoHealTeam = v
-        if v then Features.AutoHealTeam() end
-    end,
-})
-
-Tabs.Healing:Toggle({
-    Title = "Auto Heal Skill Checks",
-    Desc  = "Auto-complete healing skill checks",
-    Value = false,
-    Callback = function(v) State.AutoHealSkill = v end,
-})
-
-Tabs.Healing:Section({ Title = "Self Healing" })
-
-Tabs.Healing:Toggle({
-    Title = "Auto Bandage (Self)",
-    Desc  = "Auto-use bandage when wounded",
-    Value = false,
-    Callback = function(v)
-        State.AutoHealSelf = v
-        if v then Features.AutoHealSelf() end
-    end,
-})
-
---═══════════════════════════════════════════════════════════════
--- ITEMS TAB
---═══════════════════════════════════════════════════════════════
-Tabs.Items:Section({ Title = "Combat Items" })
-
-Tabs.Items:Toggle({
-    Title = "Auto Parry (Parrying Dagger)",
-    Desc  = "Auto-parry killer attacks",
-    Value = false,
-    Callback = function(v) State.AutoParry = v end,
-})
-
-Tabs.Items:Toggle({
-    Title = "Auto Riot Shield Rush",
-    Desc  = "Auto-rush to stun killer",
-    Value = false,
-    Callback = function(v) State.AutoRiotRush = v end,
-})
-
-Tabs.Items:Toggle({
-    Title = "Auto Flashlight",
-    Desc  = "Auto-blind killer when facing",
-    Value = false,
-    Callback = function(v) State.AutoFlashlight = v end,
-})
-
-Tabs.Items:Section({ Title = "Utility Items" })
-
-Tabs.Items:Toggle({
-    Title = "Auto Twist of Fate",
-    Desc  = "Auto-fire Twist of Fate",
-    Value = false,
-    Callback = function(v) State.AutoTwistFate = v end,
-})
-
-Tabs.Items:Toggle({
-    Title = "Auto Holy Water",
-    Desc  = "Auto-throw Holy Water",
-    Value = false,
-    Callback = function(v) State.AutoHolyWater = v end,
-})
-
---═══════════════════════════════════════════════════════════════
--- SURVIVAL TAB
---═══════════════════════════════════════════════════════════════
-Tabs.Survival:Section({ Title = "Hook Escape" })
-
-Tabs.Survival:Toggle({
-    Title = "Auto Self-Unhook",
-    Desc  = "Auto-attempt self-unhook when hooked",
-    Value = false,
-    Callback = function(v)
-        State.AutoSelfUnhook = v
-        if v then Features.AutoSelfUnhook() end
-    end,
-})
-
-Tabs.Survival:Toggle({
-    Title = "Auto Unhook Teammates",
-    Desc  = "Auto-rescue nearby hooked teammates",
-    Value = false,
-    Callback = function(v)
-        State.AutoUnhookTeam = v
-        if v then Features.AutoUnhookTeam() end
-    end,
-})
-
-Tabs.Survival:Toggle({
-    Title = "Auto Wiggle (Escape Carry)",
-    Desc  = "Auto-wiggle when being carried",
-    Value = false,
-    Callback = function(v)
-        State.AutoWiggle = v
-        if v then Features.AutoWiggle() end
-    end,
-})
-
-Tabs.Survival:Section({ Title = "Utility" })
-
-Tabs.Survival:Toggle({
-    Title = "Infinite Sprint",
-    Desc  = "Continuously trigger sprint",
-    Value = false,
-    Callback = function(v)
-        State.InfiniteSprint = v
-        if v then Features.InfiniteSprint() end
-    end,
-})
-
-Tabs.Survival:Toggle({
-    Title = "Anti-AFK",
-    Desc  = "Prevents idle disconnect",
+Tabs.Awareness:Toggle({
+    Title = "Generator Done Notify",
     Value = true,
-    Callback = function(v) State.AntiAFK = v end,
+    Callback = function(v) State.GenDoneNotify = v end,
+})
+
+Tabs.Awareness:Toggle({
+    Title = "All Gens Done Notify",
+    Desc  = "Big alert when escape opens",
+    Value = true,
+    Callback = function(v) State.AllGensNotify = v end,
+})
+
+Tabs.Awareness:Toggle({
+    Title = "Hook Notify",
+    Desc  = "Alert when someone gets hooked",
+    Value = true,
+    Callback = function(v) State.HookNotify = v end,
+})
+
+Tabs.Awareness:Toggle({
+    Title = "Death Notify",
+    Value = true,
+    Callback = function(v) State.DeathNotify = v end,
+})
+
+Tabs.Awareness:Toggle({
+    Title = "Last Survivor Notify",
+    Value = true,
+    Callback = function(v) State.OneLeftNotify = v end,
 })
 
 --═══════════════════════════════════════════════════════════════
@@ -1043,14 +904,14 @@ Tabs.ESP:Section({ Title = "Players" })
 
 Tabs.ESP:Toggle({
     Title = "Killer ESP",
-    Desc  = "Highlight killer with distance",
+    Desc  = "Red highlight on killer",
     Value = false,
     Callback = function(v) State.ESP_Killer = v; ESP.RefreshAll() end,
 })
 
 Tabs.ESP:Toggle({
     Title = "Survivor ESP",
-    Desc  = "Highlight teammates (filters fake characters)",
+    Desc  = "Blue highlight on teammates",
     Value = false,
     Callback = function(v) State.ESP_Survivors = v; ESP.RefreshAll() end,
 })
@@ -1059,46 +920,53 @@ Tabs.ESP:Section({ Title = "Objectives" })
 
 Tabs.ESP:Toggle({
     Title = "Generator ESP",
-    Desc  = "Show generators with progress",
+    Desc  = "Show all generators",
     Value = false,
     Callback = function(v) State.ESP_Generators = v; ESP.RefreshAll() end,
 })
 
-Tabs.ESP:Toggle({
-    Title = "Exit ESP",
-    Desc  = "Show exit gates",
-    Value = false,
-    Callback = function(v) State.ESP_Exits = v; ESP.RefreshAll() end,
-})
-
-Tabs.ESP:Toggle({
-    Title = "Hook ESP",
-    Desc  = "Show hook locations",
-    Value = false,
-    Callback = function(v) State.ESP_Hooks = v; ESP.RefreshAll() end,
-})
+Tabs.ESP:Section({ Title = "Items & Weapons" })
 
 Tabs.ESP:Toggle({
     Title = "Item ESP",
-    Desc  = "Show ground items and weapons",
+    Desc  = "Show ground items",
     Value = false,
     Callback = function(v) State.ESP_Items = v; ESP.RefreshAll() end,
 })
 
-Tabs.ESP:Section({ Title = "Alerts" })
-
 Tabs.ESP:Toggle({
-    Title = "Chase Music Alert",
-    Desc  = "Notify when chase music plays",
+    Title = "Weapon ESP",
+    Desc  = "Show weapons",
     Value = false,
-    Callback = function(v) State.ChaseAlert = v end,
+    Callback = function(v) State.ESP_Weapons = v; ESP.RefreshAll() end,
 })
 
 Tabs.ESP:Toggle({
-    Title = "Attack Alert (Lunge/Scourge)",
-    Desc  = "Notify when killer attacks",
+    Title = "Clone ESP",
+    Desc  = "Show shadow clones",
     Value = false,
-    Callback = function(v) State.AttackAlert = v end,
+    Callback = function(v) State.ESP_Clones = v; ESP.RefreshAll() end,
+})
+
+Tabs.ESP:Section({ Title = "Settings" })
+
+Tabs.ESP:Slider({
+    Title = "Max Distance",
+    Value = { Min = 50, Max = 2000, Default = 500 },
+    Callback = function(v)
+        State.ESP_MaxDistance = v
+        for _, bb in ipairs(State.ESPObjects) do
+            if bb.Parent then bb.MaxDistance = v end
+        end
+    end,
+})
+
+Tabs.ESP:Button({
+    Title = "Refresh ESP",
+    Callback = function()
+        ESP.RefreshAll()
+        Util.Notify("ESP", "Refreshed", 2)
+    end,
 })
 
 --═══════════════════════════════════════════════════════════════
@@ -1111,7 +979,7 @@ Tabs.Movement:Slider({
     Value = { Min = 16, Max = 100, Default = 16 },
     Callback = function(v)
         State.WalkSpeed = v
-        Features.ApplyWalkSpeed()
+        Movement.ApplyWalkSpeed()
     end,
 })
 
@@ -1120,7 +988,7 @@ Tabs.Movement:Slider({
     Value = { Min = 50, Max = 200, Default = 50 },
     Callback = function(v)
         State.JumpPower = v
-        Features.ApplyJumpPower()
+        Movement.ApplyJumpPower()
     end,
 })
 
@@ -1128,11 +996,21 @@ Tabs.Movement:Section({ Title = "Advanced" })
 
 Tabs.Movement:Toggle({
     Title = "NoClip",
-    Desc  = "Walk through walls (risky)",
+    Desc  = "Walk through walls",
     Value = false,
     Callback = function(v)
         State.NoClip = v
-        if v then Features.NoClip() end
+        Movement.SetNoClip(v)
+    end,
+})
+
+Tabs.Movement:Toggle({
+    Title = "Infinite Jump",
+    Desc  = "Jump mid-air",
+    Value = false,
+    Callback = function(v)
+        State.InfJump = v
+        Movement.SetInfJump(v)
     end,
 })
 
@@ -1140,42 +1018,41 @@ Tabs.Movement:Section({ Title = "Teleport" })
 
 Tabs.Movement:Button({
     Title = "Teleport to Nearest Generator",
-    Desc  = "Requires Interactables scan",
-    Callback = function()
-        Util.Notify("Teleport", "Feature awaiting Interactables verification", 3)
-    end,
+    Callback = Movement.TeleportToNearestGenerator,
+})
+
+local selectedPlayer = ""
+Tabs.Movement:Dropdown({
+    Title = "Select Player",
+    Values = (function()
+        local names = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then table.insert(names, p.Name) end
+        end
+        return names
+    end)(),
+    Callback = function(v) selectedPlayer = v end,
 })
 
 Tabs.Movement:Button({
-    Title = "Teleport to Nearest Exit",
-    Desc  = "Requires Interactables scan",
+    Title = "Teleport to Selected Player",
     Callback = function()
-        Util.Notify("Teleport", "Feature awaiting Interactables verification", 3)
+        if selectedPlayer ~= "" then Movement.TeleportToPlayer(selectedPlayer) end
     end,
-})
-
---═══════════════════════════════════════════════════════════════
--- EVENTS TAB
---═══════════════════════════════════════════════════════════════
-Tabs.Events:Section({ Title = "Seasonal" })
-
-Tabs.Events:Toggle({
-    Title = "Auto Collect Christmas Gifts",
-    Desc  = "Auto-collect event gifts",
-    Value = false,
-    Callback = function(v) State.AutoGifts = v end,
-})
-
-Tabs.Events:Toggle({
-    Title = "Auto Claim Medal Quests",
-    Desc  = "Auto-claim completed medals",
-    Value = false,
-    Callback = function(v) State.AutoMedals = v end,
 })
 
 --═══════════════════════════════════════════════════════════════
 -- SETTINGS TAB
 --═══════════════════════════════════════════════════════════════
+Tabs.Settings:Section({ Title = "Anti-AFK" })
+
+Tabs.Settings:Toggle({
+    Title = "Anti-AFK",
+    Desc  = "Prevent idle disconnect",
+    Value = true,
+    Callback = function(v) State.AntiAFK = v end,
+})
+
 Tabs.Settings:Section({ Title = "Theme" })
 
 Tabs.Settings:Dropdown({
@@ -1196,7 +1073,7 @@ Tabs.Settings:Button({
     Callback = function()
         if ConfigMgr then
             ConfigMgr:Save()
-            Util.Notify("Config", "Configuration saved", 3)
+            Util.Notify("Config", "Saved", 3)
         end
     end,
 })
@@ -1206,7 +1083,7 @@ Tabs.Settings:Button({
     Callback = function()
         if ConfigMgr then
             ConfigMgr:Load()
-            Util.Notify("Config", "Configuration loaded", 3)
+            Util.Notify("Config", "Loaded", 3)
         end
     end,
 })
@@ -1222,14 +1099,17 @@ Tabs.Settings:Keybind({
 })
 
 Tabs.Settings:Keybind({
-    Title = "Panic (Disable All)",
+    Title = "Panic Disable ESP",
     Value = "End",
     Callback = function()
-        for k, v in pairs(State) do
-            if type(v) == "boolean" then State[k] = false end
-        end
+        State.ESP_Killer = false
+        State.ESP_Survivors = false
+        State.ESP_Generators = false
+        State.ESP_Items = false
+        State.ESP_Weapons = false
+        State.ESP_Clones = false
         Util.CleanupESP()
-        Util.Notify("PANIC", "All features disabled", 3)
+        Util.Notify("PANIC", "All ESP disabled", 3)
     end,
 })
 
@@ -1246,6 +1126,8 @@ Tabs.Settings:Button({
         for _, conn in ipairs(State.Connections) do
             pcall(function() conn:Disconnect() end)
         end
+        if State.NoClipConn then State.NoClipConn:Disconnect() end
+        if State.InfJumpConn then State.InfJumpConn:Disconnect() end
         Util.CleanupESP()
         if Launcher.Gui then Launcher.Gui:Destroy() end
         Window:Destroy()
@@ -1255,19 +1137,14 @@ Tabs.Settings:Button({
 --═══════════════════════════════════════════════════════════════
 -- INITIALIZATION
 --═══════════════════════════════════════════════════════════════
-Features.SetupSkillCheck()
-Features.SetupChaseAlert()
-Features.SetupAttackAlert()
-Features.SetupKillerDetection()
-Features.SetupMatchState()
-Features.AutoParry()
-Features.AntiAFK()
+Awareness.Setup()
 
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
-    Features.ApplyWalkSpeed()
-    Features.ApplyJumpPower()
+    Movement.ApplyWalkSpeed()
+    Movement.ApplyJumpPower()
+    if State.NoClip then Movement.SetNoClip(true) end
 end)
 
-Util.Notify(HUB.Name, "Hub loaded successfully - v" .. HUB.Version, 5)
-print("[X0DEC04T] Hub loaded. Feature args require Remote Spy verification.")
+Util.Notify(HUB.Name, "Loaded v" .. HUB.Version, 5)
+print("[X0DEC04T] Production hub loaded")
