@@ -1,5 +1,3 @@
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
-
 local Services = {
     Players = game:GetService("Players"),
     RunService = game:GetService("RunService"),
@@ -15,6 +13,30 @@ local Services = {
 }
 
 local LocalPlayer = Services.Players.LocalPlayer
+
+local function LoadWindUI()
+    local urls = {
+        "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
+        "https://raw.githubusercontent.com/Footagesus/WindUI/main/main.lua"
+    }
+    for _, url in ipairs(urls) do
+        local ok, result = pcall(function()
+            return loadstring(game:HttpGet(url, true))()
+        end)
+        if ok and result then
+            return result
+        else
+            warn("[X0DEC04T] Failed loading WindUI from: " .. url)
+        end
+    end
+    return nil
+end
+
+local WindUI = LoadWindUI()
+
+if not WindUI then
+    error("[X0DEC04T Hub] Could not load WindUI from any source. Check your internet connection or executor HTTP support.")
+end
 
 local ScriptData = {
     Connections = {},
@@ -309,7 +331,7 @@ SafeCall(function()
     Window = WindUI:CreateWindow({
         Title = "X0DEC04T Hub",
         SubTitle = "Grow a Garden 2",
-        Icon = "sprout",
+        Icon = "rbxassetid://10734950",
         Author = "X0DEC04T",
         Folder = "X0DEC04THub",
         Size = UDim2.fromOffset(580, 460),
@@ -320,7 +342,7 @@ SafeCall(function()
 end)
 
 if not Window then
-    error("[X0DEC04T Hub] Failed to create WindUI window. Check the WindUI loadstring URL.")
+    error("[X0DEC04T Hub] Failed to create WindUI window.")
 end
 
 task.wait(0.2)
@@ -386,12 +408,14 @@ local function CreateMinimizeButton()
     stroke.Parent = button
 
     local dragging, dragStart, startPos = false, nil, nil
+    local clickStartTime = 0
 
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = button.Position
+            clickStartTime = tick()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
@@ -405,13 +429,6 @@ local function CreateMinimizeButton()
         end
     end)
 
-    local clickStartTime = 0
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            clickStartTime = tick()
-        end
-    end)
-
     button.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             if tick() - clickStartTime < 0.3 then
@@ -419,10 +436,9 @@ local function CreateMinimizeButton()
                 if ScriptData.WindUIGui then
                     ScriptData.WindUIGui.Enabled = ScriptData.UIVisible
                 end
-                local tween = Services.TweenService:Create(button, TweenInfo.new(0.3), {
+                Services.TweenService:Create(button, TweenInfo.new(0.3), {
                     Rotation = ScriptData.UIVisible and 0 or 180
-                })
-                tween:Play()
+                }):Play()
             end
         end
     end)
@@ -441,13 +457,13 @@ CreateMinimizeButton()
 
 local MainTab, PlayerTab, TeleportTab, VisualTab, MiscTab, SettingsTab, CreditsTab
 
-SafeCall(function() MainTab = Window:Tab({ Title = "Main", Icon = "sprout" }) end)
-SafeCall(function() PlayerTab = Window:Tab({ Title = "Player", Icon = "user" }) end)
-SafeCall(function() TeleportTab = Window:Tab({ Title = "Teleport", Icon = "map-pin" }) end)
-SafeCall(function() VisualTab = Window:Tab({ Title = "Visual", Icon = "eye" }) end)
-SafeCall(function() MiscTab = Window:Tab({ Title = "Misc", Icon = "wrench" }) end)
-SafeCall(function() SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings" }) end)
-SafeCall(function() CreditsTab = Window:Tab({ Title = "Credits", Icon = "info" }) end)
+SafeCall(function() MainTab = Window:Tab({ Title = "Main", Icon = "rbxassetid://10734950" }) end)
+SafeCall(function() PlayerTab = Window:Tab({ Title = "Player", Icon = "rbxassetid://10747372" }) end)
+SafeCall(function() TeleportTab = Window:Tab({ Title = "Teleport", Icon = "rbxassetid://10723407" }) end)
+SafeCall(function() VisualTab = Window:Tab({ Title = "Visual", Icon = "rbxassetid://10734896" }) end)
+SafeCall(function() MiscTab = Window:Tab({ Title = "Misc", Icon = "rbxassetid://10734949" }) end)
+SafeCall(function() SettingsTab = Window:Tab({ Title = "Settings", Icon = "rbxassetid://10734952" }) end)
+SafeCall(function() CreditsTab = Window:Tab({ Title = "Credits", Icon = "rbxassetid://10747373" }) end)
 
 if MainTab then
     SafeCall(function() MainTab:Section({ Title = "Farming Features" }) end)
@@ -1176,15 +1192,13 @@ if TeleportTab then
     end)
 
     SafeCall(function()
+        local names = {}
+        for _, p in ipairs(Services.Players:GetPlayers()) do
+            if p ~= LocalPlayer then table.insert(names, p.Name) end
+        end
         TeleportTab:Dropdown({
             Title = "Or Select Player",
-            Values = (function()
-                local names = {}
-                for _, p in ipairs(Services.Players:GetPlayers()) do
-                    if p ~= LocalPlayer then table.insert(names, p.Name) end
-                end
-                return names
-            end)(),
+            Values = names,
             Callback = function(value)
                 selectedPlayerName = value
             end
@@ -1195,7 +1209,7 @@ if TeleportTab then
         TeleportTab:Button({
             Title = "Refresh Player List",
             Callback = function()
-                Notify("Info", "Re-run script or retype player name to refresh list", 3)
+                Notify("Info", "Re-run script or type player name manually to refresh", 3)
             end
         })
     end)
@@ -1536,6 +1550,21 @@ if SettingsTab then
     end)
 
     SafeCall(function()
+        SettingsTab:Button({
+            Title = "Delete Config",
+            Callback = function()
+                local fileName = "X0DEC04T_GAG2_" .. profileName .. ".json"
+                if isfile and isfile(fileName) and delfile then
+                    delfile(fileName)
+                    Notify("Success", "Config deleted: " .. profileName, 2)
+                else
+                    Notify("Error", "Config not found", 3)
+                end
+            end
+        })
+    end)
+
+    SafeCall(function()
         SettingsTab:Toggle({
             Title = "Auto Save Config",
             Default = false,
@@ -1582,6 +1611,23 @@ if SettingsTab then
             Value = { Min = 0, Max = 1, Default = 0 },
             Callback = function(value)
                 ScriptData.Config.Settings.Transparency = value
+            end
+        })
+    end)
+
+    SafeCall(function()
+        SettingsTab:Keybind({
+            Title = "Toggle UI Key",
+            Default = Enum.KeyCode.RightControl,
+            Callback = function(key)
+                AddConnection("ToggleUIKeybind", Services.UserInputService.InputBegan:Connect(function(input, processed)
+                    if not processed and input.KeyCode == key then
+                        ScriptData.UIVisible = not ScriptData.UIVisible
+                        if ScriptData.WindUIGui then
+                            ScriptData.WindUIGui.Enabled = ScriptData.UIVisible
+                        end
+                    end
+                end))
             end
         })
     end)
