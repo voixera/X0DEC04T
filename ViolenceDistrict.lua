@@ -1480,67 +1480,107 @@ Tabs.Misc:Button({
 })
 
 --═══════════════════════════════════════════════════════════════
--- SETTINGS TAB
+-- SETTINGS TAB (FIXED)
 --═══════════════════════════════════════════════════════════════
 Tabs.Settings:Section({ Title = "Anti-AFK" })
-Tabs.Settings:Toggle({ Title = "Anti-AFK", Desc = "Prevent idle disconnect", Value = true, Callback = function(v) State.AntiAFK = v end })
+
+Tabs.Settings:Toggle({
+    Title = "Anti-AFK",
+    Desc  = "Prevent idle disconnect",
+    Value = true,
+    Callback = function(v) State.AntiAFK = v end,
+})
 
 Tabs.Settings:Section({ Title = "Theme" })
+
 Tabs.Settings:Dropdown({
     Title  = "Theme",
     Values = { "Dark", "Light", "Rose", "Blood", "Midnight" },
     Value  = "Dark",
-    Callback = function(v) pcall(function() WindUI:SetTheme(v) end) end,
+    Callback = function(v)
+        pcall(function() WindUI:SetTheme(v) end)
+    end,
 })
 
 Tabs.Settings:Section({ Title = "Config" })
-local ConfigMgr = Window.ConfigManager and Window.ConfigManager:CreateConfig("default")
+
+-- Safely attempt to create config manager
+local ConfigMgr = nil
+pcall(function()
+    if Window.ConfigManager then
+        ConfigMgr = Window.ConfigManager:CreateConfig("default")
+    end
+end)
+
 Tabs.Settings:Button({
     Title = "Save Config",
-    Callback = function() if ConfigMgr then ConfigMgr:Save(); Util.Notify("Config", "Saved", 3) end end,
+    Callback = function()
+        if ConfigMgr then
+            pcall(function() ConfigMgr:Save() end)
+            Util.Notify("Config", "Saved", 3)
+        else
+            Util.Notify("Config", "ConfigManager not available", 3)
+        end
+    end,
 })
+
 Tabs.Settings:Button({
     Title = "Load Config",
-    Callback = function() if ConfigMgr then ConfigMgr:Load(); Util.Notify("Config", "Loaded", 3) end end,
+    Callback = function()
+        if ConfigMgr then
+            pcall(function() ConfigMgr:Load() end)
+            Util.Notify("Config", "Loaded", 3)
+        else
+            Util.Notify("Config", "ConfigManager not available", 3)
+        end
+    end,
 })
 
 Tabs.Settings:Section({ Title = "Keybinds" })
+
 Tabs.Settings:Keybind({
     Title = "Toggle UI",
     Value = "RightShift",
-    Callback = function() pcall(function() Window:Toggle() end) end,
+    Callback = function()
+        pcall(function() Window:Toggle() end)
+    end,
 })
+
 Tabs.Settings:Keybind({
     Title = "Panic Disable ESP",
     Value = "End",
     Callback = function()
-        State.ESP_Killer = false
-        State.ESP_Survivors = false
+        State.ESP_Killer     = false
+        State.ESP_Survivors  = false
         State.ESP_Generators = false
-        State.ESP_Items = false
-        State.ESP_Weapons = false
-        State.ESP_Clones = false
+        State.ESP_Items      = false
+        State.ESP_Weapons    = false
+        State.ESP_Clones     = false
         ESP.ClearAll()
         Util.Notify("PANIC", "All ESP disabled", 3)
     end,
 })
 
 Tabs.Settings:Section({ Title = "Info" })
+
 Tabs.Settings:Paragraph({
     Title = "Credits",
     Desc  = "Created by " .. HUB.Author .. "\nVersion " .. HUB.Version .. "\nGame: " .. HUB.Game,
 })
+
 Tabs.Settings:Button({
     Title = "Unload Hub",
     Callback = function()
-        for _, conn in ipairs(State.Connections) do pcall(function() conn:Disconnect() end) end
-        if State.NoClipConn then State.NoClipConn:Disconnect() end
-        if State.InfJumpConn then State.InfJumpConn:Disconnect() end
-        if State.FreecamConn then State.FreecamConn:Disconnect() end
+        for _, conn in ipairs(State.Connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        if State.NoClipConn  then pcall(function() State.NoClipConn:Disconnect()  end) end
+        if State.InfJumpConn then pcall(function() State.InfJumpConn:Disconnect() end) end
+        if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end) end
         for k, v in pairs(State.LightingBackup) do pcall(function() Lighting[k] = v end) end
         ESP.ClearAll()
-        if Launcher.Gui then Launcher.Gui:Destroy() end
-        Window:Destroy()
+        if Launcher.Gui then pcall(function() Launcher.Gui:Destroy() end) end
+        pcall(function() Window:Destroy() end)
     end,
 })
 
