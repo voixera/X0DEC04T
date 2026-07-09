@@ -1,6 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v4.0.9 - Anti-Cheat Neutralized
--- Kills ClientModules.AntiCheatController + hooks AntiTp remote
+-- X0DEC04T Hub v4.1.0 - No anchor (fixes VehicleController spam)
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -21,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v409"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v410"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -29,7 +28,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v4.0.9 AC NEUTRAL...")
+Log("Starting v4.1.0...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -48,33 +47,24 @@ local ok, err = pcall(function()
 end)
 if not ok or not WindUI then warn("[X0DEC04T] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Version="4.0.9" }
+local HUB = { Name="X0DEC04T Hub", Version="4.1.0" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
 function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Disconnect() end) end; self._list={} end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTI-CHEAT NEUTRALIZATION (based on diagnostic)
+-- ANTI-CHEAT NEUTRALIZATION
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local ACNeutral = {
-    hooked = false,
-    origRollback = nil,
-    killedModules = {},
-    rollbackConn = nil,
-    lastKnownGoodCF = nil,
-}
+local ACNeutral = { hooked=false, killedModules={}, rollbackConn=nil }
 
--- Block ApplyRollbackCFrame from server hitting our client
 local function HookRollback()
     local rf = ReplicatedStorage:FindFirstChild("__remotes")
     if not rf then return end
     local antiTp = rf:FindFirstChild("AntiTp")
     if not antiTp then return end
     local rb = antiTp:FindFirstChild("ApplyRollbackCFrame")
-    if not rb then Log("[ACN] ApplyRollbackCFrame not found"); return end
-    
-    -- Method 1: Hook OnClientEvent by disconnecting all listeners
+    if not rb then return end
     if getconnections then
         local conns = getconnections(rb.OnClientEvent)
         for _, conn in ipairs(conns) do
@@ -83,40 +73,32 @@ local function HookRollback()
         end
         Log("[ACN] Killed "..#conns.." rollback listeners")
     end
-    
-    -- Method 2: connect an eater that runs first (any new listener too)
+    if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end) end
     ACNeutral.rollbackConn = rb.OnClientEvent:Connect(function(...)
-        Log("[ACN] BLOCKED rollback attempt: "..tostring((...)))
+        Log("[ACN] BLOCKED rollback")
     end)
-    
-    -- Method 3: hook FireServer to prevent client-initiated rollback reports
-    if hookmetamethod then
+    if hookmetamethod and not ACNeutral.hooked then
         pcall(function()
-            if not ACNeutral.hooked then
-                local oldNamecall
-                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                    local method = getnamecallmethod()
-                    if (method == "FireServer" or method == "InvokeServer") and self then
-                        local n = self.Name or ""
-                        local nl = n:lower()
-                        -- Block calls that report position violations
-                        if nl:find("rollback") or nl:find("antitp") or nl:find("teleportdet") then
-                            Log("[ACN] BLOCKED outgoing: "..method.." "..n)
-                            return nil
-                        end
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod()
+                if (method == "FireServer" or method == "InvokeServer") and self then
+                    local n = self.Name or ""
+                    local nl = n:lower()
+                    if nl:find("rollback") or nl:find("antitp") or nl:find("teleportdet") then
+                        Log("[ACN] BLOCKED outgoing: "..method.." "..n)
+                        return nil
                     end
-                    return oldNamecall(self, ...)
-                end)
-                ACNeutral.hooked = true
-                Log("[ACN] Metamethod hooked")
-            end
+                end
+                return oldNamecall(self, ...)
+            end)
+            ACNeutral.hooked = true
+            Log("[ACN] Metamethod hooked")
         end)
     end
 end
 
--- Kill client AntiCheatController module (loaded once, running)
 local function KillClientAC()
-    -- Try to find the running module in PlayerScripts
     local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
     if scripts then
         for _, obj in ipairs(scripts:GetDescendants()) do
@@ -124,68 +106,25 @@ local function KillClientAC()
                 local n = obj.Name:lower()
                 if n:find("anticheat") or n:find("antitp") or n:find("antifly") or n:find("antinoclip") then
                     pcall(function() obj:Destroy() end)
-                    Log("[ACN] Destroyed player script: "..obj.Name)
+                    Log("[ACN] Destroyed: "..obj.Name)
                 end
             end
-        end
-    end
-    
-    -- Try to disable via require replacement (some AC modules cache themselves in _G)
-    for k, v in pairs(getgenv and getgenv() or {}) do
-        if type(k) == "string" and (k:lower():find("anticheat") or k:lower():find("antitp")) then
-            pcall(function() getgenv()[k] = nil end)
-            Log("[ACN] Cleared getgenv: "..k)
-        end
-    end
-    
-    -- Nuke the module scripts from ReplicatedStorage (so any :require picks up empty)
-    local paths = {
-        "ClientModules.AntiCheatController",
-        "SharedModules.AntiCheatGeometry",
-        "Assets.DeveloperModules.AntiFlyDebugVisualizer",
-        "Assets.DeveloperModules.AntiNoClipDebugVisualizer",
-        "Assets.DeveloperModules.AntiTpDebugVisualizer",
-    }
-    for _, path in ipairs(paths) do
-        local c = ReplicatedStorage
-        for seg in string.gmatch(path, "[^%.]+") do
-            if c then c = c:FindFirstChild(seg) end
-        end
-        if c and c:IsA("ModuleScript") then
-            -- Try to replace source (executor-dependent)
-            pcall(function()
-                if setreadonly then setreadonly(c, false) end
-            end)
-            -- Can't modify Source of ModuleScript normally, but we can prevent it from running
-            -- by wrapping via metatable if the executor supports it
-            table.insert(ACNeutral.killedModules, c)
-            Log("[ACN] Marked module: "..path)
         end
     end
 end
 
 function ACNeutral.Enable()
-    if ACNeutral.hooked then return end
     HookRollback()
     KillClientAC()
     Log("[ACN] Enabled")
 end
-
 function ACNeutral.Disable()
-    if ACNeutral.rollbackConn then
-        pcall(function() ACNeutral.rollbackConn:Disconnect() end)
-        ACNeutral.rollbackConn = nil
-    end
+    if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end); ACNeutral.rollbackConn = nil end
 end
-
--- Auto-rehook when new remotes/scripts appear
 task.spawn(function()
     while true do
         task.wait(3)
-        if ACNeutral.hooked then
-            pcall(HookRollback)
-            pcall(KillClientAC)
-        end
+        if ACNeutral.hooked then pcall(HookRollback); pcall(KillClientAC) end
     end
 end)
 
@@ -226,13 +165,14 @@ local State = {
     Smuggler_UseRemotes=true, Smuggler_AutoLaunder=true,
     Smuggler_ItemName="Fake Diamond Ring", Smuggler_SellerName="Seller",
     Smuggler_VehicleName="Tayora Cambria", 
-    Smuggler_BuyRetries=5, Smuggler_SellRetries=10, Smuggler_LaunderRetries=6,
+    Smuggler_BuyRetries=8, Smuggler_SellRetries=10, Smuggler_LaunderRetries=6,
     Smuggler_Delay=1, Smuggler_DebugMode=true,
     Smuggler_AutoEquip=true, Smuggler_EquipAll=true,
-    Smuggler_RemoveTires=true, Smuggler_SpawnCar=true, Smuggler_CurrentCar=nil,
-    Smuggler_TweenSpeed=80, -- slower default (looks more natural to server)
+    Smuggler_RemoveTires=false, Smuggler_SpawnCar=true, Smuggler_CurrentCar=nil,
+    Smuggler_TweenSpeed=80,
     Smuggler_CarNoClip=true,
-    Smuggler_YOffset=5, -- how high above target to place car (avoid ground clip)
+    Smuggler_YOffset=5,
+    Smuggler_MaxInventory=5,
     ACNeutralEnabled=true,
     TPStrategy="Instant", TweenSpeed=200, TweenNoclip=true,
     SafeLanding=true, NoFallDamage=true,
@@ -282,7 +222,7 @@ local function IsSeatedIn(car)
     return false
 end
 
---━ FALL GUARD (enhanced - forces GettingUp)
+--━ FALL GUARD
 local FallGuard = { conns={} }
 local function ClearFG() for _,c in ipairs(FallGuard.conns) do pcall(function() c:Disconnect() end) end; FallGuard.conns={} end
 function FallGuard.Enable()
@@ -299,11 +239,9 @@ function FallGuard.Enable()
         h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
     end)
-    -- Also monkey-patch TakeDamage to prevent fall damage
     local c2 = h.HealthChanged:Connect(function(newH)
         if not State.NoFallDamage then return end
         if newH < h.MaxHealth then
-            -- Detect sudden drop -> restore
             pcall(function() h.Health = h.MaxHealth end)
         end
     end)
@@ -353,9 +291,9 @@ end
 function SmartTP.Go(pos, yOff) return SmartTP.TweenFoot(pos, yOff) end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CAR TWEEN + NOCLIP (with AC neutralization active)
+-- CAR TWEEN (no anchor - fixes VehicleController errors)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local ActiveCarTween = { tween=nil, holdConn=nil, noclipConn=nil, savedCollide={}, savedAnchor={} }
+local ActiveCarTween = { tween=nil, holdConn=nil, noclipConn=nil, savedCollide={} }
 
 local function StopCarTween()
     if ActiveCarTween.tween then pcall(function() ActiveCarTween.tween:Cancel() end); ActiveCarTween.tween = nil end
@@ -365,25 +303,17 @@ local function StopCarTween()
         if part and part.Parent then pcall(function() part.CanCollide = orig end) end
     end
     ActiveCarTween.savedCollide = {}
-    for part, orig in pairs(ActiveCarTween.savedAnchor) do
-        if part and part.Parent then pcall(function() part.Anchored = orig end) end
-    end
-    ActiveCarTween.savedAnchor = {}
 end
 
-local function ApplyCarNoClipAndAnchor(car)
+local function ApplyCarNoClip(car)
     if not car then return end
+    -- ONLY set CanCollide=false, NEVER anchor (breaks VehicleController)
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
             if ActiveCarTween.savedCollide[p] == nil then
                 ActiveCarTween.savedCollide[p] = p.CanCollide
-                ActiveCarTween.savedAnchor[p] = p.Anchored
             end
-            pcall(function() 
-                p.CanCollide = false
-                -- Anchor non-primary parts to prevent physics from tearing car apart during tween
-                if p ~= car.PrimaryPart then p.Anchored = true end
-            end)
+            pcall(function() p.CanCollide = false end)
         end
     end
     local ch = GetChar()
@@ -408,22 +338,17 @@ function SmartTP.CarTweenTo(car, targetPos)
         pcall(function() car.PrimaryPart = root end)
     end
     StopCarTween()
-    
-    -- Ensure AC is neutralized
     if State.ACNeutralEnabled then ACNeutral.Enable() end
 
-    -- Y offset above target (avoids clipping into ground/objects)
     local yOff = State.Smuggler_YOffset or 5
     local finalPos = Vector3.new(targetPos.X, targetPos.Y + yOff, targetPos.Z)
 
-    -- Face car toward target
     local faceDir = Vector3.new(targetPos.X, finalPos.Y, targetPos.Z) - finalPos
     local yaw = 0
     if faceDir.Magnitude > 0.1 then
         local u = faceDir.Unit
         yaw = math.atan2(-u.X, -u.Z)
     end
-    -- Fallback: keep car's current yaw (avoid Y=0 issue)
     if math.abs(faceDir.Magnitude) < 0.1 then
         local _, cy, _ = root.CFrame:ToEulerAnglesYXZ()
         yaw = cy
@@ -436,16 +361,13 @@ function SmartTP.CarTweenTo(car, targetPos)
 
     Log(string.format("[CarTween] %.0f studs in %.2fs to Y=%.1f", totalDist, dur, finalPos.Y))
 
-    -- Apply noclip + anchor non-primary parts
     if State.Smuggler_CarNoClip then
-        ApplyCarNoClipAndAnchor(car)
-        -- Keep enforcing
+        ApplyCarNoClip(car)
         ActiveCarTween.noclipConn = RunService.Stepped:Connect(function()
             if not car.Parent then return end
             for _, p in ipairs(car:GetDescendants()) do
                 if p:IsA("BasePart") then
                     pcall(function() p.CanCollide = false end)
-                    if p ~= car.PrimaryPart then pcall(function() p.Anchored = true end) end
                 end
             end
             local ch = GetChar()
@@ -457,7 +379,6 @@ function SmartTP.CarTweenTo(car, targetPos)
         end)
     end
 
-    -- Zero velocities every frame
     ActiveCarTween.holdConn = RunService.Heartbeat:Connect(function()
         if not car.Parent then return end
         for _,p in ipairs(car:GetDescendants()) do
@@ -470,7 +391,6 @@ function SmartTP.CarTweenTo(car, targetPos)
         end
     end)
 
-    -- Tween the PrimaryPart CFrame
     local tw
     local okC = pcall(function()
         tw = TweenService:Create(root, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {CFrame = targetCF})
@@ -498,15 +418,6 @@ function SmartTP.CarTweenTo(car, targetPos)
             StopCarTween()
             return false
         end
-        -- Detect rollback attempt: if car suddenly far from expected, reforce it
-        if ActiveCarTween.tween then
-            local expected = targetCF.Position
-            local actual = root.Position
-            local elapsed = tick() - t0
-            local progress = math.min(1, elapsed / dur)
-            local expectedNow = root.Position:Lerp(expected, progress)
-            -- (Just log for now, tween re-enforces itself)
-        end
         task.wait(0.05)
     end
     if completeConn then pcall(function() completeConn:Disconnect() end) end
@@ -517,7 +428,7 @@ function SmartTP.CarTweenTo(car, targetPos)
     end)
     task.wait(0.15)
     StopCarTween()
-    Log("[CarTween] Done at "..tostring(root.Position))
+    Log("[CarTween] Done")
     return true
 end
 
@@ -720,6 +631,14 @@ function Smuggler.EquipTool(tn)
     if ch:FindFirstChild(tn) then return end
     local t=bp:FindFirstChild(tn); if t then local h=GetHuman(); if h then pcall(function() h:EquipTool(t) end); task.wait(0.3) end end
 end
+function Smuggler.CountInventory(itemName)
+    local count = 0
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = GetChar()
+    if bp then for _,t in ipairs(bp:GetChildren()) do if t:IsA("Tool") and t.Name == itemName then count = count + 1 end end end
+    if ch then for _,t in ipairs(ch:GetChildren()) do if t:IsA("Tool") and t.Name == itemName then count = count + 1 end end end
+    return count
+end
 function Smuggler.GetBuyPrompt()
     if not BRP_PATHS.WorldBuyableItems then return end
     local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(State.Smuggler_ItemName); if not item then return end
@@ -863,6 +782,36 @@ function Smuggler.SitInCar(car)
     return false
 end
 
+function Smuggler.RemoveTires(car)
+    if not car then return end
+    local removed = 0
+    local protectedNames = {"siren","light","engine","body","chassis","seat","handle","door","hood","trunk","bumper","mirror","window","fender"}
+    for _, obj in ipairs(car:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local n = obj.Name:lower()
+            local isWheel = (n == "wheel" or n == "tire" or n == "tyre" 
+                or n:match("^wheel[_%d]") or n:match("^tire[_%d]") or n:match("^tyre[_%d]"))
+            if isWheel then
+                local safe = true
+                local p = obj.Parent
+                while p and p ~= car do
+                    local pn = p.Name:lower()
+                    for _, prot in ipairs(protectedNames) do
+                        if pn:find(prot) then safe = false; break end
+                    end
+                    if not safe then break end
+                    p = p.Parent
+                end
+                if safe then
+                    pcall(function() obj:Destroy() end)
+                    removed = removed + 1
+                end
+            end
+        end
+    end
+    Log("[Tires] Removed " .. removed)
+end
+
 function Smuggler.DriveAndBuy(car)
     Log("[3] Drive→Buy " .. State.Smuggler_ItemName)
     local prompt, item = Smuggler.GetBuyPrompt()
@@ -873,9 +822,18 @@ function Smuggler.DriveAndBuy(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[3] can't sit"); return false end
     end
+    
+    local count = Smuggler.CountInventory(State.Smuggler_ItemName)
+    Log("[3] Current inventory: "..count.."/"..State.Smuggler_MaxInventory)
+    if count >= State.Smuggler_MaxInventory then
+        Log("[3] Inventory full, skipping buy")
+        return true
+    end
+    
     local ok = SmartTP.CarTweenTo(car, pos)
     if not ok then Log("[3] drive failed"); return false end
     task.wait(0.4)
+    
     for i=1, State.Smuggler_BuyRetries do
         if prompt then Smuggler.FirePrompt(prompt) end
         if BRP.PurchaseWorldItem then
@@ -885,6 +843,8 @@ function Smuggler.DriveAndBuy(car)
             end)
         end
         task.wait(0.35)
+        local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
+        if nowCount >= State.Smuggler_MaxInventory then Log("[3] Got "..nowCount..", stopping"); break end
     end
     Log("[3] Buy done")
     return true
@@ -940,19 +900,6 @@ function Smuggler.DriveAndLaunder(car)
     end
     Log("[5] Launder done")
     return true
-end
-
-function Smuggler.RemoveTires(car)
-    if not car then return end
-    local removed = 0
-    for _, obj in ipairs(car:GetDescendants()) do
-        local n = obj.Name:lower()
-        if obj:IsA("BasePart") and (n:find("wheel") or n:find("tire") or n:find("tyre")) then
-            pcall(function() obj:Destroy() end)
-            removed = removed + 1
-        end
-    end
-    Log("[Tires] Removed " .. removed)
 end
 
 function Smuggler.RunCycle()
@@ -1065,7 +1012,6 @@ CM:Add(LocalPlayer.Idled, function() if State.AntiAFK then pcall(function() Virt
 task.spawn(function() while task.wait(1) do if State.GodMode then local h=GetHuman(); if h then pcall(function() h.MaxHealth=math.huge; h.Health=math.huge end) end end end end)
 CM:Add(UserInputService.JumpRequest, function() if State.InfiniteJump then local h=GetHuman(); if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end) end end end)
 
--- Enable AC neutralization FIRST
 if State.ACNeutralEnabled then ACNeutral.Enable() end
 if State.NoFallDamage then FallGuard.Enable() end
 
@@ -1074,7 +1020,7 @@ local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="gamepad-2", Author="v"..HUB.Version, Folder="X0DEC04T",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
 })
-pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." AC neutralized", Duration=4, Icon="check"}) end)
+pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." ready", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t, Content=c, Duration=d or 4, Icon="info"}) end) end
 
 local logoGui, logoActive = nil, false
@@ -1140,7 +1086,7 @@ local Tabs = {
 Window:SelectTab(1)
 
 Tabs.Main:Section({Title="X0DEC04T Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="AC NEUTRALIZED", Desc="Hooks blocked:\n• ApplyRollbackCFrame (server → client)\n• Outgoing rollback/antitp FireServer calls\n• Client AntiCheatController scripts destroyed\n\nCar tweens without rollback → no more falling"})
+Tabs.Main:Paragraph({Title="Working!", Desc="✓ AC rollback blocked\n✓ Car tween + noclip (no anchor)\n✓ VehicleController errors fixed\n✓ Inventory cap respected (5 items)\n\nGame HUD errors are cosmetic - money still goes up!"})
 Tabs.Main:Button({Title="Re-enable AC Neutral", Callback=safeCB(function() ACNeutral.Enable(); Notify("AC","Re-neutralized") end)})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
@@ -1166,28 +1112,36 @@ Tabs.Smuggler:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(
 
 Tabs.Smuggler:Section({Title="Item"})
 Tabs.Smuggler:Dropdown({Title="Item to Buy", Values=GetBuyableItemNames(), Value="Fake Diamond Ring", Callback=safeCB(function(v) State.Smuggler_ItemName=v end)})
-Tabs.Smuggler:Slider({Title="Buy Retries", Value={Min=1,Max=10,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_BuyRetries=v end)})
+Tabs.Smuggler:Slider({Title="Max Inventory", Value={Min=1,Max=10,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_MaxInventory=v end)})
+Tabs.Smuggler:Slider({Title="Buy Retries", Value={Min=1,Max=15,Default=8}, Step=1, Callback=safeCB(function(v) State.Smuggler_BuyRetries=v end)})
+
 Tabs.Smuggler:Section({Title="Vehicle"})
 Tabs.Smuggler:Toggle({Title="Auto Spawn Car", Default=true, Callback=safeCB(function(v) State.Smuggler_SpawnCar=v end)})
-Tabs.Smuggler:Toggle({Title="Remove Tires (once)", Default=true, Callback=safeCB(function(v) State.Smuggler_RemoveTires=v end)})
+Tabs.Smuggler:Toggle({Title="Remove Tires", Default=false, Callback=safeCB(function(v) State.Smuggler_RemoveTires=v end)})
 Tabs.Smuggler:Dropdown({Title="Vehicle", Values={"Tayora Cambria","Citrion Buddy","Tayora Prion","Tayora Royal Touring","Dager Durance R/T","Mammoth Patriot","Chevran Silverline","Chevran Courier","Fjord F-450","Beamer M135X","Mammoth Trailrunner","Auvio R3S"}, Value="Tayora Cambria", Callback=safeCB(function(v) State.Smuggler_VehicleName=v end)})
 Tabs.Smuggler:Input({Title="Custom Vehicle", Placeholder="overrides", Callback=safeCB(function(v) if v~="" then State.Smuggler_VehicleName=v end end)})
+
 Tabs.Smuggler:Section({Title="TWEEN"})
 Tabs.Smuggler:Toggle({Title="Car NoClip during Tween", Default=true, Callback=safeCB(function(v) State.Smuggler_CarNoClip=v end)})
 Tabs.Smuggler:Slider({Title="Car Speed (studs/s)", Value={Min=30,Max=400,Default=80}, Step=10, Callback=safeCB(function(v) State.Smuggler_TweenSpeed=v end)})
 Tabs.Smuggler:Slider({Title="Y Offset above target", Value={Min=0,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_YOffset=v end)})
+
 Tabs.Smuggler:Section({Title="Seller"})
 Tabs.Smuggler:Dropdown({Title="Seller", Values=GetSellerNames(), Value=State.Smuggler_SellerName, Callback=safeCB(function(v) State.Smuggler_SellerName=v end)})
 Tabs.Smuggler:Slider({Title="Sell Retries", Value={Min=1,Max=20,Default=10}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellRetries=v end)})
 Tabs.Smuggler:Toggle({Title="Auto Equip", Default=true, Callback=safeCB(function(v) State.Smuggler_AutoEquip=v end)})
 Tabs.Smuggler:Toggle({Title="Equip All", Default=true, Callback=safeCB(function(v) State.Smuggler_EquipAll=v end)})
+
 Tabs.Smuggler:Section({Title="Laundry"})
 Tabs.Smuggler:Toggle({Title="Auto Launder", Default=true, Callback=safeCB(function(v) State.Smuggler_AutoLaunder=v end)})
 Tabs.Smuggler:Slider({Title="Launder Retries", Value={Min=1,Max=15,Default=6}, Step=1, Callback=safeCB(function(v) State.Smuggler_LaunderRetries=v end)})
+
 Tabs.Smuggler:Section({Title="Timing"})
 Tabs.Smuggler:Slider({Title="Cycle Delay", Value={Min=0,Max=10,Default=1}, Step=1, Callback=safeCB(function(v) State.Smuggler_Delay=v end)})
+
 Tabs.Smuggler:Section({Title="AUTO"})
 Tabs.Smuggler:Toggle({Title="Auto Loop", Default=false, Callback=safeCB(function(v) Smuggler.SetAutoLoop(v) end)})
+
 Tabs.Smuggler:Section({Title="Manual"})
 Tabs.Smuggler:Button({Title="1. Spawn Car", Callback=safeCB(Smuggler.SpawnCar)})
 Tabs.Smuggler:Button({Title="2. Sit In Car", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.SitInCar(c) end end)})
@@ -1265,4 +1219,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("v4.0.9 ready | AC neutralized: "..tostring(State.ACNeutralEnabled))
+Log("v4.1.0 ready - money-making bot!")
