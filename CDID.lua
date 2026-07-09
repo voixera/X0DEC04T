@@ -308,7 +308,7 @@ function ESP.ScanPlayers()
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 if State.ESP_Players and not State.ESPCache[hrp] then
-                    ESP.AddTarget(hrp, p.Character, "👤 " .. p.Name, State.Color_Player)
+                    ESP.AddTarget(hrp, p.Character, p.Name, State.Color_Player)
                 elseif not State.ESP_Players then
                     ESP.Clear(hrp)
                 end
@@ -323,7 +323,7 @@ function ESP.ScanCars()
         local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
         if root then
             if State.ESP_Cars and not State.ESPCache[root] then
-                ESP.AddTarget(root, car, "🚘 " .. car.Name, State.Color_Car)
+                ESP.AddTarget(root, car, car.Name, State.Color_Car)
             elseif not State.ESP_Cars then
                 ESP.Clear(root)
             end
@@ -491,11 +491,11 @@ function Car.DeleteAllCars()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 🥤 BARISTA AUTOMATION (JANJI JAWA)
+-- BARISTA AUTOMATION (JANJI JAWA)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Barista = {}
 
--- Known static positions (from your spy)
+-- Known static positions (from spy)
 local BARISTA_POS = {
     JobSelection = Vector3.new(-2707.53, 5.71, 945.41),
     CoffeeMaker  = Vector3.new(383.72,  7.15, 1334.33),  -- Starter.Part (Make Coffee)
@@ -512,7 +512,6 @@ function Barista.SetStatus(txt)
     Log("[Barista] " .. txt)
 end
 
--- Teleport player to a Vector3 position
 function Barista.TeleportTo(pos, yOffset)
     local hrp = GetHRP()
     if not hrp then return false end
@@ -521,7 +520,6 @@ function Barista.TeleportTo(pos, yOffset)
     return true
 end
 
--- Fire any proximity prompt safely (with fallback)
 function Barista.FirePrompt(prompt)
     if not prompt or not prompt.Enabled then return false end
     local ok = pcall(function()
@@ -532,7 +530,6 @@ function Barista.FirePrompt(prompt)
     return ok
 end
 
--- Find prompt matching action/object text
 function Barista.FindPromptByText(parent, action, object)
     if not parent then return nil end
     for _, v in ipairs(parent:GetDescendants()) do
@@ -548,7 +545,6 @@ function Barista.FindPromptByText(parent, action, object)
     return nil
 end
 
--- Get Job Selection prompt
 function Barista.GetJobSelectionPrompt()
     local sel = Workspace.Etc.Job:FindFirstChild("Selection")
     if sel then
@@ -557,7 +553,6 @@ function Barista.GetJobSelectionPrompt()
     return nil
 end
 
--- Get Coffee Make prompt
 function Barista.GetCoffeePrompt()
     local jj = Workspace.Etc.Job:FindFirstChild("JanjiJiwa")
     if jj then
@@ -570,7 +565,6 @@ function Barista.GetCoffeePrompt()
     return nil
 end
 
--- Get delivery prompt (on NPC customer)
 function Barista.GetDeliveryPrompt()
     local npcFolder = Workspace:FindFirstChild("NPC")
     if not npcFolder then return nil end
@@ -588,13 +582,8 @@ function Barista.GetDeliveryPrompt()
     return nil
 end
 
--- ================================
--- BARISTA STEPS
--- ================================
-
--- Step 1: Select Janji Jawa Barista job
 function Barista.SelectJob()
-    Barista.SetStatus("→ Job Selection")
+    Barista.SetStatus("Opening job selection")
     Barista.TeleportTo(BARISTA_POS.JobSelection, 3)
     task.wait(0.7)
 
@@ -607,33 +596,27 @@ function Barista.SelectJob()
     end
     task.wait(1.5)
     Barista.SetStatus("Job selector opened")
-    -- NOTE: Selecting "Janji Jawa Barista" from the UI is user-side.
-    -- Once selected once, the job persists so the loop only needs coffee/deliver.
     return true
 end
 
--- Step 2: Teleport to coffee maker
 function Barista.GoToCoffeeMaker()
-    Barista.SetStatus("→ Coffee Maker")
+    Barista.SetStatus("Moving to coffee maker")
     Barista.TeleportTo(BARISTA_POS.CoffeeMaker, 3)
     task.wait(0.5)
     return true
 end
 
--- Step 3: Make coffee (fires prompt with hold)
 function Barista.MakeCoffee()
-    Barista.SetStatus("Making coffee...")
+    Barista.SetStatus("Making coffee")
     local prompt = Barista.GetCoffeePrompt()
     if not prompt then
         Barista.SetStatus("No coffee prompt")
         return false
     end
 
-    -- Fire once (prompt may need HoldDuration handled by fireproximityprompt)
     Barista.FirePrompt(prompt)
     Log("Fired coffee prompt")
 
-    -- Wait for the coffee delay (game animation)
     local delay = tonumber(State.Barista_CoffeeDelay) or 15
     local elapsed = 0
     while elapsed < delay and State.Barista_AutoLoop do
@@ -644,11 +627,9 @@ function Barista.MakeCoffee()
     return true
 end
 
--- Step 4: Deliver to customer
 function Barista.Deliver()
-    Barista.SetStatus("Finding customer...")
+    Barista.SetStatus("Finding customer")
 
-    -- Search for delivery prompt (up to 8 sec)
     local start = tick()
     local prompt, npc
     while tick() - start < 8 do
@@ -662,7 +643,6 @@ function Barista.Deliver()
         return false
     end
 
-    -- Teleport to NPC
     local hrpNPC = npc:FindFirstChild("HumanoidRootPart")
               or npc:FindFirstChildWhichIsA("BasePart")
     if hrpNPC then
@@ -673,7 +653,6 @@ function Barista.Deliver()
         end
     end
 
-    -- Fire delivery prompt
     Barista.FirePrompt(prompt)
     task.wait(0.5)
 
@@ -682,7 +661,6 @@ function Barista.Deliver()
     return true
 end
 
--- Full auto loop
 function Barista.SetAutoLoop(enable)
     State.Barista_AutoLoop = enable
     if not enable then
@@ -690,30 +668,25 @@ function Barista.SetAutoLoop(enable)
         return
     end
 
-    Barista.SetStatus("Loop starting...")
+    Barista.SetStatus("Loop starting")
 
     task.spawn(function()
-        -- Initial: Open job selection so user picks Barista once
-        Notify("Barista", "First: select Janji Jawa Barista in the UI that pops up!", 6)
+        Notify("Barista", "First: select Janji Jawa Barista in the UI that pops up", 6)
         Barista.SelectJob()
-        task.wait(4)  -- wait for user to click Barista
+        task.wait(4)
 
         while State.Barista_AutoLoop do
-            -- Step 1: Go to coffee maker
             Barista.GoToCoffeeMaker()
             task.wait(0.5)
 
             if not State.Barista_AutoLoop then break end
 
-            -- Step 2: Make coffee (waits delay)
             Barista.MakeCoffee()
             if not State.Barista_AutoLoop then break end
 
-            -- Step 3: Deliver
             Barista.Deliver()
             if not State.Barista_AutoLoop then break end
 
-            -- Small delay before next cycle
             task.wait(State.Barista_Delay)
         end
         Barista.SetStatus("Loop ended")
@@ -875,7 +848,7 @@ end end)
 local Window = Rayfield:CreateWindow({
     Name = HUB.Name .. "  v" .. HUB.Version,
     LoadingTitle = HUB.Name,
-    LoadingSubtitle = "Car Driving Indonesia • by " .. HUB.Author,
+    LoadingSubtitle = "Car Driving Indonesia - by " .. HUB.Author,
     Theme = "Default",
     DisableRayfieldPrompts = true,
     DisableBuildWarnings = true,
@@ -900,7 +873,6 @@ for _, def in ipairs(TAB_DEFS) do
     if ok then Tabs[def.key] = tab end
 end
 
--- Element helpers
 local function Sec(t,n) if t then pcall(function() t:CreateSection(n) end) end end
 local function Tog(t,c) if t then pcall(function() t:CreateToggle(c) end) end end
 local function Btn(t,c) if t then pcall(function() t:CreateButton(c) end) end end
@@ -922,8 +894,8 @@ if Tabs.Main then
     Lbl(T, "Remotes: " .. #RemoteDBAll)
     Lbl(T, "Cars: " .. (CDI.Cars and "OK" or "MISSING"))
     Sec(T,"Guide")
-    Lbl(T, "☕ Barista tab - Auto Janji Jawa job")
-    Lbl(T, "🚘 Car tab - speed, fly, noclip")
+    Lbl(T, "Barista tab - Auto Janji Jawa job")
+    Lbl(T, "Car tab - speed, fly, noclip")
     Lbl(T, "RightShift = Toggle UI")
     Btn(T, {Name="Dump Remotes", Callback=DumpRemotes})
 end
@@ -953,12 +925,12 @@ if Tabs.Car then
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ☕ BARISTA TAB
+-- BARISTA TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Barista then
     local T = Tabs.Barista
 
-    Sec(T, "☕ Janji Jawa Barista")
+    Sec(T, "Janji Jawa Barista")
     Lbl(T, "Auto Coffee Making & Delivery")
     Lbl(T, "Job Selection: " .. (Barista.GetJobSelectionPrompt() and "OK" or "N/A"))
     Lbl(T, "Coffee Maker: " .. (Barista.GetCoffeePrompt() and "OK" or "N/A - go inside shop"))
@@ -989,9 +961,9 @@ if Tabs.Barista then
         Callback = function(v) State.Barista_Delay = tonumber(v) or 2 end,
     })
 
-    Sec(T, "🔁 Automation")
+    Sec(T, "Automation")
     Tog(T, {
-        Name = "🔁 Auto Barista (Full Loop)",
+        Name = "Auto Barista (Full Loop)",
         CurrentValue = false,
         Flag = "BaristaAuto",
         Callback = function(v) Barista.SetAutoLoop(v) end,
@@ -999,15 +971,15 @@ if Tabs.Barista then
 
     Sec(T, "Manual Steps")
     Btn(T, {
-        Name = "1️⃣ Open Job Selection",
+        Name = "1. Open Job Selection",
         Callback = function() Barista.SelectJob() end,
     })
     Btn(T, {
-        Name = "2️⃣ TP to Coffee Maker",
+        Name = "2. TP to Coffee Maker",
         Callback = function() Barista.GoToCoffeeMaker() end,
     })
     Btn(T, {
-        Name = "3️⃣ Make Coffee",
+        Name = "3. Make Coffee",
         Callback = function()
             local p = Barista.GetCoffeePrompt()
             if p then Barista.FirePrompt(p); Notify("Barista","Coffee prompt fired",2)
@@ -1015,17 +987,17 @@ if Tabs.Barista then
         end,
     })
     Btn(T, {
-        Name = "4️⃣ Deliver to Customer",
+        Name = "4. Deliver to Customer",
         Callback = function() Barista.Deliver() end,
     })
 
     Sec(T, "Debug")
     Btn(T, {
-        Name = "🔍 Find Customer",
+        Name = "Find Customer",
         Callback = function()
             local p, npc = Barista.GetDeliveryPrompt()
             if p then
-                Notify("Customer", npc.Name .. " found!", 4)
+                Notify("Customer", npc.Name .. " found", 4)
                 Log("Customer: " .. npc:GetFullName())
             else Notify("Customer", "No active customer.", 3) end
         end,
@@ -1139,7 +1111,7 @@ if Tabs.Misc then
     Sec(T,"Server")
     Btn(T, {Name="Server Hop", Callback=Vis.ServerHop})
     Btn(T, {Name="Rejoin", Callback=function() pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end) end})
-    Btn(T, {Name="Copy JobId", Callback=function() if setclipboard then setclipboard(tostring(game.JobId)); Notify("Copied!","",2) end end})
+    Btn(T, {Name="Copy JobId", Callback=function() if setclipboard then setclipboard(tostring(game.JobId)); Notify("Copied","",2) end end})
     Sec(T,"Character")
     Btn(T, {Name="Reset Character", Callback=function() local h=GetHuman(); if h then h.Health=0 end end})
 end
@@ -1195,5 +1167,5 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Notify(HUB.Name, "v" .. HUB.Version .. " - Barista Auto Ready! ☕", 5)
+Notify(HUB.Name, "v" .. HUB.Version .. " - Barista Auto Ready", 5)
 Log("Init complete v" .. HUB.Version)
