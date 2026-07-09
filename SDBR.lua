@@ -1,5 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.7.5 - Border RP (Scarface)
+-- X0DEC04T Hub v2.7.6 - Border RP (Scarface)
+-- FIX: Auto-equip tool before sell
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -16,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v275"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v276"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -27,7 +28,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.7.5 starting...")
+Log("BorderRP Hub v2.7.6 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -36,7 +37,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.5", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.6", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -141,8 +142,10 @@ local State = {
     Smuggler_SellRetries = 5,
     Smuggler_Delay = 1,
     Smuggler_DebugMode = false,
-    Smuggler_ApproachMethod = "WalkFinal",  -- WalkFinal / SmartTP / HighSpeedWalk
+    Smuggler_ApproachMethod = "WalkFinal",
     Smuggler_SyncWait = 1.5,
+    Smuggler_AutoEquip = true,
+    Smuggler_EquipAll = true,
     POS_Shop = DEFAULT_POS.Shop,
     POS_Sell = DEFAULT_POS.SellNPC,
     POS_Laundry = DEFAULT_POS.Laundry,
@@ -182,6 +185,24 @@ local function GetCarRoot() local c = GetPlayerCar(); return c and (c.PrimaryPar
 local function GetWantedLevel(p) return tonumber(p and p:GetAttribute("WantedLevel")) or 0 end
 local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLevel or 1) end
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
+
+-- Count items in backpack+character by name
+local function CountItems(toolName)
+    local count = 0
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and t.Name == toolName then count = count + 1 end
+        end
+    end
+    local ch = GetChar()
+    if ch then
+        for _, t in ipairs(ch:GetChildren()) do
+            if t:IsA("Tool") and t.Name == toolName then count = count + 1 end
+        end
+    end
+    return count
+end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- ANTITP BYPASS
@@ -336,7 +357,6 @@ function SmartTP.Go(pos, yOff)
     return SmartTP.Chunked(pos, yOff)
 end
 
--- WALK to position using Humanoid:MoveTo (server-accepted movement)
 function SmartTP.Walk(targetPos, timeout)
     local hrp = GetHRP()
     local hum = GetHuman()
@@ -351,40 +371,6 @@ function SmartTP.Walk(targetPos, timeout)
         task.wait(0.1)
     end
     return false
-end
-
--- Combined: TP most of the way, then WALK the last 20 studs
-function SmartTP.TPAndWalk(finalPos, walkDist)
-    walkDist = walkDist or 20
-    local hrp = GetHRP()
-    if not hrp then return false end
-    
-    local myPos = hrp.Position
-    local totalDist = (finalPos - myPos).Magnitude
-    
-    -- If far, TP to a spot walkDist away
-    if totalDist > walkDist then
-        local direction = (finalPos - myPos).Unit
-        local tpPos = finalPos - direction * walkDist
-        SmartTP.Go(tpPos, 3)
-        task.wait(0.5)
-    end
-    
-    -- Now walk the last bit (server accepts this)
-    local origSpeed = 16
-    if State.Smuggler_ApproachMethod == "HighSpeedWalk" then
-        local hum = GetHuman()
-        if hum then origSpeed = hum.WalkSpeed; hum.WalkSpeed = 100 end
-    end
-    
-    SmartTP.Walk(finalPos, 3)
-    
-    if State.Smuggler_ApproachMethod == "HighSpeedWalk" then
-        local hum = GetHuman()
-        if hum then hum.WalkSpeed = origSpeed end
-    end
-    
-    return true
 end
 
 --━ ESP
@@ -514,7 +500,7 @@ function Car.TeleportToPlayer(name)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SMUGGLER - WITH WALK APPROACH
+-- SMUGGLER - WITH AUTO EQUIP
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Smuggler = {}
 
@@ -529,6 +515,51 @@ function Smuggler.FirePrompt(prompt)
     end)
     if State.Smuggler_DebugMode then Log("Fired [" .. tostring(ok) .. "] " .. prompt:GetFullName()) end
     return ok
+end
+
+-- Equip a single tool by name
+function Smuggler.EquipTool(toolName)
+    local ch = GetChar()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not ch or not backpack then return false end
+    
+    if ch:FindFirstChild(toolName) then
+        if State.Smuggler_DebugMode then Log("[Equip] Already equipped: " .. toolName) end
+        return true
+    end
+    
+    local tool = backpack:FindFirstChild(toolName)
+    if tool then
+        local hum = GetHuman()
+        if hum then
+            local ok = pcall(function() hum:EquipTool(tool) end)
+            task.wait(0.3)
+            if State.Smuggler_DebugMode then Log("[Equip] " .. tostring(ok) .. " - " .. toolName) end
+            return ok
+        end
+    end
+    
+    if State.Smuggler_DebugMode then Log("[Equip] Not found in backpack: " .. toolName) end
+    return false
+end
+
+-- Equip ALL matching tools (for multi-sell)
+function Smuggler.EquipAll(toolName)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return 0 end
+    local hum = GetHuman()
+    if not hum then return 0 end
+    
+    local count = 0
+    for _, t in ipairs(backpack:GetChildren()) do
+        if t:IsA("Tool") and t.Name == toolName then
+            pcall(function() hum:EquipTool(t) end)
+            count = count + 1
+            task.wait(0.15)
+        end
+    end
+    if State.Smuggler_DebugMode then Log("[EquipAll] Equipped " .. count .. " x " .. toolName) end
+    return count
 end
 
 function Smuggler.GetBuyPrompt(itemName)
@@ -594,11 +625,29 @@ function Smuggler.GetSellPrompt(sellerName)
 end
 
 function Smuggler.SellItems()
+    -- STEP 1: EQUIP THE ITEM FIRST (critical!)
+    if State.Smuggler_AutoEquip then
+        local itemCount = CountItems(State.Smuggler_ItemName)
+        Log("[Smuggler] Items in inventory: " .. itemCount)
+        
+        if itemCount == 0 then
+            Log("[Smuggler] No items to sell - skipping")
+            return false
+        end
+        
+        if State.Smuggler_EquipAll then
+            Smuggler.EquipAll(State.Smuggler_ItemName)
+        else
+            Smuggler.EquipTool(State.Smuggler_ItemName)
+        end
+        task.wait(0.4)
+    end
+    
+    -- STEP 2: MOVE TO SELLER
     Log("[Smuggler] Moving to seller")
     local prompt, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
     
     if not seller then
-        Log("[Smuggler] Seller not found - using saved position")
         SmartTP.Go(State.POS_Sell, 3)
         task.wait(State.Smuggler_SyncWait)
     else
@@ -610,88 +659,86 @@ function Smuggler.SellItems()
             local sellerPos = sHRP.Position
             
             if State.Smuggler_ApproachMethod == "WalkFinal" then
-                -- Method 1: TP near seller, then WALK last 15 studs (server accepts)
                 Log("[Smuggler] TP + walk approach")
-                
-                -- TP to 15 studs away first
-                local direction = (LocalPlayer.Character.HumanoidRootPart.Position - sellerPos)
+                local myHRP = GetHRP()
+                local direction = myHRP and (myHRP.Position - sellerPos) or Vector3.new(0, 0, 1)
                 if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
                 direction = direction.Unit
                 local nearPos = sellerPos + direction * 15
                 SmartTP.Go(nearPos, 3)
                 task.wait(0.6)
                 
-                -- Now WALK to final position (server accepts natural movement)
                 local hum = GetHuman()
                 if hum then
                     local walkTarget = sellerPos + sHRP.CFrame.LookVector * 2
-                    Log("[Smuggler] Walking to seller...")
                     hum:MoveTo(walkTarget)
-                    
-                    -- Wait for walk to complete or timeout
                     local walkStart = tick()
                     while tick() - walkStart < 4 do
-                        local myHRP = GetHRP()
-                        if myHRP and (myHRP.Position - sellerPos).Magnitude < 4 then break end
+                        local mh = GetHRP()
+                        if mh and (mh.Position - sellerPos).Magnitude < 4 then break end
                         task.wait(0.1)
                     end
-                    task.wait(0.5)  -- Let server register final position
+                    task.wait(0.5)
                 end
-                
             elseif State.Smuggler_ApproachMethod == "HighSpeedWalk" then
-                -- Method 2: Set WalkSpeed high, TP nearby, walk fast
                 Log("[Smuggler] High-speed walk approach")
                 local hum = GetHuman()
                 local origSpeed = hum and hum.WalkSpeed or 16
-                
-                local direction = (LocalPlayer.Character.HumanoidRootPart.Position - sellerPos)
+                local myHRP = GetHRP()
+                local direction = myHRP and (myHRP.Position - sellerPos) or Vector3.new(0, 0, 1)
                 if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
                 direction = direction.Unit
                 local nearPos = sellerPos + direction * 25
                 SmartTP.Go(nearPos, 3)
                 task.wait(0.5)
-                
                 if hum then hum.WalkSpeed = 80 end
                 if hum then
                     hum:MoveTo(sellerPos + sHRP.CFrame.LookVector * 2)
                     local walkStart = tick()
                     while tick() - walkStart < 3 do
-                        local myHRP = GetHRP()
-                        if myHRP and (myHRP.Position - sellerPos).Magnitude < 4 then break end
+                        local mh = GetHRP()
+                        if mh and (mh.Position - sellerPos).Magnitude < 4 then break end
                         task.wait(0.1)
                     end
                 end
                 if hum then hum.WalkSpeed = origSpeed end
                 task.wait(0.5)
-                
             else
-                -- Method 3: SmartTP direct (old method)
                 Log("[Smuggler] Direct TP approach")
                 local frontPos = sellerPos + sHRP.CFrame.LookVector * 2
                 SmartTP.Go(frontPos, 0)
                 task.wait(State.Smuggler_SyncWait)
             end
             
-            -- Final distance check
             local myHRP = GetHRP()
             if myHRP then
-                local dist = (myHRP.Position - sellerPos).Magnitude
                 if State.Smuggler_DebugMode then
-                    Log("[Smuggler] Final distance to seller: " .. math.floor(dist) .. " studs")
+                    Log("[Smuggler] Final distance: " .. math.floor((myHRP.Position - sellerPos).Magnitude))
                 end
-                
-                -- Face the NPC
                 myHRP.CFrame = CFrame.lookAt(myHRP.Position, sellerPos)
                 task.wait(0.2)
             end
         end
     end
     
-    Log("[Smuggler] Firing sell prompt")
+    -- STEP 3: RE-EQUIP (in case something changed) AND SELL
+    if State.Smuggler_AutoEquip then
+        Smuggler.EquipAll(State.Smuggler_ItemName)
+        task.wait(0.3)
+    end
     
-    -- Multiple attempts with position hold
+    Log("[Smuggler] Firing sell prompt")
     local retries = State.Smuggler_SellRetries or 5
     for i = 1, retries do
+        -- Re-equip between each attempt in case tool got dropped
+        if State.Smuggler_AutoEquip and i > 1 then
+            local ch = GetChar()
+            if ch and not ch:FindFirstChild(State.Smuggler_ItemName) then
+                Smuggler.EquipTool(State.Smuggler_ItemName)
+                task.wait(0.2)
+            end
+        end
+        
         if prompt then Smuggler.FirePrompt(prompt) end
         if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
             pcall(function() BRP.SellSmuggledGoods:FireServer() end)
@@ -1021,7 +1068,7 @@ end
 if Tabs.Smuggler then
     local T = Tabs.Smuggler
     Sec(T, "Auto Smuggler")
-    Lbl(T, "Loop: Buy - Sell - Launder")
+    Lbl(T, "Loop: Buy - Equip - Sell - Launder")
     
     Sec(T, "Item Selection")
     local buyableNames = GetBuyableItemNames()
@@ -1031,6 +1078,12 @@ if Tabs.Smuggler then
     Sld(T, {Name="Buy Prompt Retries", Range={1,5}, Increment=1, CurrentValue=2, Flag="BR",
         Callback=function(v) State.Smuggler_BuyRetries = v end})
     
+    Sec(T, "Equip Settings")
+    Tog(T, {Name="Auto Equip Before Sell", CurrentValue=true, Flag="AE",
+        Callback=function(v) State.Smuggler_AutoEquip = v end})
+    Tog(T, {Name="Equip All Copies (multi-sell)", CurrentValue=true, Flag="EA",
+        Callback=function(v) State.Smuggler_EquipAll = v end})
+    
     Sec(T, "Seller Approach")
     local sellerNames = GetSellerNames()
     Drp(T, {Name="Target Seller", Options=sellerNames,
@@ -1039,9 +1092,6 @@ if Tabs.Smuggler then
     Drp(T, {Name="Approach Method", Options={"WalkFinal","HighSpeedWalk","DirectTP"},
         CurrentOption={"WalkFinal"}, MultiOption=false, Flag="AM",
         Callback=function(v) State.Smuggler_ApproachMethod = (type(v)=="table" and v[1]) or v end})
-    Lbl(T, "WalkFinal = TP near + walk (bypasses AntiTp)")
-    Lbl(T, "HighSpeedWalk = fast walk approach")
-    Lbl(T, "DirectTP = old method")
     Sld(T, {Name="Sell Retries", Range={1,10}, Increment=1, CurrentValue=5, Flag="SR",
         Callback=function(v) State.Smuggler_SellRetries = v end})
     Sld(T, {Name="Server Sync Wait (0.1s)", Range={5,30}, Increment=1, CurrentValue=15, Flag="SW",
@@ -1076,8 +1126,17 @@ if Tabs.Smuggler then
     
     Sec(T, "Manual Steps")
     Btn(T, {Name="1. Buy Item", Callback=function() task.spawn(Smuggler.BuyItem) end})
-    Btn(T, {Name="2. Sell to NPC", Callback=function() task.spawn(Smuggler.SellItems) end})
-    Btn(T, {Name="3. Launder Money", Callback=function() task.spawn(Smuggler.LaunderMoney) end})
+    Btn(T, {Name="2. Equip Item(s)", Callback=function()
+        task.spawn(function()
+            if State.Smuggler_EquipAll then
+                Smuggler.EquipAll(State.Smuggler_ItemName)
+            else
+                Smuggler.EquipTool(State.Smuggler_ItemName)
+            end
+        end)
+    end})
+    Btn(T, {Name="3. Sell to NPC", Callback=function() task.spawn(Smuggler.SellItems) end})
+    Btn(T, {Name="4. Launder Money", Callback=function() task.spawn(Smuggler.LaunderMoney) end})
     
     Sec(T, "Direct Remote Fire")
     Btn(T, {Name="Fire SellSmuggledGoods", Callback=function()
@@ -1085,6 +1144,11 @@ if Tabs.Smuggler then
     end})
     Btn(T, {Name="Fire LaunderBriefcase", Callback=function()
         if BRP.LaunderBriefcase then pcall(function() BRP.LaunderBriefcase:FireServer() end); Notify("Sent","",2) end
+    end})
+    Btn(T, {Name="Count Items in Inventory", Callback=function()
+        local c = CountItems(State.Smuggler_ItemName)
+        Notify("Inventory", c .. " x " .. State.Smuggler_ItemName, 4)
+        Log("Items: " .. c)
     end})
 end
 
@@ -1277,4 +1341,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v" .. HUB.Version .. " loaded", 4)
-Log("v2.7.5 init complete | " .. remoteCount .. " remotes")
+Log("v2.7.6 init complete | " .. remoteCount .. " remotes")
