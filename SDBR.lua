@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v3.2.0 - Border RP (WindUI + Deferred Callbacks)
--- Fixed SEH crashes by deferring all callbacks
+-- X0DEC04T Hub v3.2.1 - Border RP (WindUI)
+-- Fixed: Fall damage after TP + Safe landing
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -17,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v320"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v321"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -25,10 +25,8 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v3.2.0 WindUI...")
+Log("Starting v3.2.1 WindUI...")
 
---━ CRITICAL: Deferred callback wrapper (fixes SEH crash)
--- All UI callbacks run in task.defer to escape the executor's C stack
 local function safeCB(fn)
     if not fn then return function() end end
     return function(...)
@@ -40,7 +38,6 @@ local function safeCB(fn)
     end
 end
 
--- Load WindUI
 local WindUI
 local ok, err = pcall(function()
     WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
@@ -51,9 +48,8 @@ if not ok or not WindUI then
 end
 Log("WindUI loaded")
 
-local HUB = { Name="X0DEC04T Hub", Version="3.2.0" }
+local HUB = { Name="X0DEC04T Hub", Version="3.2.1" }
 
---━ CONNECTION MANAGER
 local CM = { _list = {} }
 function CM:Add(sig, cb)
     if not sig then return end
@@ -65,7 +61,6 @@ function CM:Cleanup()
     self._list = {}
 end
 
---━ REMOTES
 local RemotesFolder
 pcall(function() RemotesFolder = ReplicatedStorage:WaitForChild("__remotes", 5) end)
 
@@ -115,7 +110,6 @@ for _, obj in ipairs(Workspace:GetChildren()) do
     end
 end
 
---━ STATE
 local State = {
     Smuggler_AutoLoop = false,
     Smuggler_JobsDone = 0,
@@ -139,62 +133,38 @@ local State = {
     TweenSpeed = 200,
     TweenNoclip = true,
     AntiTpBypass = true,
+    SafeLanding = true,      -- NEW: enable safe landing
+    NoFallDamage = true,     -- NEW: prevent fall damage
 
     POS_Shop = Vector3.new(6823.57, 17.40, -20.00),
     POS_Laundry = Vector3.new(6804.78, 17.43, -34.70),
     POS_CarSpawner = Vector3.new(6840, 17, -30),
 
-    CarSpeed = 0,
-    SpeedHack = false,
-    SpeedHackConn = nil,
-    SpeedHackValue = 500,
-    FlyActive = false,
-    FlyConn = nil,
+    CarSpeed = 0, SpeedHack = false, SpeedHackConn = nil, SpeedHackValue = 500,
+    FlyActive = false, FlyConn = nil,
     GodMode = false,
-    NoclipConn = nil,
-    NoClip = false,
-    WalkSpeed = 16,
-    JumpPower = 50,
-    InfiniteJump = false,
+    NoclipConn = nil, NoClip = false,
+    WalkSpeed = 16, JumpPower = 50, InfiniteJump = false,
 
-    Police_AutoAim = false,
-    Police_AutoFire = false,
-    Police_AutoArrest = false,
-    Police_AimPart = "Head",
-    Police_AimFOV = 150,
-    Police_AimSmooth = 1,
-    Police_TargetWanted = true,
-    Police_MinWantedLevel = 1,
-    Police_TargetAll = false,
-    Police_ShowFOV = true,
-    Police_FOVCircle = nil,
-    Police_AimConn = nil,
-    Police_FireConn = nil,
-    Police_ArrestConn = nil,
+    Police_AutoAim = false, Police_AutoFire = false, Police_AutoArrest = false,
+    Police_AimPart = "Head", Police_AimFOV = 150, Police_AimSmooth = 1,
+    Police_TargetWanted = true, Police_MinWantedLevel = 1, Police_TargetAll = false,
+    Police_ShowFOV = true, Police_FOVCircle = nil,
+    Police_AimConn = nil, Police_FireConn = nil, Police_ArrestConn = nil,
     Police_CurrentTarget = nil,
 
-    ESP_Players = false,
-    ESP_Wanted = false,
-    ESP_Police = false,
-    ESP_ShowName = true,
-    ESP_ShowDist = true,
-    ESP_MaxDist = 800,
+    ESP_Players = false, ESP_Wanted = false, ESP_Police = false,
+    ESP_ShowName = true, ESP_ShowDist = true, ESP_MaxDist = 800,
     ESPCache = {},
     Color_Player = Color3.fromRGB(60,220,255),
     Color_Wanted = Color3.fromRGB(255,50,50),
     Color_Police = Color3.fromRGB(60,120,255),
 
-    FullBright = false,
-    NoFog = false,
-    FOV = 70,
-    AntiAFK = true,
-    MutedSounds = {},
-    LightBackup = {},
-
+    FullBright = false, NoFog = false, FOV = 70, AntiAFK = true,
+    MutedSounds = {}, LightBackup = {},
     TP_Target = "",
 }
 
---━ HELPERS
 local function GetChar() return LocalPlayer.Character end
 local function GetHRP() local ch=GetChar(); return ch and (ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChildWhichIsA("BasePart")) end
 local function GetHuman() local ch=GetChar(); return ch and ch:FindFirstChildOfClass("Humanoid") end
@@ -216,8 +186,73 @@ local function GetWantedLevel(p) return tonumber(p and p:GetAttribute("WantedLev
 local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLevel or 1) end
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FALL DAMAGE PREVENTION
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local FallGuard = {
+    conn = nil,
+    stateChangedConns = {},
+}
+
+local function ClearFallGuardConns()
+    for _, c in ipairs(FallGuard.stateChangedConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    FallGuard.stateChangedConns = {}
+end
+
+function FallGuard.Enable()
+    ClearFallGuardConns()
+    local function hook(hum)
+        if not hum then return end
+        -- Disable FallingDown state and prevent StateChanged to Freefall issues
+        local c1 = hum.StateChanged:Connect(function(old, new)
+            if not State.NoFallDamage then return end
+            if new == Enum.HumanoidStateType.Freefall or new == Enum.HumanoidStateType.FallingDown then
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+            end
+        end)
+        table.insert(FallGuard.stateChangedConns, c1)
+        -- Disable states that cause fall damage/ragdoll
+        pcall(function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        end)
+    end
+    local h = GetHuman()
+    if h then hook(h) end
+end
+
+function FallGuard.Disable()
+    ClearFallGuardConns()
+    local h = GetHuman()
+    if h then
+        pcall(function()
+            h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        end)
+    end
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SAFE POSITION FINDER - Raycast down to find ground
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function FindGroundBelow(pos, maxDrop)
+    maxDrop = maxDrop or 500
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local ch = GetChar()
+    if ch then rayParams.FilterDescendantsInstances = {ch} end
+    
+    local result = Workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -maxDrop, 0), rayParams)
+    if result then
+        return result.Position + Vector3.new(0, 3, 0)  -- 3 studs above ground
+    end
+    return nil
+end
+
 --━ ANTITP
-local AntiTp = { enabled=false, hidden=false, origParent=nil, holds=0, blocked=0 }
+local AntiTp = { enabled=false, hidden=false, origParent=nil, holds=0 }
 
 function AntiTp.Enable() AntiTp.enabled = true end
 function AntiTp.Disable() AntiTp.enabled = false; AntiTp.Release(true) end
@@ -230,10 +265,7 @@ function AntiTp.Hold()
         if r and r.Parent then
             AntiTp.origParent = r.Parent
             local ok = pcall(function() r.Parent = nil end)
-            if ok then
-                AntiTp.hidden = true
-                AntiTp.blocked = AntiTp.blocked + 1
-            end
+            if ok then AntiTp.hidden = true end
         end
     end
 end
@@ -259,7 +291,9 @@ task.spawn(function()
     end
 end)
 
---━ TELEPORT
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- TELEPORT WITH SAFE LANDING
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local SmartTP = {}
 local _noclip = nil
 
@@ -277,11 +311,73 @@ local function DisableNoclip()
     if _noclip then pcall(function() _noclip:Disconnect() end); _noclip = nil end
 end
 
+-- Reset all velocity on character
+local function ZeroVelocity()
+    local ch = GetChar()
+    if not ch then return end
+    for _, p in ipairs(ch:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+                p.Velocity = Vector3.zero
+                p.RotVelocity = Vector3.zero
+            end)
+        end
+    end
+end
+
+-- Pre-teleport prep: freeze character
+local function PrepareTP(hum)
+    if hum then
+        pcall(function() hum.PlatformStand = true end)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+    end
+    ZeroVelocity()
+end
+
+-- Post-teleport recovery: unfreeze safely
+local function RecoverAfterTP(hum, targetPos)
+    ZeroVelocity()
+    
+    -- Anchor briefly to prevent fall momentum
+    local hrp = GetHRP()
+    if hrp then
+        local wasAnchored = hrp.Anchored
+        pcall(function() hrp.Anchored = true end)
+        task.wait(0.15)  -- let physics settle
+        ZeroVelocity()
+        pcall(function() hrp.Anchored = wasAnchored end)
+    end
+    
+    -- Restore humanoid state
+    if hum then
+        pcall(function() hum.PlatformStand = false end)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+        task.wait(0.05)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Landed) end)
+    end
+    
+    ZeroVelocity()
+end
+
 function SmartTP.Instant(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
-    pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0)) end)
-    task.wait(0.3)
+    local hum = GetHuman()
+    
+    -- Find safe ground if enabled
+    local targetPos = pos + Vector3.new(0, yOff or 3, 0)
+    if State.SafeLanding then
+        local ground = FindGroundBelow(pos, 500)
+        if ground then targetPos = ground end
+    end
+    
+    PrepareTP(hum)
+    pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+    task.wait(0.2)
+    RecoverAfterTP(hum, targetPos)
+    task.wait(0.1)
     return true
 end
 
@@ -289,12 +385,23 @@ function SmartTP.Tween(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
     local hum = GetHuman()
+    
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
+    if State.SafeLanding then
+        local ground = FindGroundBelow(pos, 500)
+        if ground then targetPos = ground end
+    end
+    
     local totalDist = (targetPos - hrp.Position).Magnitude
-    if totalDist < 5 then pcall(function() hrp.CFrame = CFrame.new(targetPos) end); task.wait(0.1); return true end
+    if totalDist < 5 then
+        PrepareTP(hum)
+        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+        task.wait(0.1)
+        RecoverAfterTP(hum, targetPos)
+        return true
+    end
 
-    local wasPS = false
-    if hum then wasPS = hum.PlatformStand; pcall(function() hum.PlatformStand = true end) end
+    PrepareTP(hum)
     if State.TweenNoclip then EnableNoclip() end
 
     local speed = math.max(State.TweenSpeed, 50)
@@ -308,6 +415,7 @@ function SmartTP.Tween(pos, yOff)
         local t0 = tick()
         while tick() - t0 < duration + 1 do
             task.wait(0.1)
+            ZeroVelocity()  -- keep zeroing during tween
             if not hrp or not hrp.Parent then break end
         end
         pcall(function() tween:Cancel() end)
@@ -315,8 +423,8 @@ function SmartTP.Tween(pos, yOff)
 
     local fhrp = GetHRP()
     if fhrp then pcall(function() fhrp.CFrame = CFrame.new(targetPos) end) end
-    if hum and hum.Parent then pcall(function() hum.PlatformStand = wasPS end) end
     DisableNoclip()
+    RecoverAfterTP(hum, targetPos)
     task.wait(0.2)
     return true
 end
@@ -341,7 +449,14 @@ function SmartTP.DirectVehicle(car, targetPos, faceCFrame)
     end
     local cf = faceCFrame or CFrame.new(targetPos)
     pcall(function() if car:IsA("Model") then car:PivotTo(cf) else root.CFrame = cf end end)
-    task.wait(0.3); return true
+    task.wait(0.3)
+    -- Zero velocity again after TP
+    for _, p in ipairs(car:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function() p.AssemblyLinearVelocity = Vector3.zero; p.AssemblyAngularVelocity = Vector3.zero end)
+        end
+    end
+    return true
 end
 
 function SmartTP.WeldVehicle(car, targetPos, faceCFrame)
@@ -380,6 +495,10 @@ function SmartTP.WeldVehicle(car, targetPos, faceCFrame)
     end
     pcall(function() if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end end)
     task.wait(0.3)
+    -- Final velocity zero
+    for _, p in ipairs(car:GetDescendants()) do
+        if p:IsA("BasePart") then pcall(function() p.AssemblyLinearVelocity=Vector3.zero; p.AssemblyAngularVelocity=Vector3.zero end) end
+    end
     task.delay(3, function() pcall(AntiTp.Release) end)
     return true
 end
@@ -407,6 +526,9 @@ function SmartTP.TweenVehicle(car, targetPos, faceCFrame)
     end
     pcall(function() if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end end)
     task.wait(0.2)
+    for _, p in ipairs(car:GetDescendants()) do
+        if p:IsA("BasePart") then pcall(function() p.AssemblyLinearVelocity=Vector3.zero; p.AssemblyAngularVelocity=Vector3.zero end) end
+    end
     task.delay(3, function() pcall(AntiTp.Release) end)
     return true
 end
@@ -713,7 +835,12 @@ function Smuggler.SitInCar(car)
     local hum, hrp = GetHuman(), GetHRP()
     if not hum or not hrp then return end
     for a=1,3 do
-        pcall(function() hrp.CFrame = seat.CFrame * CFrame.new(0, 2, 0); task.wait(0.2); seat:Sit(hum) end)
+        pcall(function() 
+            ZeroVelocity()
+            hrp.CFrame = seat.CFrame * CFrame.new(0, 2, 0)
+            task.wait(0.2)
+            seat:Sit(hum)
+        end)
         task.wait(0.6)
         if GetPlayerCar() == car then Log("[3] Sat #" .. a); return end
     end
@@ -884,9 +1011,10 @@ task.spawn(function() while task.wait(1) do if State.GodMode then local h=GetHum
 CM:Add(UserInputService.JumpRequest, function() if State.InfiniteJump then local h=GetHuman(); if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end) end end end)
 
 if State.AntiTpBypass then AntiTp.Enable() end
+if State.NoFallDamage then FallGuard.Enable() end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- WINDUI - ALL CALLBACKS WRAPPED WITH safeCB
+-- WINDUI
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 local Window = WindUI:CreateWindow({
@@ -923,11 +1051,11 @@ local Tabs = {
 
 Window:SelectTab(1)
 
--- ═══ MAIN ═══
+-- MAIN
 Tabs.Main:Section({ Title = "X0DEC04T Hub v" .. HUB.Version })
 Tabs.Main:Paragraph({
-    Title = "Border RP - Stable Build",
-    Desc = "All callbacks deferred to prevent SEH crashes.\nAntiTp: Hide method (safest).",
+    Title = "Border RP - Fall Safe Build",
+    Desc = "TP zeroes velocity + anchors briefly\nRaycast finds ground beneath target\nNoFallDamage disables Freefall/Ragdoll states",
 })
 Tabs.Main:Section({ Title = "Status" })
 Tabs.Main:Paragraph({
@@ -935,20 +1063,11 @@ Tabs.Main:Paragraph({
     Desc = "Remotes: " .. remoteCount .. "\nSellers: " .. #GetSellerNames() .. "\nSpawner: " .. (BRP_PATHS.VehicleSpawners and BRP_PATHS.VehicleSpawners.Name or "none"),
 })
 
--- ═══ VEHICLE ═══
+-- VEHICLE
 Tabs.Vehicle:Section({ Title = "Speed" })
-Tabs.Vehicle:Slider({
-    Title = "Extra Speed", Value = { Min=0, Max=500, Default=0 }, Step=10,
-    Callback = safeCB(function(v) State.CarSpeed = v; Car.ApplySpeed() end)
-})
-Tabs.Vehicle:Slider({
-    Title = "SpeedHack Value", Value = { Min=100, Max=2000, Default=500 }, Step=50,
-    Callback = safeCB(function(v) State.SpeedHackValue = v end)
-})
-Tabs.Vehicle:Toggle({
-    Title = "Speed Hack", Default = false,
-    Callback = safeCB(function(v) State.SpeedHack = v; Car.SetSpeedHack(v) end)
-})
+Tabs.Vehicle:Slider({ Title = "Extra Speed", Value = { Min=0, Max=500, Default=0 }, Step=10, Callback = safeCB(function(v) State.CarSpeed = v; Car.ApplySpeed() end) })
+Tabs.Vehicle:Slider({ Title = "SpeedHack Value", Value = { Min=100, Max=2000, Default=500 }, Step=50, Callback = safeCB(function(v) State.SpeedHackValue = v end) })
+Tabs.Vehicle:Toggle({ Title = "Speed Hack", Default = false, Callback = safeCB(function(v) State.SpeedHack = v; Car.SetSpeedHack(v) end) })
 
 Tabs.Vehicle:Section({ Title = "Actions" })
 Tabs.Vehicle:Button({ Title = "Flip Car", Callback = safeCB(Car.Flip) })
@@ -963,50 +1082,25 @@ Tabs.Vehicle:Toggle({ Title = "Fly (WASD)", Default = false, Callback = safeCB(f
 Tabs.Vehicle:Toggle({ Title = "God Mode", Default = false, Callback = safeCB(function(v) State.GodMode=v; Car.SetGod(v) end) })
 
 Tabs.Vehicle:Section({ Title = "Character" })
-Tabs.Vehicle:Slider({
-    Title = "WalkSpeed", Value = { Min=16, Max=200, Default=16 }, Step=4,
-    Callback = safeCB(function(v) State.WalkSpeed=v; local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end)
-})
-Tabs.Vehicle:Slider({
-    Title = "JumpPower", Value = { Min=50, Max=300, Default=50 }, Step=10,
-    Callback = safeCB(function(v) State.JumpPower=v; local h=GetHuman(); if h then pcall(function() h.JumpPower=v end) end end)
-})
+Tabs.Vehicle:Slider({ Title = "WalkSpeed", Value = { Min=16, Max=200, Default=16 }, Step=4, Callback = safeCB(function(v) State.WalkSpeed=v; local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end) })
+Tabs.Vehicle:Slider({ Title = "JumpPower", Value = { Min=50, Max=300, Default=50 }, Step=10, Callback = safeCB(function(v) State.JumpPower=v; local h=GetHuman(); if h then pcall(function() h.JumpPower=v end) end end) })
 Tabs.Vehicle:Toggle({ Title = "Infinite Jump", Default = false, Callback = safeCB(function(v) State.InfiniteJump=v end) })
 
--- ═══ SMUGGLER ═══
-Tabs.Smuggler:Section({ Title = "Auto Smuggler Flow" })
-Tabs.Smuggler:Paragraph({
-    Title = "Steps",
-    Desc = "Buy → Spawn Car → Sit → Remove Tires → TP Car to Seller → Sell → TP Laundry → Launder",
-})
+-- SMUGGLER
+Tabs.Smuggler:Section({ Title = "Auto Smuggler" })
+Tabs.Smuggler:Paragraph({ Title = "Flow", Desc = "Buy → Spawn → Sit → Tires → TP Seller → Sell → TP Laundry → Launder" })
 
 Tabs.Smuggler:Section({ Title = "Item" })
-Tabs.Smuggler:Dropdown({
-    Title = "Item to Buy", Values = GetBuyableItemNames(), Value = "Fake Diamond Ring",
-    Callback = safeCB(function(v) State.Smuggler_ItemName = v end)
-})
-Tabs.Smuggler:Slider({
-    Title = "Buy Retries", Value = { Min=1, Max=5, Default=2 }, Step=1,
-    Callback = safeCB(function(v) State.Smuggler_BuyRetries = v end)
-})
+Tabs.Smuggler:Dropdown({ Title = "Item to Buy", Values = GetBuyableItemNames(), Value = "Fake Diamond Ring", Callback = safeCB(function(v) State.Smuggler_ItemName = v end) })
+Tabs.Smuggler:Slider({ Title = "Buy Retries", Value = { Min=1, Max=5, Default=2 }, Step=1, Callback = safeCB(function(v) State.Smuggler_BuyRetries = v end) })
 
 Tabs.Smuggler:Section({ Title = "Vehicle" })
 Tabs.Smuggler:Toggle({ Title = "Auto Spawn Car", Default = true, Callback = safeCB(function(v) State.Smuggler_SpawnCar = v end) })
 Tabs.Smuggler:Toggle({ Title = "Remove Tires", Default = true, Callback = safeCB(function(v) State.Smuggler_RemoveTires = v end) })
-Tabs.Smuggler:Dropdown({
-    Title = "Vehicle Name",
-    Values = {"Camry6", "BorderPatrolCrownVic", "2020Rs3Done", "jzs171 touring", "TAPVSWAT"},
-    Value = "Camry6",
-    Callback = safeCB(function(v) State.Smuggler_VehicleName = v end)
-})
-Tabs.Smuggler:Input({
-    Title = "Custom Vehicle", Placeholder = "overrides dropdown",
-    Callback = safeCB(function(v) if v ~= "" then State.Smuggler_VehicleName = v end end)
-})
-Tabs.Smuggler:Button({ Title = "Save Spawner Pos (Current)", Callback = safeCB(function()
-    local h = GetHRP(); if h then State.POS_CarSpawner = h.Position; Notify("Saved", "Pos saved", 2) end
-end) })
-Tabs.Smuggler:Button({ Title = "List All Spawners (Console)", Callback = safeCB(function()
+Tabs.Smuggler:Dropdown({ Title = "Vehicle", Values = {"Camry6", "BorderPatrolCrownVic", "2020Rs3Done", "jzs171 touring", "TAPVSWAT"}, Value = "Camry6", Callback = safeCB(function(v) State.Smuggler_VehicleName = v end) })
+Tabs.Smuggler:Input({ Title = "Custom Vehicle", Placeholder = "overrides", Callback = safeCB(function(v) if v ~= "" then State.Smuggler_VehicleName = v end end) })
+Tabs.Smuggler:Button({ Title = "Save Spawner Pos", Callback = safeCB(function() local h = GetHRP(); if h then State.POS_CarSpawner = h.Position; Notify("Saved", "Pos saved", 2) end end) })
+Tabs.Smuggler:Button({ Title = "List Spawners (Console)", Callback = safeCB(function()
     local s = FindAllSpawners()
     Log("=== SPAWNERS: " .. #s .. " ===")
     for i, sp in ipairs(s) do
@@ -1015,114 +1109,64 @@ Tabs.Smuggler:Button({ Title = "List All Spawners (Console)", Callback = safeCB(
     Notify("Spawners", "Found " .. #s, 4)
 end) })
 
-Tabs.Smuggler:Section({ Title = "Car TP (Anti-Rollback)" })
-Tabs.Smuggler:Dropdown({
-    Title = "Car TP Method",
-    Values = {"WeldTP", "DirectTP", "TweenVehicle"},
-    Value = "WeldTP",
-    Callback = safeCB(function(v) State.Smuggler_CarTPMethod = v end)
-})
-Tabs.Smuggler:Paragraph({ Title = "Info", Desc = "WeldTP = safest (sit in car first)\nDirectTP = instant\nTweenVehicle = smooth" })
+Tabs.Smuggler:Section({ Title = "Car TP Method" })
+Tabs.Smuggler:Dropdown({ Title = "Method", Values = {"WeldTP", "DirectTP", "TweenVehicle"}, Value = "WeldTP", Callback = safeCB(function(v) State.Smuggler_CarTPMethod = v end) })
 
 Tabs.Smuggler:Section({ Title = "Equip" })
-Tabs.Smuggler:Toggle({ Title = "Auto Equip Before Sell", Default = true, Callback = safeCB(function(v) State.Smuggler_AutoEquip = v end) })
-Tabs.Smuggler:Toggle({ Title = "Equip All Copies", Default = true, Callback = safeCB(function(v) State.Smuggler_EquipAll = v end) })
+Tabs.Smuggler:Toggle({ Title = "Auto Equip", Default = true, Callback = safeCB(function(v) State.Smuggler_AutoEquip = v end) })
+Tabs.Smuggler:Toggle({ Title = "Equip All", Default = true, Callback = safeCB(function(v) State.Smuggler_EquipAll = v end) })
 
 Tabs.Smuggler:Section({ Title = "Seller" })
-Tabs.Smuggler:Dropdown({
-    Title = "Target Seller", Values = GetSellerNames(), Value = State.Smuggler_SellerName,
-    Callback = safeCB(function(v) State.Smuggler_SellerName = v end)
-})
-Tabs.Smuggler:Slider({
-    Title = "Sell Retries", Value = { Min=1, Max=15, Default=8 }, Step=1,
-    Callback = safeCB(function(v) State.Smuggler_SellRetries = v end)
-})
+Tabs.Smuggler:Dropdown({ Title = "Target Seller", Values = GetSellerNames(), Value = State.Smuggler_SellerName, Callback = safeCB(function(v) State.Smuggler_SellerName = v end) })
+Tabs.Smuggler:Slider({ Title = "Sell Retries", Value = { Min=1, Max=15, Default=8 }, Step=1, Callback = safeCB(function(v) State.Smuggler_SellRetries = v end) })
 
 Tabs.Smuggler:Section({ Title = "Player TP" })
-Tabs.Smuggler:Toggle({
-    Title = "AntiTp Bypass (Hide)", Default = true,
-    Callback = safeCB(function(v) State.AntiTpBypass = v; if v then AntiTp.Enable() else AntiTp.Disable() end end)
-})
-Tabs.Smuggler:Dropdown({
-    Title = "Player TP Method", Values = {"Tween", "Instant"}, Value = "Tween",
-    Callback = safeCB(function(v) State.TPStrategy = v end)
-})
-Tabs.Smuggler:Slider({
-    Title = "Tween Speed", Value = { Min=50, Max=1000, Default=200 }, Step=25,
-    Callback = safeCB(function(v) State.TweenSpeed = v end)
-})
+Tabs.Smuggler:Toggle({ Title = "AntiTp Bypass", Default = true, Callback = safeCB(function(v) State.AntiTpBypass = v; if v then AntiTp.Enable() else AntiTp.Disable() end end) })
+Tabs.Smuggler:Toggle({ Title = "Safe Landing (raycast)", Default = true, Callback = safeCB(function(v) State.SafeLanding = v end) })
+Tabs.Smuggler:Toggle({ Title = "No Fall Damage", Default = true, Callback = safeCB(function(v) State.NoFallDamage = v; if v then FallGuard.Enable() else FallGuard.Disable() end end) })
+Tabs.Smuggler:Dropdown({ Title = "TP Method", Values = {"Tween", "Instant"}, Value = "Tween", Callback = safeCB(function(v) State.TPStrategy = v end) })
+Tabs.Smuggler:Slider({ Title = "Tween Speed", Value = { Min=50, Max=1000, Default=200 }, Step=25, Callback = safeCB(function(v) State.TweenSpeed = v end) })
 
 Tabs.Smuggler:Section({ Title = "Timing" })
-Tabs.Smuggler:Slider({
-    Title = "Cycle Delay (s)", Value = { Min=0, Max=10, Default=1 }, Step=1,
-    Callback = safeCB(function(v) State.Smuggler_Delay = v end)
-})
+Tabs.Smuggler:Slider({ Title = "Cycle Delay", Value = { Min=0, Max=10, Default=1 }, Step=1, Callback = safeCB(function(v) State.Smuggler_Delay = v end) })
 Tabs.Smuggler:Toggle({ Title = "Use Remote Backup", Default = true, Callback = safeCB(function(v) State.Smuggler_UseRemotes = v end) })
 Tabs.Smuggler:Toggle({ Title = "Auto Launder", Default = true, Callback = safeCB(function(v) State.Smuggler_AutoLaunder = v end) })
-Tabs.Smuggler:Toggle({ Title = "Debug Mode", Default = false, Callback = safeCB(function(v) State.Smuggler_DebugMode = v end) })
+Tabs.Smuggler:Toggle({ Title = "Debug", Default = false, Callback = safeCB(function(v) State.Smuggler_DebugMode = v end) })
 
 Tabs.Smuggler:Section({ Title = "MAIN TOGGLE" })
-Tabs.Smuggler:Toggle({
-    Title = "Auto Smuggler Loop", Default = false,
-    Callback = safeCB(function(v) Smuggler.SetAutoLoop(v) end)
-})
+Tabs.Smuggler:Toggle({ Title = "Auto Smuggler Loop", Default = false, Callback = safeCB(function(v) Smuggler.SetAutoLoop(v) end) })
 
-Tabs.Smuggler:Section({ Title = "Manual Steps" })
-Tabs.Smuggler:Button({ Title = "TP to Spawner", Callback = safeCB(function()
-    local sp = FindNearestSpawner()
-    if sp then SmartTP.Go(sp.position, 3) else SmartTP.Go(State.POS_CarSpawner, 3) end
-end) })
+Tabs.Smuggler:Section({ Title = "Manual" })
+Tabs.Smuggler:Button({ Title = "TP to Spawner", Callback = safeCB(function() local sp = FindNearestSpawner(); if sp then SmartTP.Go(sp.position, 3) else SmartTP.Go(State.POS_CarSpawner, 3) end end) })
 Tabs.Smuggler:Button({ Title = "1. Buy Item", Callback = safeCB(Smuggler.BuyItem) })
 Tabs.Smuggler:Button({ Title = "2. Spawn Car", Callback = safeCB(Smuggler.SpawnCar) })
-Tabs.Smuggler:Button({ Title = "3. Sit In Car", Callback = safeCB(function()
-    local c = State.Smuggler_CurrentCar or GetPlayerCar()
-    if c then Smuggler.SitInCar(c) else Notify("Err", "No car", 3) end
-end) })
-Tabs.Smuggler:Button({ Title = "4. Remove Tires", Callback = safeCB(function()
-    local c = State.Smuggler_CurrentCar or GetPlayerCar()
-    if c then Smuggler.RemoveTires(c) else Notify("Err", "No car", 3) end
-end) })
-Tabs.Smuggler:Button({ Title = "5. TP Car → Seller", Callback = safeCB(function()
-    local c = State.Smuggler_CurrentCar or GetPlayerCar()
-    if c then Smuggler.TeleportCarToSeller(c) else Notify("Err", "No car", 3) end
-end) })
+Tabs.Smuggler:Button({ Title = "3. Sit In Car", Callback = safeCB(function() local c = State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.SitInCar(c) end end) })
+Tabs.Smuggler:Button({ Title = "4. Remove Tires", Callback = safeCB(function() local c = State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.RemoveTires(c) end end) })
+Tabs.Smuggler:Button({ Title = "5. TP Car → Seller", Callback = safeCB(function() local c = State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.TeleportCarToSeller(c) end end) })
 Tabs.Smuggler:Button({ Title = "6. Sell", Callback = safeCB(Smuggler.FireSell) })
-Tabs.Smuggler:Button({ Title = "7. TP Car → Laundry", Callback = safeCB(function()
-    local c = State.Smuggler_CurrentCar or GetPlayerCar()
-    Smuggler.TeleportCarToLaundry(c)
-end) })
+Tabs.Smuggler:Button({ Title = "7. TP Car → Laundry", Callback = safeCB(function() local c = State.Smuggler_CurrentCar or GetPlayerCar(); Smuggler.TeleportCarToLaundry(c) end) })
 Tabs.Smuggler:Button({ Title = "8. Launder", Callback = safeCB(Smuggler.FireLaunder) })
 
--- ═══ POLICE ═══
+-- POLICE
 Tabs.Police:Section({ Title = "Targeting" })
 Tabs.Police:Toggle({ Title = "Wanted Only", Default = true, Callback = safeCB(function(v) State.Police_TargetWanted = v end) })
 Tabs.Police:Toggle({ Title = "Target All", Default = false, Callback = safeCB(function(v) State.Police_TargetAll = v end) })
-Tabs.Police:Slider({ Title = "Min Wanted", Value = { Min=1, Max=10, Default=1 }, Step=1,
-    Callback = safeCB(function(v) State.Police_MinWantedLevel = v end) })
-Tabs.Police:Dropdown({
-    Title = "Aim Part", Values = {"Head", "HumanoidRootPart", "UpperTorso"}, Value = "Head",
-    Callback = safeCB(function(v) State.Police_AimPart = v end)
-})
-
+Tabs.Police:Slider({ Title = "Min Wanted", Value = { Min=1, Max=10, Default=1 }, Step=1, Callback = safeCB(function(v) State.Police_MinWantedLevel = v end) })
+Tabs.Police:Dropdown({ Title = "Aim Part", Values = {"Head", "HumanoidRootPart", "UpperTorso"}, Value = "Head", Callback = safeCB(function(v) State.Police_AimPart = v end) })
 Tabs.Police:Section({ Title = "Aim" })
 Tabs.Police:Slider({ Title = "FOV", Value = { Min=30, Max=500, Default=150 }, Step=10, Callback = safeCB(function(v) State.Police_AimFOV = v end) })
 Tabs.Police:Slider({ Title = "Smoothness", Value = { Min=1, Max=20, Default=1 }, Step=1, Callback = safeCB(function(v) State.Police_AimSmooth = v end) })
 Tabs.Police:Toggle({ Title = "Show FOV", Default = true, Callback = safeCB(function(v) State.Police_ShowFOV = v end) })
-
 Tabs.Police:Section({ Title = "Controls" })
 Tabs.Police:Toggle({ Title = "Auto-Aim (RMB)", Default = false, Callback = safeCB(function(v) Police.SetAutoAim(v) end) })
 Tabs.Police:Toggle({ Title = "Auto-Fire", Default = false, Callback = safeCB(function(v) Police.SetAutoFire(v) end) })
 Tabs.Police:Toggle({ Title = "Auto-Arrest", Default = false, Callback = safeCB(function(v) Police.SetAutoArrest(v) end) })
 
--- ═══ TELEPORT ═══
+-- TELEPORT
 Tabs.Teleport:Section({ Title = "Player" })
-Tabs.Teleport:Input({
-    Title = "Player Name", Placeholder = "case-sensitive",
-    Callback = safeCB(function(v) State.TP_Target = v end)
-})
+Tabs.Teleport:Input({ Title = "Player Name", Placeholder = "case-sensitive", Callback = safeCB(function(v) State.TP_Target = v end) })
 Tabs.Teleport:Button({ Title = "TP to Player", Callback = safeCB(function()
-    local n = State.TP_Target
-    if not n or n == "" then return end
+    local n = State.TP_Target; if not n or n == "" then return end
     local t = Players:FindFirstChild(n); if not t or not t.Character then return end
     local th = t.Character:FindFirstChild("HumanoidRootPart")
     if th then SmartTP.Go(th.Position + Vector3.new(0,0,4), 0) end
@@ -1131,10 +1175,7 @@ end) })
 Tabs.Teleport:Section({ Title = "Locations" })
 Tabs.Teleport:Button({ Title = "Shop", Callback = safeCB(function() SmartTP.Go(State.POS_Shop, 3) end) })
 Tabs.Teleport:Button({ Title = "Laundry", Callback = safeCB(function() SmartTP.Go(State.POS_Laundry, 3) end) })
-Tabs.Teleport:Button({ Title = "Car Spawner", Callback = safeCB(function()
-    local sp = FindNearestSpawner()
-    if sp then SmartTP.Go(sp.position, 3) else SmartTP.Go(State.POS_CarSpawner, 3) end
-end) })
+Tabs.Teleport:Button({ Title = "Car Spawner", Callback = safeCB(function() local sp = FindNearestSpawner(); if sp then SmartTP.Go(sp.position, 3) else SmartTP.Go(State.POS_CarSpawner, 3) end end) })
 
 Tabs.Teleport:Section({ Title = "Sellers" })
 for _, name in ipairs(GetSellerNames()) do
@@ -1144,24 +1185,19 @@ for _, name in ipairs(GetSellerNames()) do
     end) })
 end
 
--- ═══ ESP ═══
+-- ESP
 Tabs.ESP:Section({ Title = "ESP" })
 Tabs.ESP:Toggle({ Title = "All Players", Default = false, Callback = safeCB(function(v) State.ESP_Players = v end) })
 Tabs.ESP:Toggle({ Title = "Wanted (Red)", Default = false, Callback = safeCB(function(v) State.ESP_Wanted = v end) })
 Tabs.ESP:Toggle({ Title = "Police (Blue)", Default = false, Callback = safeCB(function(v) State.ESP_Police = v end) })
-
 Tabs.ESP:Section({ Title = "Display" })
-Tabs.ESP:Toggle({ Title = "Show Names", Default = true,
-    Callback = safeCB(function(v) State.ESP_ShowName = v; for _,c in pairs(State.ESPCache) do if c.nl then c.nl.Visible = v end end end) })
-Tabs.ESP:Toggle({ Title = "Show Distance", Default = true,
-    Callback = safeCB(function(v) State.ESP_ShowDist = v; for _,c in pairs(State.ESPCache) do if c.dl then c.dl.Visible = v end end end) })
-Tabs.ESP:Slider({ Title = "Max Distance", Value = { Min=100, Max=5000, Default=800 }, Step=100,
-    Callback = safeCB(function(v) State.ESP_MaxDist = v end) })
-
+Tabs.ESP:Toggle({ Title = "Show Names", Default = true, Callback = safeCB(function(v) State.ESP_ShowName = v; for _,c in pairs(State.ESPCache) do if c.nl then c.nl.Visible = v end end end) })
+Tabs.ESP:Toggle({ Title = "Show Distance", Default = true, Callback = safeCB(function(v) State.ESP_ShowDist = v; for _,c in pairs(State.ESPCache) do if c.dl then c.dl.Visible = v end end end) })
+Tabs.ESP:Slider({ Title = "Max Distance", Value = { Min=100, Max=5000, Default=800 }, Step=100, Callback = safeCB(function(v) State.ESP_MaxDist = v end) })
 Tabs.ESP:Button({ Title = "Refresh", Callback = safeCB(function() ESP.ClearAll(); ESP.RefreshAll() end) })
 Tabs.ESP:Button({ Title = "Clear All", Callback = safeCB(ESP.ClearAll) })
 
--- ═══ VISUALS ═══
+-- VISUALS
 Tabs.Visuals:Section({ Title = "Lighting" })
 Tabs.Visuals:Toggle({ Title = "FullBright", Default = false, Callback = safeCB(function(v) State.FullBright = v; Vis.FullBright(v) end) })
 Tabs.Visuals:Toggle({ Title = "No Fog", Default = false, Callback = safeCB(function(v) State.NoFog = v; Vis.NoFog(v) end) })
@@ -1169,10 +1205,9 @@ Tabs.Visuals:Slider({ Title = "Time", Value = { Min=0, Max=24, Default=14 }, Ste
 Tabs.Visuals:Section({ Title = "Camera" })
 Tabs.Visuals:Slider({ Title = "FOV", Value = { Min=30, Max=120, Default=70 }, Step=5, Callback = safeCB(function(v) State.FOV = v; Vis.SetFOV(v) end) })
 
--- ═══ MISC ═══
+-- MISC
 Tabs.Misc:Section({ Title = "Audio" })
 Tabs.Misc:Toggle({ Title = "Mute All", Default = false, Callback = safeCB(function(v) Vis.MuteAll(v) end) })
-
 Tabs.Misc:Section({ Title = "Server" })
 Tabs.Misc:Button({ Title = "Server Hop", Callback = safeCB(function()
     pcall(function()
@@ -1186,40 +1221,26 @@ Tabs.Misc:Button({ Title = "Server Hop", Callback = safeCB(function()
         end
     end)
 end) })
-Tabs.Misc:Button({ Title = "Rejoin", Callback = safeCB(function()
-    pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end)
-end) })
-
+Tabs.Misc:Button({ Title = "Rejoin", Callback = safeCB(function() pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end) end) })
 Tabs.Misc:Section({ Title = "Utility" })
 Tabs.Misc:Button({ Title = "Copy Position", Callback = safeCB(function()
     local h = GetHRP()
-    if h then
-        local p = h.Position
-        local s = string.format("Vector3.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
-        if setclipboard then setclipboard(s) end
-        Notify("Copied", s, 3)
-    end
+    if h then local p = h.Position; local s = string.format("Vector3.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z); if setclipboard then setclipboard(s) end; Notify("Copied", s, 3) end
 end) })
 
--- ═══ SETTINGS ═══
+-- SETTINGS
 Tabs.Settings:Section({ Title = "General" })
 Tabs.Settings:Toggle({ Title = "Anti-AFK", Default = true, Callback = safeCB(function(v) State.AntiAFK = v end) })
-
 Tabs.Settings:Section({ Title = "Panic" })
-Tabs.Settings:Button({ Title = "PANIC (Disable Everything)", Callback = safeCB(function()
-    ESP.ClearAll()
-    Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-    Smuggler.SetAutoLoop(false)
-    Notify("PANIC", "All off", 3)
+Tabs.Settings:Button({ Title = "PANIC (Off All)", Callback = safeCB(function()
+    ESP.ClearAll(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
+    Smuggler.SetAutoLoop(false); Notify("PANIC", "All off", 3)
 end) })
-
-Tabs.Settings:Paragraph({ Title = HUB.Name .. " v" .. HUB.Version, Desc = "Border RP Automation\nWindUI + Deferred Callbacks" })
-
+Tabs.Settings:Paragraph({ Title = HUB.Name .. " v" .. HUB.Version, Desc = "Fall Safe Build" })
 Tabs.Settings:Section({ Title = "Unload" })
 Tabs.Settings:Button({ Title = "Unload Hub", Callback = safeCB(function()
-    Smuggler.SetAutoLoop(false)
-    Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-    AntiTp.Disable(); DisableNoclip()
+    Smuggler.SetAutoLoop(false); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
+    AntiTp.Disable(); FallGuard.Disable(); DisableNoclip()
     if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
     if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
     if State.FlyConn then pcall(function() State.FlyConn:Disconnect() end) end
@@ -1229,7 +1250,6 @@ Tabs.Settings:Button({ Title = "Unload Hub", Callback = safeCB(function()
     pcall(function() Window:Destroy() end)
 end) })
 
--- Character respawn
 CM:Add(LocalPlayer.CharacterAdded, function()
     task.wait(1)
     if State.GodMode then pcall(Car.SetGod, true) end
@@ -1237,18 +1257,18 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.FlyActive then pcall(Car.SetFly, true) end
     if State.FullBright then pcall(Vis.FullBright, true) end
     if State.AntiTpBypass then AntiTp.Enable() end
+    if State.NoFallDamage then FallGuard.Enable() end
 end)
 
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
-        Smuggler.SetAutoLoop(false)
-        Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-        AntiTp.Disable(); DisableNoclip()
+        Smuggler.SetAutoLoop(false); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
+        AntiTp.Disable(); FallGuard.Disable(); DisableNoclip()
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
         CM:Cleanup(); ESP.ClearAll()
         pcall(function() Window:Destroy() end)
     end,
 }
 
-Log("v3.2.0 WindUI ready | AntiTp: hide | Callbacks: deferred")
+Log("v3.2.1 ready | Fall protection: ON")
