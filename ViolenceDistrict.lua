@@ -72,7 +72,7 @@ local HUB = {
     Game    = "Violence District",
     Version = "0.0.6",
     Author  = "voixera",
-    Folder  = "X0DEC04T",
+    Folder  = "X0DEC04T_Hub",
 }
 
 --═══════════════════════════════════════════════════════════════
