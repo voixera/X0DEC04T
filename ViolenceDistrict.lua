@@ -17,32 +17,61 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
 --═══════════════════════════════════════════════════════════════
--- WINDUI LOAD (SAFE)
+-- WINDUI LOAD (ROBUST MULTI-MIRROR)
 --═══════════════════════════════════════════════════════════════
-local function SafeLoadWindUI()
-    local rawSuccess, raw = pcall(function()
-        return game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua")
-    end)
-    if not rawSuccess or type(raw) ~= "string" or #raw < 100 then
-        warn("[X0DEC04T] Failed to fetch WindUI"); return nil
+local WindUI
+
+local function tryLoadWindUI()
+    local sources = {
+        "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
+        "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
+        "https://raw.githubusercontent.com/Footagesus/WindUI/main/main.lua",
+    }
+
+    for i, url in ipairs(sources) do
+        print("[X0DEC04T] Trying WindUI source #" .. i .. ": " .. url)
+
+        local ok, raw = pcall(function() return game:HttpGet(url) end)
+        if not ok or type(raw) ~= "string" then
+            warn("[X0DEC04T] Source #" .. i .. " HttpGet failed")
+        elseif #raw < 500 then
+            warn("[X0DEC04T] Source #" .. i .. " returned tiny response (" .. #raw .. " chars)")
+        elseif raw:sub(1, 15):lower():find("<!doctype") or raw:sub(1, 5):lower():find("<html") then
+            warn("[X0DEC04T] Source #" .. i .. " returned HTML (redirect/error page)")
+        else
+            local compileOk, chunk = pcall(loadstring, raw)
+            if not compileOk or type(chunk) ~= "function" then
+                warn("[X0DEC04T] Source #" .. i .. " compile fail: " .. tostring(chunk))
+            else
+                local runOk, result = pcall(chunk)
+                if runOk and type(result) == "table" then
+                    print("[X0DEC04T] SUCCESS: WindUI loaded from source #" .. i)
+                    return result
+                else
+                    warn("[X0DEC04T] Source #" .. i .. " execution fail: " .. tostring(result))
+                end
+            end
+        end
+        task.wait(0.3)
     end
-    local compileSuccess, chunk = pcall(loadstring, raw)
-    if not compileSuccess or type(chunk) ~= "function" then
-        warn("[X0DEC04T] Compile failed: " .. tostring(chunk)); return nil
-    end
-    local runSuccess, result = pcall(chunk)
-    if not runSuccess then
-        warn("[X0DEC04T] WindUI errored: " .. tostring(result)); return nil
-    end
-    return result
+    return nil
 end
 
-local WindUI = SafeLoadWindUI()
+WindUI = tryLoadWindUI()
+
 if not WindUI then
-    warn("[X0DEC04T] CRITICAL: WindUI failed to load. Aborting.")
+    warn("╔══════════════════════════════════════════════════╗")
+    warn("║  X0DEC04T Hub - WindUI FAILED TO LOAD           ║")
+    warn("║  All mirror sources failed. Possible causes:    ║")
+    warn("║  - Executor's HttpGet is broken/blocked         ║")
+    warn("║  - Firewall / no internet                       ║")
+    warn("║  - GitHub rate-limited your IP                  ║")
+    warn("║  Try: rejoin, wait 60s, use different executor  ║")
+    warn("╚══════════════════════════════════════════════════╝")
     return
 end
-print("[X0DEC04T] WindUI loaded successfully")
+
+print("[X0DEC04T] WindUI ready")
 
 --═══════════════════════════════════════════════════════════════
 -- SAFE UI HELPER
