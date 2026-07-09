@@ -1,7 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.0.0 - Car Driving Indonesia
+-- X0DEC04T Hub v2.1.0 - Car Driving Indonesia
 -- UI: Rayfield | Compatible: Xeno, Delta, Solara, Wave, Codex
--- Uses exact ReplicaRemoteEvents from game scan
 --═══════════════════════════════════════════════════════════════
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -24,7 +23,7 @@ local Camera      = Workspace.CurrentCamera
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DUPLICATE GUARD
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local INSTANCE_KEY = "__X0DEC04T_CDI_v200"
+local INSTANCE_KEY = "__X0DEC04T_CDI_v210"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -43,13 +42,12 @@ local function Err(msg, detail)
     warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock() - _logStart, tostring(msg), tostring(detail or "")))
 end
 
-Log("CDI Hub v2.0.0 starting...")
+Log("CDI Hub v2.1.0 starting...")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- LOAD RAYFIELD
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Rayfield = nil
-
 local RAYFIELD_URLS = {
     "https://sirius.menu/rayfield",
     "https://raw.githubusercontent.com/shlexware/Rayfield/main/source",
@@ -80,7 +78,7 @@ end
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Car Driving Indonesia",
-    Version = "2.0.0",
+    Version = "2.1.0",
     Author  = "voixera",
 }
 
@@ -110,6 +108,20 @@ function CM:Cleanup()
     end
     self._list = {}
     Log("All connections cleaned up")
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- NOTIFY
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function Notify(title, content, dur)
+    pcall(function()
+        Rayfield:Notify({
+            Title    = tostring(title   or ""),
+            Content  = tostring(content or ""),
+            Duration = tonumber(dur)    or 4,
+            Image    = 4483345998,
+        })
+    end)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -158,7 +170,7 @@ local function DumpRemotes()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CDI EXACT REMOTES (from ReplicaRemoteEvents scan)
+-- CDI EXACT REMOTES
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local RRE = ReplicatedStorage:FindFirstChild("ReplicaRemoteEvents")
 
@@ -180,25 +192,6 @@ for k, v in pairs(R) do
     Log("R." .. k .. " = " .. (v and "OK" or "NOT FOUND"))
 end
 
--- Fire a replica remote safely
-local function FireReplica(remoteName, ...)
-    local rem = R[remoteName]
-    if not rem then
-        Notify("Remote", "Not found: " .. tostring(remoteName), 3)
-        return false
-    end
-    local args = {...}
-    local ok, err = pcall(function() rem:FireServer(unpack(args)) end)
-    if ok then
-        Log("Fired: " .. remoteName)
-        return true
-    else
-        Err("Fire failed: " .. remoteName, err)
-        return false
-    end
-end
-
--- Fire any remote by name
 local function FireByName(name, ...)
     local rem = FindRemote(name)
     if not rem then
@@ -265,8 +258,6 @@ local State = {
     SpeedHack       = false,
     SpeedHackConn   = nil,
     SpeedHackValue  = 500,
-    InfNitro        = false,
-    InfNitroConn    = nil,
 
     -- Freecam / Camera
     Freecam         = false,
@@ -284,9 +275,15 @@ local State = {
     -- Folder
     FolderName      = "",
 
-    -- Auto features
-    AutoRespawn     = false,
-    AutoRespawnConn = nil,
+    -- Trucker
+    Trucker_AutoAccept  = false,
+    Trucker_AutoDeliver = false,
+    Trucker_FullLoop    = false,
+    Trucker_Delay       = 51,
+    Trucker_JobsDone    = 0,
+    Trucker_Status      = "Idle",
+    Trucker_LoopThread  = nil,
+    Trucker_StatusLbl   = nil,
 
     -- Visuals
     FullBright      = false,
@@ -309,20 +306,6 @@ local State = {
     LightBackup     = {},
     CurrentCarModel = nil,
 }
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NOTIFY
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local function Notify(title, content, dur)
-    pcall(function()
-        Rayfield:Notify({
-            Title    = tostring(title   or ""),
-            Content  = tostring(content or ""),
-            Duration = tonumber(dur)    or 4,
-            Image    = 4483345998,
-        })
-    end)
-end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- HELPERS
@@ -827,6 +810,246 @@ function Car.DeleteAllCars()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- TRUCKER AUTOMATION ENGINE
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local Trucker = {}
+
+local JobRemote  = ReplicatedStorage:FindFirstChild("NetworkContainer")
+    and ReplicatedStorage.NetworkContainer:FindFirstChild("RemoteEvents")
+    and ReplicatedStorage.NetworkContainer.RemoteEvents:FindFirstChild("Job")
+
+local TruckAreaM = ReplicatedStorage:FindFirstChild("Shared")
+    and ReplicatedStorage.Shared:FindFirstChild("TruckArea")
+
+-- Load TruckArea data
+local TruckLocations = {}
+if TruckAreaM then
+    local ok, data = pcall(require, TruckAreaM)
+    if ok and typeof(data) == "table" then
+        for i, entry in ipairs(data) do
+            if entry.txt and entry.Location then
+                table.insert(TruckLocations, {
+                    name     = tostring(entry.txt),
+                    location = entry.Location,
+                })
+                Log("TruckLoc[" .. i .. "]: " .. tostring(entry.txt))
+            end
+        end
+    end
+end
+Log("Loaded " .. #TruckLocations .. " truck locations")
+
+function Trucker.SetStatus(txt)
+    State.Trucker_Status = txt
+    if State.Trucker_StatusLbl then
+        pcall(function()
+            State.Trucker_StatusLbl:Set("Status: " .. txt
+                .. " | Jobs: " .. State.Trucker_JobsDone)
+        end)
+    end
+    Log("[Trucker] " .. txt)
+end
+
+function Trucker.GetStarter()
+    local etc = Workspace:FindFirstChild("Etc")
+    if not etc then return nil end
+    local job = etc:FindFirstChild("Job")
+    if not job then return nil end
+    local truck = job:FindFirstChild("Truck")
+    if not truck then return nil end
+    local starter = truck:FindFirstChild("Starter")
+    if not starter then return nil end
+    local prompt = starter:FindFirstChildWhichIsA("ProximityPrompt", true)
+    return starter, prompt
+end
+
+function Trucker.GetDestination()
+    local etc = Workspace:FindFirstChild("Etc")
+    if not etc then return nil end
+    local job = etc:FindFirstChild("Job")
+    if not job then return nil end
+    local truck = job:FindFirstChild("Truck")
+    if not truck then return nil end
+    local destF = truck:FindFirstChild("Destination")
+    if not destF then return nil end
+
+    for _, v in ipairs(destF:GetChildren()) do
+        if v:IsA("BasePart") then return v end
+        if v:IsA("Model") then
+            local p = v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart")
+            if p then return p end
+        end
+        if v:IsA("Folder") then
+            for _, c in ipairs(v:GetDescendants()) do
+                if c:IsA("BasePart") then return c end
+            end
+        end
+    end
+    return nil
+end
+
+function Trucker.GetTruck()
+    if not CDI.Cars then return nil end
+    local ch = GetCharacter()
+    if not ch then return nil end
+    for _, car in ipairs(CDI.Cars:GetChildren()) do
+        for _, seat in ipairs(car:GetDescendants()) do
+            if (seat:IsA("VehicleSeat") or seat:IsA("Seat"))
+            and seat.Occupant and seat.Occupant.Parent == ch then
+                return car
+            end
+        end
+    end
+    return nil
+end
+
+function Trucker.AcceptJob()
+    Trucker.SetStatus("Accepting job...")
+    local starter, prompt = Trucker.GetStarter()
+    if not starter then
+        Notify("Trucker", "Starter not found!", 3)
+        Trucker.SetStatus("Error: no starter")
+        return false
+    end
+
+    local hrp = GetHRP()
+    if hrp and starter:IsA("BasePart") then
+        hrp.CFrame = starter.CFrame + Vector3.new(0, 3, 0)
+        task.wait(0.5)
+
+        if prompt then
+            local ok = pcall(function()
+                fireproximityprompt(prompt)
+            end)
+            if ok then
+                Log("Fired ProximityPrompt on Starter")
+            else
+                Log("fireproximityprompt failed - trying remote")
+                if JobRemote then
+                    pcall(function() JobRemote:FireServer() end)
+                end
+            end
+        else
+            if JobRemote then
+                pcall(function() JobRemote:FireServer() end)
+                Log("Fired Job remote (no prompt)")
+            end
+        end
+        task.wait(0.5)
+    end
+
+    Trucker.SetStatus("Job accepted")
+    return true
+end
+
+function Trucker.TeleportToDelivery()
+    Trucker.SetStatus("Delivering...")
+    local dest = Trucker.GetDestination()
+    if not dest then
+        Notify("Trucker", "No active destination.", 3)
+        Trucker.SetStatus("No destination")
+        return false
+    end
+
+    local truck = Trucker.GetTruck()
+    local target = dest.CFrame + Vector3.new(0, 8, 0)
+
+    if truck then
+        local root = truck.PrimaryPart or truck:FindFirstChildWhichIsA("BasePart")
+        if root then
+            for _, p in ipairs(truck:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Velocity = Vector3.zero
+                    p.RotVelocity = Vector3.zero
+                end
+            end
+            root.CFrame = target
+            task.wait(0.3)
+            Log("Truck teleported to delivery: " .. tostring(dest.Position))
+            Trucker.SetStatus("Arrived at delivery")
+            return true
+        end
+    else
+        local hrp = GetHRP()
+        if hrp then
+            hrp.CFrame = target
+            Trucker.SetStatus("Player TP to delivery")
+            return true
+        end
+    end
+    return false
+end
+
+function Trucker.WaitForComplete(timeout)
+    timeout = timeout or 20
+    local start = tick()
+    while tick() - start < timeout do
+        local dest = Trucker.GetDestination()
+        if not dest then
+            return true
+        end
+        task.wait(0.3)
+    end
+    return false
+end
+
+function Trucker.SetFullLoop(enable)
+    if State.Trucker_LoopThread then
+        State.Trucker_LoopThread = nil
+    end
+
+    if not enable then
+        Trucker.SetStatus("Loop stopped")
+        return
+    end
+
+    Trucker.SetStatus("Loop started")
+    State.Trucker_LoopThread = task.spawn(function()
+        while State.Trucker_FullLoop do
+            -- Step 1: Accept job if no active destination
+            local dest = Trucker.GetDestination()
+            if not dest then
+                Trucker.AcceptJob()
+                task.wait(2)
+            end
+
+            -- Step 2: Wait for destination to appear
+            local waitStart = tick()
+            while not Trucker.GetDestination() and tick() - waitStart < 10 do
+                if not State.Trucker_FullLoop then break end
+                task.wait(0.3)
+            end
+
+            if not State.Trucker_FullLoop then break end
+
+            -- Step 3: Teleport to delivery
+            if Trucker.GetDestination() then
+                Trucker.TeleportToDelivery()
+                task.wait(1)
+
+                -- Step 4: Wait for completion
+                if Trucker.WaitForComplete(20) then
+                    State.Trucker_JobsDone = State.Trucker_JobsDone + 1
+                    Trucker.SetStatus("Job #" .. State.Trucker_JobsDone .. " done!")
+                    Notify("Trucker", "Job #" .. State.Trucker_JobsDone .. " completed!", 3)
+                else
+                    Trucker.SetStatus("Timeout waiting completion")
+                end
+            end
+
+            -- Step 5: Delay before next job
+            local waited = 0
+            while waited < State.Trucker_Delay and State.Trucker_FullLoop do
+                task.wait(1)
+                waited = waited + 1
+                Trucker.SetStatus("Waiting " .. (State.Trucker_Delay - waited) .. "s")
+            end
+        end
+        Trucker.SetStatus("Loop ended")
+    end)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- FOLDER ENGINE
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local FolderEngine = {}
@@ -845,7 +1068,6 @@ local function FindFolder(name)
             return obj
         end
     end
-    -- Partial match
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if (obj:IsA("Folder") or obj:IsA("Model"))
         and obj.Name:lower():find(name:lower(), 1, true) then
@@ -1166,6 +1388,7 @@ local Tabs = {}
 local TAB_DEFS = {
     { key="Main",     name="Main",     icon="home"      },
     { key="Car",      name="Car",      icon="zap"       },
+    { key="Trucker",  name="Trucker",  icon="truck"     },
     { key="Teleport", name="Teleport", icon="map-pin"   },
     { key="ESP",      name="ESP",      icon="eye"       },
     { key="Remote",   name="Remotes",  icon="radio"     },
@@ -1219,8 +1442,9 @@ local function Inp(tab, cfg, label)
 end
 local function Lbl(tab, text)
     if not tab then return end
-    local ok, err = pcall(function() tab:CreateLabel(text) end)
-    if not ok then Err("Label:" .. tostring(text), err) end
+    local ok, ret = pcall(function() return tab:CreateLabel(text) end)
+    if not ok then Err("Label:" .. tostring(text), ret) end
+    return ret
 end
 local function Kbnd(tab, cfg, label)
     if not tab then return end
@@ -1245,12 +1469,12 @@ if Tabs.Main then
     Lbl(T, "Cars folder: " .. (CDI.Cars and "OK" or "MISSING"))
     Lbl(T, "Spawns folder: " .. (CDI.SpawnPoints and "OK" or "MISSING"))
     Lbl(T, "ReplicaRemoteEvents: " .. (RRE and "DETECTED" or "MISSING"))
+    Lbl(T, "Truck locations: " .. #TruckLocations)
 
     Sec(T, "Quick Guide")
+    Lbl(T, "Trucker tab - Auto job loop")
     Lbl(T, "Car tab - speed, fly, noclip, rainbow, launch")
     Lbl(T, "Teleport tab - players, spawns, saved positions")
-    Lbl(T, "Remote tab - fire any remote in the game")
-    Lbl(T, "Folder tab - delete/hide any folder or model")
     Lbl(T, "RightShift = Toggle UI | End = Panic ESP")
 
     Sec(T, "Debug Tools")
@@ -1376,6 +1600,100 @@ if Tabs.Car then
             Car.SetRainbow(v)
         end,
     }, "Rainbow")
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- TRUCKER TAB
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if Tabs.Trucker then
+    local T = Tabs.Trucker
+
+    Sec(T, "Trucker Info")
+    Lbl(T, "Locations loaded: " .. #TruckLocations)
+    Lbl(T, "Job remote: " .. (JobRemote and "OK" or "MISSING"))
+    Lbl(T, "Starter: " .. (Trucker.GetStarter() and "OK" or "N/A - go to Ngawi"))
+
+    Sec(T, "Status")
+    State.Trucker_StatusLbl = Lbl(T, "Status: Idle | Jobs: 0")
+
+    Sec(T, "Manual Actions")
+    Btn(T, {
+        Name = "🚚 Accept Job (TP + Prompt)",
+        Callback = Trucker.AcceptJob,
+    }, "TruckerAccept")
+    Btn(T, {
+        Name = "📦 Teleport to Delivery",
+        Callback = Trucker.TeleportToDelivery,
+    }, "TruckerDeliver")
+    Btn(T, {
+        Name = "🔍 Show Current Destination",
+        Callback = function()
+            local d = Trucker.GetDestination()
+            if d then
+                Notify("Destination", d.Name .. " @ " .. tostring(d.Position), 5)
+                Log("Dest: " .. d:GetFullName() .. " pos=" .. tostring(d.Position))
+            else
+                Notify("Destination", "No active destination.", 3)
+            end
+        end,
+    }, "ShowDest")
+
+    Sec(T, "Full Automation")
+    Sld(T, {
+        Name = "Delay Between Jobs (seconds)",
+        Range = {1, 120},
+        Increment = 1,
+        CurrentValue = 51,
+        Flag = "TruckerDelay",
+        Callback = function(v)
+            State.Trucker_Delay = tonumber(v) or 51
+        end,
+    }, "TruckerDelay")
+    Tog(T, {
+        Name = "🔁 Auto Trucker (Full Loop)",
+        CurrentValue = false,
+        Flag = "TruckerAutoLoop",
+        Callback = function(v)
+            State.Trucker_FullLoop = v
+            Trucker.SetFullLoop(v)
+        end,
+    }, "TruckerAutoLoop")
+
+    Sec(T, "Quick TP to Cities")
+    for i, loc in ipairs(TruckLocations) do
+        Btn(T, {
+            Name = "📍 " .. loc.name,
+            Callback = function()
+                local target = CFrame.new(loc.location) + Vector3.new(0, 8, 0)
+                local truck = Trucker.GetTruck()
+                if truck then
+                    local r = truck.PrimaryPart or truck:FindFirstChildWhichIsA("BasePart")
+                    if r then
+                        for _, p in ipairs(truck:GetDescendants()) do
+                            if p:IsA("BasePart") then
+                                p.Velocity = Vector3.zero
+                                p.RotVelocity = Vector3.zero
+                            end
+                        end
+                        r.CFrame = target
+                    end
+                else
+                    local hrp = GetHRP()
+                    if hrp then hrp.CFrame = target end
+                end
+                Notify("TP", "Teleported to " .. loc.name, 3)
+            end,
+        }, "TP_"..i)
+    end
+
+    Sec(T, "Reset")
+    Btn(T, {
+        Name = "Reset Job Counter",
+        Callback = function()
+            State.Trucker_JobsDone = 0
+            Trucker.SetStatus("Reset")
+        end,
+    }, "ResetCount")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1571,19 +1889,10 @@ if Tabs.Remote then
     Lbl(T, "Total remotes found: " .. #RemoteDBAll)
     Lbl(T, "Type name (partial OK)")
 
-    Sec(T, "Detected Replica Remotes")
-    Lbl(T, "SetValue:    " .. (R.SetValue and "OK" or "MISSING"))
-    Lbl(T, "SetValues:   " .. (R.SetValues and "OK" or "MISSING"))
-    Lbl(T, "ArrayInsert: " .. (R.ArrayInsert and "OK" or "MISSING"))
-    Lbl(T, "ArrayRemove: " .. (R.ArrayRemove and "OK" or "MISSING"))
-    Lbl(T, "Create:      " .. (R.Create and "OK" or "MISSING"))
-    Lbl(T, "Destroy:     " .. (R.Destroy and "OK" or "MISSING"))
-    Lbl(T, "Signal:      " .. (R.Signal and "OK" or "MISSING"))
-
     Sec(T, "Fire Any Remote")
     Inp(T, {
         Name="Remote Name",
-        PlaceholderText="e.g. ReplicaSetValue, GiveMoney",
+        PlaceholderText="e.g. Job, GiveMoney",
         RemoveTextAfterFocusLost=false,
         Callback=function(v) State.RemoteName = tostring(v or "") end,
     }, "RemoteName")
@@ -1864,6 +2173,7 @@ if Tabs.Settings then
     Btn(T, {
         Name="Unload Hub",
         Callback=function()
+            State.Trucker_FullLoop = false
             if State.NoclipConn    then pcall(function() State.NoclipConn:Disconnect()    end) end
             if State.FlyConn       then pcall(function() State.FlyConn:Disconnect()       end) end
             if State.FreecamConn   then pcall(function() State.FreecamConn:Disconnect()   end) end
@@ -1936,6 +2246,7 @@ _G[INSTANCE_KEY] = {
     version   = HUB.Version,
     timestamp = os.time(),
     destroy   = function()
+        State.Trucker_FullLoop = false
         if State.NoclipConn     then pcall(function() State.NoclipConn:Disconnect()     end) end
         if State.FlyConn        then pcall(function() State.FlyConn:Disconnect()        end) end
         if State.FreecamConn    then pcall(function() State.FreecamConn:Disconnect()    end) end
@@ -1976,5 +2287,5 @@ _G[INSTANCE_KEY] = {
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DONE
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Notify(HUB.Name, "Loaded v" .. HUB.Version .. " - Car Driving Indonesia", 5)
+Notify(HUB.Name, "Loaded v" .. HUB.Version .. " - Trucker Auto Ready!", 5)
 Log("Initialization complete - v" .. HUB.Version)
