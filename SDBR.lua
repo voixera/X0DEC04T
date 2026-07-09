@@ -1,6 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v4.0.7 - TWEEN-ONLY Car Drive
--- Pure TweenService for AC bypass (rollback/clip/fly)
+-- X0DEC04T Hub v4.0.8 - TWEEN + NoClip car penetration
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -21,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v407"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v408"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -29,7 +28,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v4.0.7 TWEEN-ONLY...")
+Log("Starting v4.0.8 TWEEN + NoClip...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -48,7 +47,7 @@ local ok, err = pcall(function()
 end)
 if not ok or not WindUI then warn("[X0DEC04T] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Version="4.0.7" }
+local HUB = { Name="X0DEC04T Hub", Version="4.0.8" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
@@ -94,10 +93,11 @@ local State = {
     Smuggler_Delay=1, Smuggler_DebugMode=true,
     Smuggler_AutoEquip=true, Smuggler_EquipAll=true,
     Smuggler_RemoveTires=true, Smuggler_SpawnCar=true, Smuggler_CurrentCar=nil,
-    Smuggler_TweenSpeed=120, -- studs per second for car tween
-    Smuggler_ApproachOffset=6,
+    Smuggler_TweenSpeed=120,
+    Smuggler_ApproachOffset=3, -- can be very small since we noclip through walls
+    Smuggler_CarNoClip=true,   -- noclip car during tween
     TPStrategy="Instant", TweenSpeed=200, TweenNoclip=true,
-    AntiTpBypass=true, AntiClipBypass=true, SafeLanding=true, NoFallDamage=true,
+    SafeLanding=true, NoFallDamage=true,
     POS_Shop=Vector3.new(6823.57,17.40,-20.00),
     POS_Laundry=Vector3.new(6804.78,17.43,-34.70),
     POS_CarSpawner=Vector3.new(6840,17,-30),
@@ -187,7 +187,7 @@ local function FindGroundBelow(pos)
     if g then return g + Vector3.new(0, 3, 0) end
 end
 
---━ FOOT TP (tween-based)
+--━ FOOT TP
 local SmartTP = {}
 local function ZeroVel()
     local ch=GetChar(); if not ch then return end
@@ -195,8 +195,6 @@ local function ZeroVel()
         if p:IsA("BasePart") then pcall(function() p.AssemblyLinearVelocity=Vector3.zero; p.AssemblyAngularVelocity=Vector3.zero end) end
     end
 end
-
--- Tween foot to a position (bypasses anti-clip and anti-tp)
 function SmartTP.TweenFoot(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
@@ -205,7 +203,6 @@ function SmartTP.TweenFoot(pos, yOff)
     if State.SafeLanding then local g = FindGroundBelow(pos); if g then target = g end end
     local dist = (target - hrp.Position).Magnitude
     if dist < 1 then return true end
-    -- Enable PlatformStand to avoid physics interference during tween
     if hum then pcall(function() hum.PlatformStand = true end) end
     local speed = State.TweenSpeed or 200
     local dur = math.clamp(dist / math.max(speed, 20), 0.15, 20)
@@ -231,11 +228,7 @@ function SmartTP.TweenFoot(pos, yOff)
     ZeroVel()
     return true
 end
-
-function SmartTP.Go(pos, yOff)
-    return SmartTP.TweenFoot(pos, yOff)
-end
-
+function SmartTP.Go(pos, yOff) return SmartTP.TweenFoot(pos, yOff) end
 function SmartTP.WalkTo(targetPos, timeout)
     local hum = GetHuman(); local hrp = GetHRP()
     if not hum or not hrp then return false end
@@ -257,42 +250,88 @@ function SmartTP.WalkTo(targetPos, timeout)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CAR TWEEN DRIVE — pure TweenService on PrimaryPart
--- Server sees smooth movement = no rollback, no clip, no fly detection
+-- CAR TWEEN + NOCLIP
+-- Sets CanCollide=false on ALL car parts + character parts during tween
+-- Also sets character to noclip so seat-attached body doesn't collide
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local ActiveCarTween = { tween = nil, holdConn = nil }
+local ActiveCarTween = { 
+    tween = nil, 
+    holdConn = nil, 
+    noclipConn = nil,
+    savedCollide = {},  -- part -> original CanCollide value
+}
 
 local function StopCarTween()
     if ActiveCarTween.tween then pcall(function() ActiveCarTween.tween:Cancel() end); ActiveCarTween.tween = nil end
     if ActiveCarTween.holdConn then pcall(function() ActiveCarTween.holdConn:Disconnect() end); ActiveCarTween.holdConn = nil end
+    if ActiveCarTween.noclipConn then pcall(function() ActiveCarTween.noclipConn:Disconnect() end); ActiveCarTween.noclipConn = nil end
+    -- Restore CanCollide state
+    for part, orig in pairs(ActiveCarTween.savedCollide) do
+        if part and part.Parent then
+            pcall(function() part.CanCollide = orig end)
+        end
+    end
+    ActiveCarTween.savedCollide = {}
 end
 
-function SmartTP.CarTweenTo(car, targetPos)
+local function ApplyCarNoClip(car)
+    if not car then return end
+    -- Save & disable CanCollide on car parts
+    for _, p in ipairs(car:GetDescendants()) do
+        if p:IsA("BasePart") then
+            if ActiveCarTween.savedCollide[p] == nil then
+                ActiveCarTween.savedCollide[p] = p.CanCollide
+            end
+            pcall(function() p.CanCollide = false end)
+        end
+    end
+    -- Save & disable CanCollide on character parts (so seated body doesn't get stuck)
+    local ch = GetChar()
+    if ch then
+        for _, p in ipairs(ch:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if ActiveCarTween.savedCollide[p] == nil then
+                    ActiveCarTween.savedCollide[p] = p.CanCollide
+                end
+                pcall(function() p.CanCollide = false end)
+            end
+        end
+    end
+end
+
+function SmartTP.CarTweenTo(car, targetPos, penetrateExact)
     if not car or not car.Parent then Log("[CarTween] no car"); return false end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if not root then Log("[CarTween] no root"); return false end
     if not IsSeatedIn(car) then Log("[CarTween] NOT SEATED"); return false end
 
-    -- Ensure car has PrimaryPart set (needed for reliable tween)
     if not car.PrimaryPart and car:IsA("Model") then
         pcall(function() car.PrimaryPart = root end)
     end
 
     StopCarTween()
 
-    -- Find safe ground at target
-    local approachOffset = State.Smuggler_ApproachOffset or 6
-    local carPos = root.Position
-    local flatDelta = Vector3.new(targetPos.X - carPos.X, 0, targetPos.Z - carPos.Z)
-    local dir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(1, 0, 0)
-    local approachXZ = Vector3.new(targetPos.X, targetPos.Y, targetPos.Z) - dir * approachOffset
-
-    local groundPos, found = FindGroundNear(approachXZ, {car})
-    if not found then
-        Log("[CarTween] NO GROUND at approach - aborting to avoid void")
-        return false
+    -- Determine final position
+    local finalPos
+    if penetrateExact then
+        -- Go EXACTLY to target position (penetrate through walls/into object)
+        finalPos = targetPos + Vector3.new(0, 3, 0) -- slight height offset
+    else
+        -- Approach mode: stop offset studs away on ground
+        local approachOffset = State.Smuggler_ApproachOffset or 3
+        local carPos = root.Position
+        local flatDelta = Vector3.new(targetPos.X - carPos.X, 0, targetPos.Z - carPos.Z)
+        local dir = flatDelta.Magnitude > 0.1 and flatDelta.Unit or Vector3.new(1, 0, 0)
+        local approachXZ = Vector3.new(targetPos.X, targetPos.Y, targetPos.Z) - dir * approachOffset
+        local groundPos, found = FindGroundNear(approachXZ, {car})
+        if not found then
+            -- No ground, fall back to target Y with offset
+            Log("[CarTween] no ground - using target Y")
+            finalPos = approachXZ + Vector3.new(0, 3, 0)
+        else
+            finalPos = groundPos + Vector3.new(0, 4, 0)
+        end
     end
-    local finalPos = groundPos + Vector3.new(0, 4, 0)
 
     -- Face toward target
     local faceDir = Vector3.new(targetPos.X, finalPos.Y, targetPos.Z) - finalPos
@@ -303,15 +342,35 @@ function SmartTP.CarTweenTo(car, targetPos)
     end
     local targetCF = CFrame.new(finalPos) * CFrame.Angles(0, yaw, 0)
 
-    -- Calculate tween duration based on distance
     local totalDist = (targetCF.Position - root.Position).Magnitude
     local speed = State.Smuggler_TweenSpeed or 120
     local dur = math.clamp(totalDist / math.max(speed, 20), 0.3, 30)
 
-    Log(string.format("[CarTween] %.0f studs in %.2fs (speed %d)", totalDist, dur, speed))
+    Log(string.format("[CarTween] %.0f studs in %.2fs (noclip=%s, penetrate=%s)", totalDist, dur, tostring(State.Smuggler_CarNoClip), tostring(penetrateExact)))
 
-    -- Prevent physics engine from fighting the tween:
-    -- Keep velocity zeroed on all parts during the tween via Heartbeat
+    -- Apply NoClip to car + character
+    if State.Smuggler_CarNoClip then
+        ApplyCarNoClip(car)
+        -- Keep noclip active every frame during tween (some scripts try to re-enable collide)
+        ActiveCarTween.noclipConn = RunService.Stepped:Connect(function()
+            if not car.Parent then return end
+            for _, p in ipairs(car:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    pcall(function() p.CanCollide = false end)
+                end
+            end
+            local ch = GetChar()
+            if ch then
+                for _, p in ipairs(ch:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        pcall(function() p.CanCollide = false end)
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Zero velocities every heartbeat to prevent physics fighting tween
     ActiveCarTween.holdConn = RunService.Heartbeat:Connect(function()
         if not car.Parent then return end
         for _,p in ipairs(car:GetDescendants()) do
@@ -324,20 +383,19 @@ function SmartTP.CarTweenTo(car, targetPos)
         end
     end)
 
-    -- Create and play the tween on the PrimaryPart (character rides via seat weld)
+    -- Create + play tween
     local tw
-    local ok = pcall(function()
+    local okC = pcall(function()
         tw = TweenService:Create(root, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {CFrame = targetCF})
         ActiveCarTween.tween = tw
         tw:Play()
     end)
-    if not ok or not tw then
+    if not okC or not tw then
         Log("[CarTween] tween create failed")
         StopCarTween()
         return false
     end
 
-    -- Wait for tween completion or car despawn
     local finished = false
     local completeConn
     pcall(function()
@@ -349,27 +407,19 @@ function SmartTP.CarTweenTo(car, targetPos)
         if finished then break end
         if not car.Parent or not root.Parent then
             Log("[CarTween] car despawned mid-tween")
-            StopCarTween()
             if completeConn then pcall(function() completeConn:Disconnect() end) end
+            StopCarTween()
             return false
-        end
-        if not IsSeatedIn(car) then
-            Log("[CarTween] WARNING: player left seat mid-tween")
         end
         task.wait(0.05)
     end
     if completeConn then pcall(function() completeConn:Disconnect() end) end
 
-    -- Ensure final placement
+    -- Final placement
     pcall(function()
-        if car:IsA("Model") and car.PrimaryPart then
-            car:PivotTo(targetCF)
-        else
-            root.CFrame = targetCF
-        end
+        if car:IsA("Model") and car.PrimaryPart then car:PivotTo(targetCF)
+        else root.CFrame = targetCF end
     end)
-
-    -- Hold zero velocity for a moment after
     task.wait(0.15)
     StopCarTween()
     Log("[CarTween] Done")
@@ -681,7 +731,6 @@ function Smuggler.SpawnCar()
         local t1 = tick()
         while tick() - t1 < 3 do if newCar.PrimaryPart or newCar:FindFirstChildWhichIsA("BasePart") then break end; task.wait(0.1) end
         State.Smuggler_CurrentCar = newCar
-        -- Ensure PrimaryPart is set for tweening
         if newCar:IsA("Model") and not newCar.PrimaryPart then
             local r = newCar:FindFirstChildWhichIsA("BasePart")
             if r then pcall(function() newCar.PrimaryPart = r end) end
@@ -721,8 +770,9 @@ function Smuggler.SitInCar(car)
     return false
 end
 
+-- BUY, SELL, LAUNDER — all use penetrate mode (goes EXACTLY to target, noclip through walls)
 function Smuggler.DriveAndBuy(car)
-    Log("[3] Drive to buy " .. State.Smuggler_ItemName)
+    Log("[3] Drive→Buy " .. State.Smuggler_ItemName)
     local prompt, item = Smuggler.GetBuyPrompt()
     if not item then Log("[3] item not found"); return false end
     local pos = Smuggler.GetItemPos()
@@ -731,7 +781,8 @@ function Smuggler.DriveAndBuy(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[3] can't sit"); return false end
     end
-    local ok = SmartTP.CarTweenTo(car, pos)
+    -- penetrateExact = true (noclip car directly to item)
+    local ok = SmartTP.CarTweenTo(car, pos, true)
     if not ok then Log("[3] drive failed"); return false end
     task.wait(0.3)
     for i=1, State.Smuggler_BuyRetries do
@@ -749,7 +800,7 @@ function Smuggler.DriveAndBuy(car)
 end
 
 function Smuggler.DriveAndSell(car)
-    Log("[4] Drive to seller " .. State.Smuggler_SellerName)
+    Log("[4] Drive→Sell " .. State.Smuggler_SellerName)
     local prompt, seller = Smuggler.GetSellPrompt()
     if not seller then Log("[4] no seller"); return false end
     local sellerPos = Smuggler.GetSellerPos()
@@ -758,7 +809,7 @@ function Smuggler.DriveAndSell(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[4] can't sit"); return false end
     end
-    local ok = SmartTP.CarTweenTo(car, sellerPos)
+    local ok = SmartTP.CarTweenTo(car, sellerPos, true)
     if not ok then Log("[4] drive failed"); return false end
     task.wait(0.3)
     if State.Smuggler_AutoEquip then
@@ -779,13 +830,13 @@ end
 
 function Smuggler.DriveAndLaunder(car)
     if not State.Smuggler_AutoLaunder then return true end
-    Log("[5] Drive to laundry")
+    Log("[5] Drive→Launder")
     local pos = Smuggler.GetLaunderPos()
     if not car or not car.Parent then Log("[5] no car"); return false end
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[5] can't sit"); return false end
     end
-    local ok = SmartTP.CarTweenTo(car, pos)
+    local ok = SmartTP.CarTweenTo(car, pos, true)
     if not ok then Log("[5] drive failed"); return false end
     task.wait(0.3)
     local prompt = Smuggler.GetLaunderPrompt()
@@ -930,7 +981,7 @@ local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="gamepad-2", Author="v"..HUB.Version, Folder="X0DEC04T",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
 })
-pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." TWEEN-ONLY", Duration=4, Icon="check"}) end)
+pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." Tween+NoClip", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t, Content=c, Duration=d or 4, Icon="info"}) end) end
 
 local logoGui, logoActive = nil, false
@@ -996,7 +1047,7 @@ local Tabs = {
 Window:SelectTab(1)
 
 Tabs.Main:Section({Title="X0DEC04T Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="TWEEN-ONLY BYPASS", Desc="All movement uses TweenService:\n• Car: PrimaryPart CFrame tween (Sine easing)\n• Foot: HRP CFrame tween (Linear)\n\nServer sees smooth motion = no rollback/clip/fly trigger.\n\nLower Tween Speed = safer (looks more like driving)"})
+Tabs.Main:Paragraph({Title="TWEEN + NoClip Penetration", Desc="Car tweens exactly to target position while noclipped:\n• All car parts CanCollide=false\n• Character parts CanCollide=false\n• Penetrates walls, doors, NPCs\n• Auto-restores collision after arrival\n\nSpeed low = safer, high = faster"})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
 Tabs.Vehicle:Section({Title="Speed"})
@@ -1007,7 +1058,7 @@ Tabs.Vehicle:Button({Title="Flip Car", Callback=safeCB(Car.Flip)})
 Tabs.Vehicle:Button({Title="Boost", Callback=safeCB(Car.Boost)})
 Tabs.Vehicle:Button({Title="Unstuck", Callback=safeCB(function() if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end end)})
 Tabs.Vehicle:Section({Title="Abilities"})
-Tabs.Vehicle:Toggle({Title="NoClip", Default=false, Callback=safeCB(function(v) State.NoClip=v; Car.SetNoClip(v) end)})
+Tabs.Vehicle:Toggle({Title="NoClip (always)", Default=false, Callback=safeCB(function(v) State.NoClip=v; Car.SetNoClip(v) end)})
 Tabs.Vehicle:Toggle({Title="Fly", Default=false, Callback=safeCB(function(v) State.FlyActive=v; Car.SetFly(v) end)})
 Tabs.Vehicle:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(v) State.GodMode=v; Car.SetGod(v) end)})
 Tabs.Vehicle:Section({Title="Character"})
@@ -1022,9 +1073,9 @@ Tabs.Smuggler:Toggle({Title="Auto Spawn Car", Default=true, Callback=safeCB(func
 Tabs.Smuggler:Toggle({Title="Remove Tires (once)", Default=true, Callback=safeCB(function(v) State.Smuggler_RemoveTires=v end)})
 Tabs.Smuggler:Dropdown({Title="Vehicle", Values={"Tayora Cambria","Citrion Buddy","Tayora Prion","Tayora Royal Touring","Dager Durance R/T","Mammoth Patriot","Chevran Silverline","Chevran Courier","Fjord F-450","Beamer M135X","Mammoth Trailrunner","Auvio R3S"}, Value="Tayora Cambria", Callback=safeCB(function(v) State.Smuggler_VehicleName=v end)})
 Tabs.Smuggler:Input({Title="Custom Vehicle", Placeholder="overrides", Callback=safeCB(function(v) if v~="" then State.Smuggler_VehicleName=v end end)})
-Tabs.Smuggler:Section({Title="TWEEN Settings"})
+Tabs.Smuggler:Section({Title="TWEEN + NoClip"})
+Tabs.Smuggler:Toggle({Title="Car NoClip during Tween", Default=true, Callback=safeCB(function(v) State.Smuggler_CarNoClip=v end)})
 Tabs.Smuggler:Slider({Title="Car Tween Speed (studs/s)", Value={Min=30,Max=400,Default=120}, Step=10, Callback=safeCB(function(v) State.Smuggler_TweenSpeed=v end)})
-Tabs.Smuggler:Slider({Title="Approach Offset (studs)", Value={Min=3,Max=15,Default=6}, Step=1, Callback=safeCB(function(v) State.Smuggler_ApproachOffset=v end)})
 Tabs.Smuggler:Slider({Title="Foot Tween Speed", Value={Min=50,Max=1000,Default=200}, Step=25, Callback=safeCB(function(v) State.TweenSpeed=v end)})
 Tabs.Smuggler:Section({Title="Seller"})
 Tabs.Smuggler:Dropdown({Title="Seller", Values=GetSellerNames(), Value=State.Smuggler_SellerName, Callback=safeCB(function(v) State.Smuggler_SellerName=v end)})
@@ -1045,9 +1096,9 @@ Tabs.Smuggler:Section({Title="Manual"})
 Tabs.Smuggler:Button({Title="1. Spawn Car", Callback=safeCB(Smuggler.SpawnCar)})
 Tabs.Smuggler:Button({Title="2. Sit In Car", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.SitInCar(c) end end)})
 Tabs.Smuggler:Button({Title="   Remove Tires", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.RemoveTires(c) end end)})
-Tabs.Smuggler:Button({Title="3. Tween → BUY", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
-Tabs.Smuggler:Button({Title="4. Tween → SELL", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
-Tabs.Smuggler:Button({Title="5. Tween → LAUNDER", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
+Tabs.Smuggler:Button({Title="3. Tween+NoClip → BUY", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
+Tabs.Smuggler:Button({Title="4. Tween+NoClip → SELL", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
+Tabs.Smuggler:Button({Title="5. Tween+NoClip → LAUNDER", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
 Tabs.Smuggler:Button({Title="STOP CAR TWEEN", Callback=safeCB(StopCarTween)})
 
 Tabs.Police:Toggle({Title="Wanted Only", Default=true, Callback=safeCB(function(v) State.Police_TargetWanted=v end)})
@@ -1117,4 +1168,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("v4.0.7 TWEEN-ONLY ready | Car speed: "..State.Smuggler_TweenSpeed.." studs/s")
+Log("v4.0.8 ready | NoClip during tween: "..tostring(State.Smuggler_CarNoClip))
