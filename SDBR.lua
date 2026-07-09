@@ -1,7 +1,9 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.6.0 - Border RP (Scarface)
--- Smart Multi-Strategy Auto-Buy
+-- X0DEC04T Hub v2.7.1 - Border RP (Scarface)
+-- ❌ Black overlay REMOVED - see game while bot runs
+-- ✅ Stats shown in Smuggler/Police tab
 --═══════════════════════════════════════════════════════════════
+
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -15,7 +17,7 @@ local Lighting          = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v260"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v271"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -26,9 +28,8 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.6.0 starting...")
+Log("BorderRP Hub v2.7.1 starting...")
 
--- Rayfield
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
     local ok, r = pcall(function() return loadstring(game:HttpGet(url))() end)
@@ -36,7 +37,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.6.0", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.1", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -79,16 +80,13 @@ local remoteCount = 0
 for _, v in pairs(BRP) do if v then remoteCount = remoteCount + 1 end end
 Log("Loaded " .. remoteCount .. " BRP remotes")
 
---━ WORKSPACE PATHS
 local BRP_PATHS = {
     NPC = Workspace:FindFirstChild("NPC"),
     Vehicles = Workspace:FindFirstChild("Vehicles"),
     LaunderTrigger = Workspace:FindFirstChild("LaunderPrompts") and Workspace.LaunderPrompts:FindFirstChild("LaunderTrigger"),
     WorldBuyableItems = Workspace:FindFirstChild("WorldBuyableItems"),
 }
-Log("WorldBuyableItems: " .. (BRP_PATHS.WorldBuyableItems and (#BRP_PATHS.WorldBuyableItems:GetChildren() .. " items") or "MISSING"))
 
---━ Generic remote scanner
 local RemoteDB, RemoteDBAll = {}, {}
 for _, o in ipairs(ReplicatedStorage:GetDescendants()) do
     if o:IsA("RemoteEvent") or o:IsA("RemoteFunction") then
@@ -104,14 +102,12 @@ local function FindRemote(name)
     return nil
 end
 
---━ Confirmed positions
 local DEFAULT_POS = {
     SellNPC = Vector3.new(209.93, 17.23, -46.54),
     Laundry = Vector3.new(6804.78, 17.43, -34.70),
     Shop    = Vector3.new(6823.57, 17.40, -20.00),
 }
 
---━ Get list of buyable items for dropdown
 local function GetBuyableItemNames()
     local names = {}
     if BRP_PATHS.WorldBuyableItems then
@@ -119,13 +115,8 @@ local function GetBuyableItemNames()
             table.insert(names, item.Name)
         end
     end
-    if #names == 0 then table.insert(names, "None") end
+    if #names == 0 then table.insert(names, "Fake Diamond Ring") end
     return names
-end
-
-local function GetBuyableItem(name)
-    if not BRP_PATHS.WorldBuyableItems then return nil end
-    return BRP_PATHS.WorldBuyableItems:FindFirstChild(name)
 end
 
 --━ STATE
@@ -141,29 +132,26 @@ local State = {
     TP_Target="", SavedPositions={},
     RemoteName="", RemoteArg="",
 
-    -- Smuggler
     Smuggler_AutoLoop=false, Smuggler_Status="Idle", Smuggler_JobsDone=0,
-    Smuggler_Earnings=0, Smuggler_StartTime=0, Smuggler_Delay=2,
-    Smuggler_StatusLbl=nil, Smuggler_UseRemotes=true, Smuggler_AutoLaunder=true,
-    Smuggler_ItemName = "",  -- Will pick from dropdown
+    Smuggler_Earnings=0, Smuggler_StartTime=0, Smuggler_Delay=1,
+    Smuggler_StatusLbl=nil, Smuggler_StatsLbl=nil,
+    Smuggler_UseRemotes=true, Smuggler_AutoLaunder=true,
+    Smuggler_ItemName = "Fake Diamond Ring",
     Smuggler_SellerName = "Seller4",
-    Smuggler_BuyMethod = "Auto",  -- Auto / Remote / Prompt / Touch / All
+    Smuggler_BuyRetries = 2,
     Smuggler_DebugMode = false,
+    Smuggler_UpdateConn = nil,
     POS_Shop = DEFAULT_POS.Shop,
     POS_Sell = DEFAULT_POS.SellNPC,
     POS_Laundry = DEFAULT_POS.Laundry,
 
-    -- Police
     Police_AutoAim=false, Police_AutoFire=false, Police_AutoArrest=false,
     Police_AimPart="Head", Police_AimFOV=150, Police_AimSmooth=1,
     Police_TargetWanted=true, Police_MinWantedLevel=1, Police_TargetAll=false,
     Police_ShowFOV=true, Police_FOVCircle=nil,
     Police_AimConn=nil, Police_FireConn=nil, Police_ArrestConn=nil,
     Police_CurrentTarget=nil, Police_Kills=0, Police_Arrests=0, Police_StartTime=0,
-
-    Overlay_Gui=nil, Overlay_StatusLbl=nil, Overlay_TimeLbl=nil,
-    Overlay_EarnLbl=nil, Overlay_JobsLbl=nil, Overlay_UpdateConn=nil,
-    Overlay_Mode="Smuggler",
+    Police_StatsLbl=nil, Police_UpdateConn=nil,
 
     FullBright=false, NoFog=false, FOV=70, AntiAFK=true, MutedSounds={},
     ESPCache={}, LightBackup={},
@@ -211,7 +199,7 @@ local function GetWantedLevel(p) return tonumber(p and p:GetAttribute("WantedLev
 local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLevel or 1) end
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
---━ ESP (compact)
+--━ ESP
 local ESP = {}
 function ESP.Clear(o)
     local c = State.ESPCache[o]; if not c then return end
@@ -339,259 +327,98 @@ function Car.TeleportToPlayer(name)
     else local h = GetHRP(); if h then h.CFrame = th.CFrame + Vector3.new(0,0,4) end end
 end
 
---━ OVERLAY
-local Overlay = {}
-function Overlay.Build(mode)
-    if State.Overlay_Gui and State.Overlay_Gui.Parent then return end
-    mode = mode or "Smuggler"; State.Overlay_Mode = mode
-    local accent = (mode=="Smuggler") and Color3.fromRGB(255,120,0) or Color3.fromRGB(60,130,255)
-    local gui = Instance.new("ScreenGui"); gui.Name="__BRPOverlay"; gui.IgnoreGuiInset=true
-    gui.ResetOnSpawn=false; gui.DisplayOrder=999; gui.Parent=GuiParent()
-    local bg = Instance.new("Frame", gui); bg.Size=UDim2.new(1,0,1,0); bg.BackgroundColor3=Color3.fromRGB(0,0,0); bg.BorderSizePixel=0
-    local ct = Instance.new("Frame", bg)
-    ct.Size=UDim2.new(0,440,0,400); ct.Position=UDim2.new(0.5,-220,0.5,-200)
-    ct.BackgroundColor3=Color3.fromRGB(18,18,22); ct.BorderSizePixel=0
-    Instance.new("UICorner", ct).CornerRadius = UDim.new(0,12)
-    local st = Instance.new("UIStroke", ct); st.Color=accent; st.Thickness=1; st.Transparency=0.5
-    local tb = Instance.new("Frame", ct); tb.Size=UDim2.new(1,0,0,50)
-    tb.BackgroundColor3=Color3.fromRGB(28,28,34); tb.BorderSizePixel=0
-    Instance.new("UICorner", tb).CornerRadius = UDim.new(0,12)
-    local title = Instance.new("TextLabel", tb)
-    title.Size=UDim2.new(1,-20,1,0); title.Position=UDim2.new(0,10,0,0); title.BackgroundTransparency=1
-    title.Text = (mode=="Smuggler" and "⚡ Auto Smuggler" or "🔫 Police Aimbot") .. " - Active"
-    title.TextColor3=accent; title.Font=Enum.Font.GothamBold; title.TextSize=18
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    local function Card(y, titleText, valColor)
-        local f = Instance.new("Frame", ct)
-        f.Size=UDim2.new(1,-30,0,60); f.Position=UDim2.new(0,15,0,y)
-        f.BackgroundColor3=Color3.fromRGB(28,28,34); f.BorderSizePixel=0
-        Instance.new("UICorner", f).CornerRadius = UDim.new(0,8)
-        local t = Instance.new("TextLabel", f)
-        t.Size=UDim2.new(1,-20,0,20); t.Position=UDim2.new(0,10,0,6); t.BackgroundTransparency=1
-        t.Text=titleText; t.TextColor3=Color3.fromRGB(120,120,130); t.Font=Enum.Font.Gotham
-        t.TextSize=11; t.TextXAlignment=Enum.TextXAlignment.Left
-        local v = Instance.new("TextLabel", f)
-        v.Size=UDim2.new(1,-20,0,28); v.Position=UDim2.new(0,10,0,26); v.BackgroundTransparency=1
-        v.Text="..."; v.TextColor3=valColor; v.Font=Enum.Font.GothamBold; v.TextSize=20
-        v.TextXAlignment = Enum.TextXAlignment.Left
-        return v
-    end
-    local sl = Card(70, "STATUS", Color3.fromRGB(255,255,255))
-    local tl = Card(140, "RUNTIME", Color3.fromRGB(90,200,250))
-    local el = Card(210, mode=="Smuggler" and "EARNINGS" or "ARRESTS", Color3.fromRGB(120,240,140))
-    local jl = Instance.new("TextLabel", ct)
-    jl.Size=UDim2.new(1,-30,0,26); jl.Position=UDim2.new(0,15,0,290)
-    jl.BackgroundTransparency=1; jl.Text="..."; jl.TextColor3=Color3.fromRGB(180,180,190)
-    jl.Font=Enum.Font.Gotham; jl.TextSize=14; jl.TextXAlignment=Enum.TextXAlignment.Left
-    local hint = Instance.new("TextLabel", bg)
-    hint.Size=UDim2.new(1,0,0,20); hint.Position=UDim2.new(0,0,1,-30); hint.BackgroundTransparency=1
-    hint.Text="Toggle off in hub to close"; hint.TextColor3=Color3.fromRGB(80,80,90)
-    hint.Font=Enum.Font.Gotham; hint.TextSize=12
-    State.Overlay_Gui=gui; State.Overlay_StatusLbl=sl; State.Overlay_TimeLbl=tl
-    State.Overlay_EarnLbl=el; State.Overlay_JobsLbl=jl
-end
-function Overlay.Show(mode)
-    Overlay.Build(mode)
-    if State.Overlay_UpdateConn then pcall(function() State.Overlay_UpdateConn:Disconnect() end) end
-    State.Overlay_UpdateConn = RunService.Heartbeat:Connect(function()
-        if not State.Overlay_TimeLbl then return end
-        pcall(function()
-            if State.Overlay_Mode == "Smuggler" then
-                State.Overlay_TimeLbl.Text = FormatTime(tick() - State.Smuggler_StartTime)
-                State.Overlay_EarnLbl.Text = FormatMoney(State.Smuggler_Earnings)
-                State.Overlay_JobsLbl.Text = "Deliveries: " .. State.Smuggler_JobsDone
-                State.Overlay_StatusLbl.Text = State.Smuggler_Status
-            else
-                State.Overlay_TimeLbl.Text = FormatTime(tick() - State.Police_StartTime)
-                State.Overlay_EarnLbl.Text = tostring(State.Police_Arrests)
-                State.Overlay_JobsLbl.Text = "Kills: " .. State.Police_Kills .. " | Arrests: " .. State.Police_Arrests
-                local tn = "None"; if State.Police_CurrentTarget then tn = State.Police_CurrentTarget.Name end
-                State.Overlay_StatusLbl.Text = "Target: " .. tn
-            end
-        end)
-    end)
-end
-function Overlay.Hide()
-    if State.Overlay_UpdateConn then pcall(function() State.Overlay_UpdateConn:Disconnect() end); State.Overlay_UpdateConn=nil end
-    if State.Overlay_Gui then pcall(function() State.Overlay_Gui:Destroy() end); State.Overlay_Gui=nil end
-    State.Overlay_StatusLbl=nil; State.Overlay_TimeLbl=nil; State.Overlay_EarnLbl=nil; State.Overlay_JobsLbl=nil
-end
-
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SMUGGLER - MULTI-STRATEGY AUTO-BUY
+-- SMUGGLER (NO OVERLAY - Stats shown in tab)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Smuggler = {}
 
 function Smuggler.SetStatus(t)
     State.Smuggler_Status = t
     if State.Smuggler_StatusLbl then
-        pcall(function() State.Smuggler_StatusLbl:Set("Status: " .. t .. " | Jobs: " .. State.Smuggler_JobsDone) end)
+        pcall(function() State.Smuggler_StatusLbl:Set("● " .. t) end)
     end
     Log("[Smuggler] " .. t)
+end
+
+function Smuggler.UpdateStats()
+    if not State.Smuggler_StatsLbl then return end
+    local elapsed = tick() - State.Smuggler_StartTime
+    local perHour = State.Smuggler_JobsDone > 0 and (State.Smuggler_Earnings / elapsed * 3600) or 0
+    pcall(function()
+        State.Smuggler_StatsLbl:Set(string.format(
+            "⏱ %s  |  💰 %s  |  📦 %d jobs  |  📈 %s/hr",
+            FormatTime(elapsed),
+            FormatMoney(State.Smuggler_Earnings),
+            State.Smuggler_JobsDone,
+            FormatMoney(perHour)
+        ))
+    end)
 end
 
 function Smuggler.TP(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
     hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0))
-    task.wait(0.4)
+    task.wait(0.3)
     return true
 end
 
 function Smuggler.FirePrompt(prompt)
-    if not prompt or not prompt.Enabled then return false end
+    if not prompt then return false end
+    if not prompt.Enabled then
+        if State.Smuggler_DebugMode then Log("Prompt disabled: " .. prompt:GetFullName()) end
+        return false
+    end
     local ok = pcall(function()
         if fireproximityprompt then fireproximityprompt(prompt) end
     end)
+    if State.Smuggler_DebugMode then Log("Fired [" .. tostring(ok) .. "] " .. prompt:GetFullName()) end
     return ok
 end
 
--- Get the specific item from WorldBuyableItems folder
-function Smuggler.GetBuyItem()
+function Smuggler.GetBuyPrompt(itemName)
+    itemName = itemName or State.Smuggler_ItemName
     if not BRP_PATHS.WorldBuyableItems then return nil end
-    -- If user picked an item, use it; otherwise use first available
-    if State.Smuggler_ItemName ~= "" and State.Smuggler_ItemName ~= "None" then
-        local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(State.Smuggler_ItemName)
-        if item then return item end
+    local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(itemName)
+    if not item then return nil end
+    local handle = item:FindFirstChild("Handle")
+    if handle then
+        local pa = handle:FindFirstChild("PromptAttachment")
+        if pa then
+            local pp = pa:FindFirstChildOfClass("ProximityPrompt")
+            if pp then return pp, item end
+        end
     end
-    -- Fallback to first item
-    return BRP_PATHS.WorldBuyableItems:GetChildren()[1]
+    for _, obj in ipairs(item:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then return obj, item end
+    end
+    return nil, item
 end
 
--- Get item position
-function Smuggler.GetItemPos(item)
+function Smuggler.GetItemPos(itemName)
+    itemName = itemName or State.Smuggler_ItemName
+    if not BRP_PATHS.WorldBuyableItems then return nil end
+    local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(itemName)
     if not item then return nil end
+    local handle = item:FindFirstChild("Handle")
+    if handle and handle:IsA("BasePart") then return handle.Position end
     if item:IsA("BasePart") then return item.Position end
     local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart", true)
     return part and part.Position or nil
 end
 
--- STRATEGY 1: Fire PurchaseWorldBuyableItem remote with item as arg
-function Smuggler.BuyStrategy_Remote(item)
-    if not BRP.PurchaseWorldItem or not item then return false end
-    local success = false
-    -- Try multiple argument variations
-    local tryArgs = {
-        {item},                    -- The item object itself
-        {item.Name},               -- Item name string
-        {item:GetAttribute("Id")}, -- ItemId attribute
-        {item:GetAttribute("ItemId")},
-        {item:GetAttribute("Name")},
-    }
-    for _, args in ipairs(tryArgs) do
-        if args[1] ~= nil then
-            local ok = pcall(function()
-                if BRP.PurchaseWorldItem:IsA("RemoteEvent") then
-                    BRP.PurchaseWorldItem:FireServer(unpack(args))
-                else
-                    BRP.PurchaseWorldItem:InvokeServer(unpack(args))
-                end
-            end)
-            if ok then
-                if State.Smuggler_DebugMode then Log("[Buy Remote] Tried args: " .. tostring(args[1])) end
-                success = true
-            end
-        end
-    end
-    return success
-end
-
--- STRATEGY 2: Find and fire ProximityPrompt inside the item
-function Smuggler.BuyStrategy_Prompt(item)
-    if not item then return false end
-    for _, obj in ipairs(item:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            if Smuggler.FirePrompt(obj) then
-                if State.Smuggler_DebugMode then Log("[Buy Prompt] Fired " .. obj:GetFullName()) end
-                return true
-            end
-        end
-    end
-    return false
-end
-
--- STRATEGY 3: ClickDetector inside item
-function Smuggler.BuyStrategy_Click(item)
-    if not item then return false end
-    for _, obj in ipairs(item:GetDescendants()) do
-        if obj:IsA("ClickDetector") then
-            local ok = pcall(function()
-                if fireclickdetector then fireclickdetector(obj) end
-            end)
-            if ok then
-                if State.Smuggler_DebugMode then Log("[Buy Click] Fired " .. obj:GetFullName()) end
-                return true
-            end
-        end
-    end
-    return false
-end
-
--- STRATEGY 4: Touched event - teleport onto part
-function Smuggler.BuyStrategy_Touch(item)
-    if not item then return false end
-    local hrp = GetHRP(); if not hrp then return false end
-    local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
-    if not part then return false end
-    -- TP onto the part
-    local orig = hrp.CFrame
-    hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, 0))
-    task.wait(0.3)
-    -- Try touching from side too
-    hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 0.5, 0))
-    task.wait(0.5)
-    hrp.CFrame = orig
-    if State.Smuggler_DebugMode then Log("[Buy Touch] TP'd onto " .. part:GetFullName()) end
-    return true
-end
-
--- MAIN BUY - try all strategies
 function Smuggler.BuyItem()
-    Smuggler.SetStatus("TP to shop")
-    Smuggler.TP(State.POS_Shop, 3)
-    task.wait(0.6)
-    
-    local item = Smuggler.GetBuyItem()
-    if not item then
-        Smuggler.SetStatus("❌ No item selected!")
-        Notify("Buy Error", "No buyable item found. Select from Smuggler tab.", 4)
-        return false
-    end
-    
-    Smuggler.SetStatus("Buying: " .. item.Name)
-    
-    -- TP directly to the item for prompt/touch to work
-    local itemPos = Smuggler.GetItemPos(item)
-    if itemPos then
-        Smuggler.TP(itemPos, 2)
-        task.wait(0.4)
-    end
-    
+    Smuggler.SetStatus("Buying " .. State.Smuggler_ItemName)
+    local prompt, item = Smuggler.GetBuyPrompt(State.Smuggler_ItemName)
+    if not item then Smuggler.SetStatus("❌ Item not found"); return false end
+    local pos = Smuggler.GetItemPos(State.Smuggler_ItemName)
+    if pos then local hrp = GetHRP(); if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)); task.wait(0.4) end end
+    if not prompt then Smuggler.SetStatus("❌ No buy prompt"); return false end
     local moneyBefore = GetMoney()
-    local method = State.Smuggler_BuyMethod
-    
-    if method == "Auto" or method == "All" then
-        -- Try all strategies
-        Smuggler.BuyStrategy_Remote(item);  task.wait(0.2)
-        Smuggler.BuyStrategy_Prompt(item);  task.wait(0.2)
-        Smuggler.BuyStrategy_Click(item);   task.wait(0.2)
-        Smuggler.BuyStrategy_Touch(item);   task.wait(0.4)
-    elseif method == "Remote" then
-        Smuggler.BuyStrategy_Remote(item)
-    elseif method == "Prompt" then
-        Smuggler.BuyStrategy_Prompt(item)
-    elseif method == "Touch" then
-        Smuggler.BuyStrategy_Touch(item)
-    end
-    
-    task.wait(0.5)
-    local moneyAfter = GetMoney()
-    local spent = moneyBefore - moneyAfter
-    if spent > 0 then
-        Smuggler.SetStatus("✅ Bought (spent $" .. spent .. ")")
-    else
-        Smuggler.SetStatus("⚠ Buy uncertain")
-    end
+    for i = 1, State.Smuggler_BuyRetries or 2 do Smuggler.FirePrompt(prompt); task.wait(0.4) end
+    local spent = moneyBefore - GetMoney()
+    if spent > 0 then Smuggler.SetStatus("✅ Bought (-$" .. spent .. ")")
+    else Smuggler.SetStatus("⚠ Buy uncertain") end
     return true
 end
 
@@ -617,23 +444,15 @@ function Smuggler.SellItems()
     local prompt, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
     if seller then
         local hrp = seller:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local myHRP = GetHRP()
-            if myHRP then myHRP.CFrame = hrp.CFrame + hrp.CFrame.LookVector * -3; task.wait(0.5) end
-        end
-    else
-        Smuggler.TP(State.POS_Sell, 3)
-    end
-    
+        if hrp then local myHRP = GetHRP(); if myHRP then myHRP.CFrame = hrp.CFrame + hrp.CFrame.LookVector * -3; task.wait(0.5) end end
+    else Smuggler.TP(State.POS_Sell, 3) end
     Smuggler.SetStatus("Selling")
     local moneyBefore = GetMoney()
-    if prompt then Smuggler.FirePrompt(prompt); task.wait(0.8) end
+    if prompt then Smuggler.FirePrompt(prompt); task.wait(0.6) end
     if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
-        pcall(function() BRP.SellSmuggledGoods:FireServer() end)
-        task.wait(0.5)
+        pcall(function() BRP.SellSmuggledGoods:FireServer() end); task.wait(0.4)
     end
-    local moneyAfter = GetMoney()
-    local delta = moneyAfter - moneyBefore
+    local delta = GetMoney() - moneyBefore
     if delta > 0 then State.Smuggler_Earnings = State.Smuggler_Earnings + delta end
     State.Smuggler_JobsDone = State.Smuggler_JobsDone + 1
     Smuggler.SetStatus("Sold #" .. State.Smuggler_JobsDone .. " (+$" .. delta .. ")")
@@ -650,14 +469,12 @@ end
 function Smuggler.LaunderMoney()
     if not State.Smuggler_AutoLaunder then return true end
     Smuggler.SetStatus("TP to laundry")
-    Smuggler.TP(State.POS_Laundry, 3)
-    task.wait(0.5)
+    Smuggler.TP(State.POS_Laundry, 3); task.wait(0.4)
     Smuggler.SetStatus("Laundering")
     local prompt = Smuggler.GetLaunderPrompt()
     if prompt then Smuggler.FirePrompt(prompt); task.wait(0.5) end
     if State.Smuggler_UseRemotes and BRP.LaunderBriefcase then
-        pcall(function() BRP.LaunderBriefcase:FireServer() end)
-        task.wait(0.5)
+        pcall(function() BRP.LaunderBriefcase:FireServer() end); task.wait(0.4)
     end
     return true
 end
@@ -670,10 +487,21 @@ end
 
 function Smuggler.SetAutoLoop(e)
     State.Smuggler_AutoLoop = e
-    if not e then Smuggler.SetStatus("Stopped"); Overlay.Hide(); return end
+    -- Kill stats updater
+    if State.Smuggler_UpdateConn then pcall(function() State.Smuggler_UpdateConn:Disconnect() end); State.Smuggler_UpdateConn = nil end
+    if not e then Smuggler.SetStatus("Stopped"); return end
+    
     State.Smuggler_StartTime = tick(); State.Smuggler_Earnings = 0; State.Smuggler_JobsDone = 0
     Smuggler.SetStatus("Started")
-    Overlay.Show("Smuggler")
+    
+    -- Live stats updater (updates the tab label every 0.5s)
+    State.Smuggler_UpdateConn = task.spawn(function()
+        while State.Smuggler_AutoLoop do
+            Smuggler.UpdateStats()
+            task.wait(0.5)
+        end
+    end)
+    
     task.spawn(function()
         while State.Smuggler_AutoLoop do
             local ok, err = pcall(Smuggler.RunCycle)
@@ -682,14 +510,26 @@ function Smuggler.SetAutoLoop(e)
             task.wait(State.Smuggler_Delay)
         end
         Smuggler.SetStatus("Loop ended")
-        Overlay.Hide()
     end)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POLICE
+-- POLICE (NO OVERLAY)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Police = {}
+
+function Police.UpdateStats()
+    if not State.Police_StatsLbl then return end
+    local elapsed = tick() - State.Police_StartTime
+    local tn = "None"; if State.Police_CurrentTarget then tn = State.Police_CurrentTarget.Name end
+    pcall(function()
+        State.Police_StatsLbl:Set(string.format(
+            "⏱ %s  |  🎯 %s  |  🔫 %d kills  |  🚔 %d arrests",
+            FormatTime(elapsed), tn, State.Police_Kills, State.Police_Arrests
+        ))
+    end)
+end
+
 function Police.CreateFOV()
     if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
     if Drawing then
@@ -755,10 +595,7 @@ function Police.TryArrest()
     local myHRP = GetHRP()
     if myHRP then
         local d = (myHRP.Position - tHRP.Position).Magnitude
-        if d > 8 then
-            myHRP.CFrame = tHRP.CFrame + tHRP.CFrame.LookVector * -3 + Vector3.new(0, 0.5, 0)
-            task.wait(0.3)
-        end
+        if d > 8 then myHRP.CFrame = tHRP.CFrame + tHRP.CFrame.LookVector * -3 + Vector3.new(0, 0.5, 0); task.wait(0.3) end
     end
     if BRP.Detain then
         pcall(function() BRP.Detain:InvokeServer(t) end)
@@ -767,13 +604,26 @@ function Police.TryArrest()
     end
     if BRP.Jail then task.wait(0.4); pcall(function() BRP.Jail:InvokeServer(t) end) end
 end
+
+function Police.StartStatsUpdater()
+    if State.Police_UpdateConn then pcall(function() State.Police_UpdateConn:Disconnect() end); State.Police_UpdateConn = nil end
+    State.Police_UpdateConn = task.spawn(function()
+        while State.Police_AutoAim or State.Police_AutoFire or State.Police_AutoArrest do
+            Police.UpdateStats()
+            task.wait(0.5)
+        end
+    end)
+end
+
 function Police.SetAutoAim(e)
     State.Police_AutoAim = e
     if State.Police_AimConn then pcall(function() State.Police_AimConn:Disconnect() end); State.Police_AimConn=nil end
     if e then
         Police.CreateFOV()
-        State.Police_StartTime = tick(); State.Police_Arrests = 0; State.Police_Kills = 0
-        Overlay.Show("Police")
+        if State.Police_StartTime == 0 or not (State.Police_AutoFire or State.Police_AutoArrest) then
+            State.Police_StartTime = tick(); State.Police_Arrests = 0; State.Police_Kills = 0
+        end
+        Police.StartStatsUpdater()
         State.Police_AimConn = RunService.RenderStepped:Connect(function()
             Police.UpdateFOV()
             local p, part = Police.GetTarget()
@@ -786,13 +636,13 @@ function Police.SetAutoAim(e)
     else
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle.Visible = false end) end
         State.Police_CurrentTarget = nil
-        if not State.Police_AutoFire and not State.Police_AutoArrest then Overlay.Hide() end
     end
 end
 function Police.SetAutoFire(e)
     State.Police_AutoFire = e
     if State.Police_FireConn then pcall(function() State.Police_FireConn:Disconnect() end); State.Police_FireConn=nil end
     if e then
+        Police.StartStatsUpdater()
         local last = 0
         State.Police_FireConn = RunService.Heartbeat:Connect(function()
             if State.Police_CurrentTarget and tick() - last >= 0.15 then
@@ -805,6 +655,7 @@ function Police.SetAutoArrest(e)
     State.Police_AutoArrest = e
     if State.Police_ArrestConn then pcall(function() State.Police_ArrestConn:Disconnect() end); State.Police_ArrestConn=nil end
     if e then
+        Police.StartStatsUpdater()
         local last = 0
         State.Police_ArrestConn = RunService.Heartbeat:Connect(function()
             if State.Police_CurrentTarget and tick() - last >= 2.5 then last = tick(); Police.TryArrest() end
@@ -875,9 +726,7 @@ local function GetSellerNames()
     return names
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- WINDOW
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--━ WINDOW
 local Window = Rayfield:CreateWindow({
     Name = HUB.Name .. "  v" .. HUB.Version,
     LoadingTitle = HUB.Name, LoadingSubtitle = HUB.Game .. " - by " .. HUB.Author,
@@ -910,28 +759,26 @@ local function Lbl(t,x) if t then local ok,r=pcall(function() return t:CreateLab
 local function Kbnd(t,c) if t then pcall(function() t:CreateKeybind(c) end) end end
 local function Drp(t,c) if t then pcall(function() t:CreateDropdown(c) end) end end
 
---━ MAIN
 if Tabs.Main then
     local T = Tabs.Main
     Sec(T, "🎯 X0DEC04T Hub v" .. HUB.Version)
-    Lbl(T, "Border RP (Scarface) | ID: 136020512003847")
-    Sec(T, "System Status")
+    Lbl(T, "Border RP (Scarface)")
+    Lbl(T, "No black overlay - live stats in tabs")
+    Sec(T, "Status")
     Lbl(T, "Remotes wired: " .. remoteCount)
-    Lbl(T, "WorldBuyableItems: " .. (BRP_PATHS.WorldBuyableItems and (#BRP_PATHS.WorldBuyableItems:GetChildren() .. " items ✅") or "❌"))
-    Lbl(T, "Sellers: " .. (BRP_PATHS.NPC and (#GetSellerNames() .. " found ✅") or "❌"))
-    Lbl(T, "LaunderTrigger: " .. (BRP_PATHS.LaunderTrigger and "✅" or "❌"))
+    Lbl(T, "Buyable items: " .. (BRP_PATHS.WorldBuyableItems and #BRP_PATHS.WorldBuyableItems:GetChildren() or 0))
+    Lbl(T, "Sellers: " .. #GetSellerNames())
     Sec(T, "Player")
     Lbl(T, "Team: " .. (LocalPlayer.Team and LocalPlayer.Team.Name or "None"))
     Lbl(T, "Rank: " .. GetRank(LocalPlayer))
 end
 
---━ VEHICLE
 if Tabs.Car then
     local T = Tabs.Car
     Sec(T, "Speed")
     Sld(T, {Name="Extra Speed", Range={0,500}, Increment=10, CurrentValue=0, Flag="ES",
         Callback=function(v) State.CarSpeed=v; Car.ApplySpeed() end})
-    Sld(T, {Name="SpeedHack Value", Range={100,2000}, Increment=50, CurrentValue=500, Flag="SHV",
+    Sld(T, {Name="SpeedHack", Range={100,2000}, Increment=50, CurrentValue=500, Flag="SHV",
         Callback=function(v) State.SpeedHackValue=v; if State.SpeedHack then Car.SetSpeedHack(true) end end})
     Tog(T, {Name="Speed Hack", CurrentValue=false, Flag="SH",
         Callback=function(v) State.SpeedHack=v; Car.SetSpeedHack(v) end})
@@ -951,26 +798,22 @@ if Tabs.Car then
     Tog(T, {Name="Infinite Jump", CurrentValue=false, Flag="IJ", Callback=function(v) State.InfiniteJump=v end})
 end
 
---━ SMUGGLER
 if Tabs.Smuggler then
     local T = Tabs.Smuggler
-    
     Sec(T, "🚀 Auto Smuggler")
     Lbl(T, "Loop: Buy → Sell → Launder")
     
-    Sec(T, "Status")
-    State.Smuggler_StatusLbl = Lbl(T, "Status: Idle | Jobs: 0")
+    Sec(T, "📊 Live Monitoring")
+    State.Smuggler_StatusLbl = Lbl(T, "● Idle")
+    State.Smuggler_StatsLbl  = Lbl(T, "⏱ 00:00  |  💰 $0  |  📦 0 jobs  |  📈 $0/hr")
     
-    Sec(T, "🛒 Buy Item Selection")
+    Sec(T, "🛒 Item Selection")
     local buyableNames = GetBuyableItemNames()
     Drp(T, {Name="Item to Buy", Options=buyableNames,
-        CurrentOption={buyableNames[1]}, MultiOption=false, Flag="ItemPick",
+        CurrentOption={"Fake Diamond Ring"}, MultiOption=false, Flag="ItemPick",
         Callback=function(v) State.Smuggler_ItemName = (type(v)=="table" and v[1]) or v end})
-    Drp(T, {Name="Buy Method (Auto tries all)", Options={"Auto","Remote","Prompt","Touch"},
-        CurrentOption={"Auto"}, MultiOption=false, Flag="BM",
-        Callback=function(v) State.Smuggler_BuyMethod = (type(v)=="table" and v[1]) or v end})
-    Tog(T, {Name="Debug Mode (verbose logs)", CurrentValue=false, Flag="DBG",
-        Callback=function(v) State.Smuggler_DebugMode = v end})
+    Sld(T, {Name="Buy Prompt Retries", Range={1,5}, Increment=1, CurrentValue=2, Flag="BR",
+        Callback=function(v) State.Smuggler_BuyRetries = v end})
     
     Sec(T, "💰 Seller Selection")
     local sellerNames = GetSellerNames()
@@ -979,12 +822,14 @@ if Tabs.Smuggler then
         Callback=function(v) State.Smuggler_SellerName = (type(v)=="table" and v[1]) or v end})
     
     Sec(T, "Timing")
-    Sld(T, {Name="Cycle Delay (sec)", Range={1,10}, Increment=1, CurrentValue=2, Flag="SD",
+    Sld(T, {Name="Cycle Delay (sec)", Range={0,10}, Increment=1, CurrentValue=1, Flag="SD",
         Callback=function(v) State.Smuggler_Delay = v end})
-    Tog(T, {Name="Use Remotes", CurrentValue=true, Flag="UR",
+    Tog(T, {Name="Use Remote Backup", CurrentValue=true, Flag="UR",
         Callback=function(v) State.Smuggler_UseRemotes = v end})
     Tog(T, {Name="Auto Launder", CurrentValue=true, Flag="AL",
         Callback=function(v) State.Smuggler_AutoLaunder = v end})
+    Tog(T, {Name="Debug Mode", CurrentValue=false, Flag="DBG",
+        Callback=function(v) State.Smuggler_DebugMode = v end})
     
     Sec(T, "⚡ MAIN TOGGLE")
     Tog(T, {Name="🔥 Auto Smuggler (Full Loop)", CurrentValue=false, Flag="AS",
@@ -992,84 +837,39 @@ if Tabs.Smuggler then
     
     Sec(T, "Manual Steps")
     Btn(T, {Name="1️⃣ Buy Item", Callback=function() task.spawn(Smuggler.BuyItem) end})
-    Btn(T, {Name="2️⃣ Sell to Seller", Callback=function() task.spawn(Smuggler.SellItems) end})
+    Btn(T, {Name="2️⃣ Sell to NPC", Callback=function() task.spawn(Smuggler.SellItems) end})
     Btn(T, {Name="3️⃣ Launder Money", Callback=function() task.spawn(Smuggler.LaunderMoney) end})
     
-    Sec(T, "Direct Remote Fire")
+    Sec(T, "Direct Remote")
     Btn(T, {Name="Fire SellSmuggledGoods", Callback=function()
-        if BRP.SellSmuggledGoods then pcall(function() BRP.SellSmuggledGoods:FireServer() end); Notify("Remote","Sell fired",2) end
+        if BRP.SellSmuggledGoods then pcall(function() BRP.SellSmuggledGoods:FireServer() end); Notify("Sent","",2) end
     end})
     Btn(T, {Name="Fire LaunderBriefcase", Callback=function()
-        if BRP.LaunderBriefcase then pcall(function() BRP.LaunderBriefcase:FireServer() end); Notify("Remote","Launder fired",2) end
+        if BRP.LaunderBriefcase then pcall(function() BRP.LaunderBriefcase:FireServer() end); Notify("Sent","",2) end
     end})
     
-    Sec(T, "Debug Buy System")
-    Btn(T, {Name="List All Buyable Items", Callback=function()
-        if not BRP_PATHS.WorldBuyableItems then Notify("Error", "No folder", 3); return end
-        Log("=== BUYABLE ITEMS ===")
-        for _, item in ipairs(BRP_PATHS.WorldBuyableItems:GetChildren()) do
-            local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
-            local pos = part and part.Position or "no pos"
-            Log(string.format("  [%s] %s | Pos: %s", item.ClassName, item.Name, tostring(pos)))
-            for k, v in pairs(item:GetAttributes()) do
-                Log(string.format("      Attr: %s = %s", tostring(k), tostring(v)))
-            end
-        end
-    end})
-    Btn(T, {Name="Test Buy - Try All Strategies", Callback=function()
+    Sec(T, "Debug")
+    Btn(T, {Name="Test Buy Selected Item", Callback=function()
         task.spawn(function()
-            local item = Smuggler.GetBuyItem()
-            if not item then Notify("Test", "No item selected", 3); return end
-            Notify("Test", "Testing buy on: " .. item.Name, 4)
-            Log("=== TEST BUY ===")
-            Log("Item: " .. item:GetFullName())
-            
-            local before = GetMoney()
-            Log("Money before: $" .. before)
-            
-            Log("Strategy 1: Remote")
-            local r1 = Smuggler.BuyStrategy_Remote(item); task.wait(0.5)
-            Log("  → " .. tostring(r1) .. " | Money: $" .. GetMoney())
-            
-            Log("Strategy 2: Prompt")
-            local r2 = Smuggler.BuyStrategy_Prompt(item); task.wait(0.5)
-            Log("  → " .. tostring(r2) .. " | Money: $" .. GetMoney())
-            
-            Log("Strategy 3: Click")
-            local r3 = Smuggler.BuyStrategy_Click(item); task.wait(0.5)
-            Log("  → " .. tostring(r3) .. " | Money: $" .. GetMoney())
-            
-            Log("Strategy 4: Touch")
-            local r4 = Smuggler.BuyStrategy_Touch(item); task.wait(0.8)
-            Log("  → " .. tostring(r4) .. " | Money: $" .. GetMoney())
-            
-            local after = GetMoney()
-            Log("Money after: $" .. after .. " | Delta: $" .. (before-after))
-            Notify("Test Done", "Spent $" .. (before-after) .. " - check console", 5)
+            State.Smuggler_DebugMode = true
+            Smuggler.BuyItem()
+            task.wait(1)
+            State.Smuggler_DebugMode = false
         end)
-    end})
-    Btn(T, {Name="Show Selected Item Info", Callback=function()
-        local item = Smuggler.GetBuyItem()
-        if item then
-            Log("Selected: " .. item:GetFullName())
-            local part = Smuggler.GetItemPos(item)
-            Log("Position: " .. tostring(part))
-            for _, d in ipairs(item:GetDescendants()) do
-                if d:IsA("ProximityPrompt") then Log("  Prompt: " .. d.ActionText .. " | " .. d.ObjectText) end
-                if d:IsA("ClickDetector") then Log("  ClickDetector | MaxDist:" .. d.MaxActivationDistance) end
-            end
-            Notify("Item", item.Name, 3)
-        end
     end})
     Btn(T, {Name="Reset Counter", Callback=function()
         State.Smuggler_JobsDone = 0; State.Smuggler_Earnings = 0; State.Smuggler_StartTime = tick()
+        Smuggler.UpdateStats()
     end})
 end
 
---━ POLICE
 if Tabs.Police then
     local T = Tabs.Police
     Sec(T, "🔫 Police Aimbot")
+    
+    Sec(T, "📊 Live Monitoring")
+    State.Police_StatsLbl = Lbl(T, "⏱ 00:00  |  🎯 None  |  🔫 0 kills  |  🚔 0 arrests")
+    
     Sec(T, "Targeting")
     Tog(T, {Name="Target Wanted Only", CurrentValue=true, Flag="TW", Callback=function(v) State.Police_TargetWanted=v end})
     Tog(T, {Name="Target ALL", CurrentValue=false, Flag="TA", Callback=function(v) State.Police_TargetAll=v end})
@@ -1079,16 +879,16 @@ if Tabs.Police then
         CurrentOption={"Head"}, MultiOption=false, Flag="AP",
         Callback=function(v) State.Police_AimPart = (type(v)=="table" and v[1]) or v end})
     Sec(T, "Aim Settings")
-    Sld(T, {Name="FOV Radius", Range={30,500}, Increment=10, CurrentValue=150, Flag="AFOV",
+    Sld(T, {Name="FOV", Range={30,500}, Increment=10, CurrentValue=150, Flag="AFOV",
         Callback=function(v) State.Police_AimFOV=v end})
     Sld(T, {Name="Smoothness", Range={1,20}, Increment=1, CurrentValue=1, Flag="ASM",
         Callback=function(v) State.Police_AimSmooth=v end})
     Tog(T, {Name="Show FOV Circle", CurrentValue=true, Flag="SFOV", Callback=function(v) State.Police_ShowFOV=v end})
-    Sec(T, "⚡ Controls")
+    Sec(T, "Controls")
     Tog(T, {Name="🎯 Auto-Aim (RMB)", CurrentValue=false, Flag="AAim", Callback=function(v) Police.SetAutoAim(v) end})
     Tog(T, {Name="🔥 Auto-Fire", CurrentValue=false, Flag="AFire", Callback=function(v) Police.SetAutoFire(v) end})
     Tog(T, {Name="🚔 Auto-Arrest", CurrentValue=false, Flag="AArr", Callback=function(v) Police.SetAutoArrest(v) end})
-    Sec(T, "Quick Actions")
+    Sec(T, "Quick")
     Btn(T, {Name="TP to Nearest Wanted", Callback=function()
         local myHRP = GetHRP(); if not myHRP then return end
         local best, bestDist = nil, math.huge
@@ -1104,14 +904,17 @@ if Tabs.Police then
                 Notify("TP", "-> " .. best.Name, 3) end
         else Notify("TP", "No wanted", 3) end
     end})
-    Btn(T, {Name="Detain Current Target", Callback=function()
+    Btn(T, {Name="Detain Current", Callback=function()
         if State.Police_CurrentTarget and BRP.Detain then
             pcall(function() BRP.Detain:InvokeServer(State.Police_CurrentTarget) end)
         end
     end})
+    Btn(T, {Name="Reset Counter", Callback=function()
+        State.Police_Kills = 0; State.Police_Arrests = 0; State.Police_StartTime = tick()
+        Police.UpdateStats()
+    end})
 end
 
---━ TELEPORT
 if Tabs.Teleport then
     local T = Tabs.Teleport
     Sec(T, "Player TP")
@@ -1123,13 +926,12 @@ if Tabs.Teleport then
     Drp(T, {Name="Player Dropdown", Options=#names>0 and names or {"None"}, CurrentOption={names[1] or "None"},
         MultiOption=false, Flag="TPD",
         Callback=function(v) Car.TeleportToPlayer((type(v)=="table" and v[1]) or v) end})
-    Sec(T, "Border RP Quick TP")
-    Btn(T, {Name="🏪 Shop", Callback=function() Smuggler.TP(State.POS_Shop, 3) end})
+    Sec(T, "Quick Locations")
+    Btn(T, {Name="🏪 Shop (El Capo)", Callback=function() Smuggler.TP(State.POS_Shop, 3) end})
     Btn(T, {Name="💰 Sell NPC", Callback=function() Smuggler.TP(State.POS_Sell, 3) end})
     Btn(T, {Name="🧺 Laundry", Callback=function() Smuggler.TP(State.POS_Laundry, 3) end})
 end
 
---━ ESP
 if Tabs.ESP then
     local T = Tabs.ESP
     Sec(T, "ESP")
@@ -1141,16 +943,15 @@ if Tabs.ESP then
         Callback=function(v) State.ESP_ShowName=v; for _,c in pairs(State.ESPCache) do if c.nl then c.nl.Visible=v end end end})
     Tog(T, {Name="Distance", CurrentValue=true, Flag="ED",
         Callback=function(v) State.ESP_ShowDist=v; for _,c in pairs(State.ESPCache) do if c.dl then c.dl.Visible=v end end end})
-    Sld(T, {Name="Max Distance", Range={100,5000}, Increment=100, CurrentValue=800, Flag="EMD",
+    Sld(T, {Name="Max Dist", Range={100,5000}, Increment=100, CurrentValue=800, Flag="EMD",
         Callback=function(v) State.ESP_MaxDist=v; for _,c in pairs(State.ESPCache) do if c.bb then c.bb.MaxDistance=v end end end})
     Btn(T, {Name="Refresh", Callback=function() ESP.ClearAll(); ESP.RefreshAll() end})
     Btn(T, {Name="Clear All", Callback=ESP.ClearAll})
 end
 
---━ REMOTE
 if Tabs.Remote then
     local T = Tabs.Remote
-    Sec(T, "Fire")
+    Sec(T, "Fire Remote")
     Lbl(T, "Total: " .. #RemoteDBAll)
     Inp(T, {Name="Name", PlaceholderText="Remote name", RemoveTextAfterFocusLost=false,
         Callback=function(v) State.RemoteName=v end})
@@ -1167,7 +968,6 @@ if Tabs.Remote then
     end})
 end
 
---━ VISUALS
 if Tabs.Visuals then
     local T = Tabs.Visuals
     Sec(T, "Lighting")
@@ -1178,7 +978,6 @@ if Tabs.Visuals then
     Sld(T, {Name="FOV", Range={30,120}, Increment=5, CurrentValue=70, Flag="FOV2", Callback=function(v) State.FOV=v; Vis.SetFOV(v) end})
 end
 
---━ MISC
 if Tabs.Misc then
     local T = Tabs.Misc
     Sec(T, "Audio")
@@ -1199,7 +998,6 @@ if Tabs.Misc then
     end})
 end
 
---━ SETTINGS
 if Tabs.Settings then
     local T = Tabs.Settings
     Sec(T, "Anti-AFK")
@@ -1223,7 +1021,6 @@ if Tabs.Settings then
     Btn(T, {Name="🗑 Unload Hub", Callback=function()
         Smuggler.SetAutoLoop(false)
         Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-        Overlay.Hide()
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
         if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.FlyConn then pcall(function() State.FlyConn:Disconnect() end) end
@@ -1249,12 +1046,11 @@ _G[INSTANCE_KEY] = {
     destroy = function()
         Smuggler.SetAutoLoop(false)
         Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-        Overlay.Hide()
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
         CM:Cleanup(); ESP.ClearAll()
         pcall(function() Window:Destroy() end)
     end,
 }
 
-Notify(HUB.Name, "v" .. HUB.Version .. " - Multi-Strategy Auto-Buy Ready!", 5)
-Log("Init complete | " .. remoteCount .. " remotes | " .. (BRP_PATHS.WorldBuyableItems and #BRP_PATHS.WorldBuyableItems:GetChildren() or 0) .. " buyables")
+Notify(HUB.Name, "v" .. HUB.Version .. " - No overlay, live stats!", 5)
+Log("v2.7.1 init | " .. remoteCount .. " remotes")
