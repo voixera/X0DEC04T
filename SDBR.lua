@@ -1122,10 +1122,12 @@ local function CreateLogo()
     local btn = Instance.new("ImageButton", container)
     btn.Size=UDim2.new(1,-6,1,-6); btn.Position=UDim2.new(0,3,0,3); btn.BackgroundTransparency=1; btn.AutoButtonColor=false
     Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
-    local xd = Instance.new("TextLabel", btn)
-    xd.Size=UDim2.new(1,0,1,0); xd.BackgroundTransparency=1; xd.Text="XD"
-    xd.Font=Enum.Font.GothamBlack; xd.TextSize=20; xd.TextColor3=Color3.fromRGB(240,240,255)
-    xd.TextStrokeTransparency=0; xd.TextStrokeColor3=Color3.fromRGB(140,100,255)
+        local xd = Instance.new("ImageLabel", btn)
+    xd.Size=UDim2.new(1,0,1,0); xd.BackgroundTransparency=1
+    xd.Image="rbxassetid://91626851418651"
+    xd.ImageColor3=Color3.fromRGB(255,255,255)
+    xd.ScaleType=Enum.ScaleType.Fit
+    Instance.new("UICorner", xd).CornerRadius=UDim.new(1,0)
     local vl = Instance.new("TextLabel", container)
     vl.Size=UDim2.new(2,0,0,14); vl.Position=UDim2.new(-0.5,0,1,4); vl.BackgroundTransparency=1
     vl.Text="v"..HUB.Version; vl.Font=Enum.Font.GothamBold; vl.TextSize=10; vl.TextColor3=Color3.fromRGB(140,100,255)
