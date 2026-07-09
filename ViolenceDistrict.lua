@@ -17,9 +17,41 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
 --═══════════════════════════════════════════════════════════════
--- WINDUI LOAD
+-- WINDUI LOAD (SAFE)
 --═══════════════════════════════════════════════════════════════
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local function SafeLoadWindUI()
+    local rawSuccess, raw = pcall(function()
+        return game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua")
+    end)
+
+    if not rawSuccess or type(raw) ~= "string" or #raw < 100 then
+        warn("[X0DEC04T] Failed to fetch WindUI source (HttpGet issue or empty response)")
+        return nil
+    end
+
+    local compileSuccess, chunk = pcall(loadstring, raw)
+    if not compileSuccess or type(chunk) ~= "function" then
+        warn("[X0DEC04T] WindUI source failed to compile: " .. tostring(chunk))
+        return nil
+    end
+
+    local runSuccess, result = pcall(chunk)
+    if not runSuccess then
+        warn("[X0DEC04T] WindUI errored on execution: " .. tostring(result))
+        return nil
+    end
+
+    return result
+end
+
+local WindUI = SafeLoadWindUI()
+
+if not WindUI then
+    warn("[X0DEC04T] CRITICAL: WindUI failed to load. Aborting script.")
+    return
+end
+
+print("[X0DEC04T] WindUI loaded successfully")
 
 --═══════════════════════════════════════════════════════════════
 -- HUB CONFIGURATION
