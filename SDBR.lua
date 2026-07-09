@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v3.2.1 - Border RP (WindUI)
--- Fixed: Fall damage after TP + Safe landing
+-- X0DEC04T Hub v3.3.0 - Border RP (WindUI)
+-- Advanced AntiTp Bypass + Anti-Clip Bypass + Floating Logo
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -17,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v321"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v330"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -25,7 +25,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v3.2.1 WindUI...")
+Log("Starting v3.3.0...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -48,7 +48,7 @@ if not ok or not WindUI then
 end
 Log("WindUI loaded")
 
-local HUB = { Name="X0DEC04T Hub", Version="3.2.1" }
+local HUB = { Name="X0DEC04T Hub", Version="3.3.0" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -111,38 +111,28 @@ for _, obj in ipairs(Workspace:GetChildren()) do
 end
 
 local State = {
-    Smuggler_AutoLoop = false,
-    Smuggler_JobsDone = 0,
-    Smuggler_UseRemotes = true,
-    Smuggler_AutoLaunder = true,
+    Smuggler_AutoLoop = false, Smuggler_JobsDone = 0,
+    Smuggler_UseRemotes = true, Smuggler_AutoLaunder = true,
     Smuggler_ItemName = "Fake Diamond Ring",
     Smuggler_SellerName = "Seller4",
     Smuggler_VehicleName = "Camry6",
-    Smuggler_BuyRetries = 2,
-    Smuggler_SellRetries = 8,
-    Smuggler_Delay = 1,
-    Smuggler_DebugMode = false,
-    Smuggler_AutoEquip = true,
-    Smuggler_EquipAll = true,
-    Smuggler_RemoveTires = true,
-    Smuggler_SpawnCar = true,
+    Smuggler_BuyRetries = 2, Smuggler_SellRetries = 8,
+    Smuggler_Delay = 1, Smuggler_DebugMode = false,
+    Smuggler_AutoEquip = true, Smuggler_EquipAll = true,
+    Smuggler_RemoveTires = true, Smuggler_SpawnCar = true,
     Smuggler_CurrentCar = nil,
     Smuggler_CarTPMethod = "WeldTP",
 
-    TPStrategy = "Tween",
-    TweenSpeed = 200,
-    TweenNoclip = true,
-    AntiTpBypass = true,
-    SafeLanding = true,      -- NEW: enable safe landing
-    NoFallDamage = true,     -- NEW: prevent fall damage
+    TPStrategy = "Tween", TweenSpeed = 200, TweenNoclip = true,
+    AntiTpBypass = true, AntiClipBypass = true,
+    SafeLanding = true, NoFallDamage = true,
 
     POS_Shop = Vector3.new(6823.57, 17.40, -20.00),
     POS_Laundry = Vector3.new(6804.78, 17.43, -34.70),
     POS_CarSpawner = Vector3.new(6840, 17, -30),
 
     CarSpeed = 0, SpeedHack = false, SpeedHackConn = nil, SpeedHackValue = 500,
-    FlyActive = false, FlyConn = nil,
-    GodMode = false,
+    FlyActive = false, FlyConn = nil, GodMode = false,
     NoclipConn = nil, NoClip = false,
     WalkSpeed = 16, JumpPower = 50, InfiniteJump = false,
 
@@ -161,8 +151,7 @@ local State = {
     Color_Police = Color3.fromRGB(60,120,255),
 
     FullBright = false, NoFog = false, FOV = 70, AntiAFK = true,
-    MutedSounds = {}, LightBackup = {},
-    TP_Target = "",
+    MutedSounds = {}, LightBackup = {}, TP_Target = "",
 }
 
 local function GetChar() return LocalPlayer.Character end
@@ -187,17 +176,131 @@ local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLe
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FALL DAMAGE PREVENTION
+-- ADVANCED ANTITP BYPASS (Multi-strategy)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local FallGuard = {
-    conn = nil,
-    stateChangedConns = {},
+local AntiTp = {
+    enabled = false,
+    hidden = {},        -- {remote = origParent}
+    holds = 0,
+    blocked = 0,
+    watchdogConn = nil,
+    knownAntiTpRemotes = {},
 }
 
-local function ClearFallGuardConns()
-    for _, c in ipairs(FallGuard.stateChangedConns) do
-        pcall(function() c:Disconnect() end)
+-- Scan ALL remotes for anticheat-related ones
+local function ScanAntiCheatRemotes()
+    local list = {}
+    -- Add known primary
+    if BRP.ApplyRollbackCFrame then table.insert(list, BRP.ApplyRollbackCFrame) end
+    -- Scan replicated storage for suspicious remote names
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local n = obj.Name:lower()
+            local parent = obj.Parent and obj.Parent.Name:lower() or ""
+            if n:find("rollback") or n:find("antitp") or n:find("anticheat") 
+               or n:find("teleportdet") or n:find("kickplayer") or n:find("banplayer")
+               or n:find("reportcheat") or n:find("flag") or n:find("suspicious")
+               or parent:find("antitp") or parent:find("anticheat") then
+                table.insert(list, obj)
+            end
+        end
     end
+    return list
+end
+
+function AntiTp.Enable()
+    AntiTp.enabled = true
+    AntiTp.knownAntiTpRemotes = ScanAntiCheatRemotes()
+    Log("[AntiTp] Enabled | Found " .. #AntiTp.knownAntiTpRemotes .. " anticheat remotes")
+end
+
+function AntiTp.Disable()
+    AntiTp.enabled = false
+    AntiTp.Release(true)
+end
+
+function AntiTp.Hold()
+    if not AntiTp.enabled then return end
+    AntiTp.holds = AntiTp.holds + 1
+    -- Hide ALL known anticheat remotes
+    for _, r in ipairs(AntiTp.knownAntiTpRemotes) do
+        if r and r.Parent and not AntiTp.hidden[r] then
+            AntiTp.hidden[r] = r.Parent
+            pcall(function() r.Parent = nil end)
+            AntiTp.blocked = AntiTp.blocked + 1
+        end
+    end
+end
+
+function AntiTp.Release(force)
+    if not force then
+        AntiTp.holds = math.max(0, AntiTp.holds - 1)
+        if AntiTp.holds > 0 then return end
+    else
+        AntiTp.holds = 0
+    end
+    for r, origParent in pairs(AntiTp.hidden) do
+        if r and origParent then pcall(function() r.Parent = origParent end) end
+    end
+    AntiTp.hidden = {}
+end
+
+-- Watchdog
+task.spawn(function()
+    while true do
+        task.wait(6)
+        if next(AntiTp.hidden) and AntiTp.holds == 0 then AntiTp.Release(true) end
+    end
+end)
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ANTI-CLIP BYPASS (defeats anticheat clip detection)
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AntiClip = {
+    enabled = false,
+    lastPos = nil,
+    lastPosTime = 0,
+    maxTPDist = 50,      -- max stud distance per "step" the server sees
+    chunkInterval = 0.05, -- time between chunks
+}
+
+function AntiClip.Enable() AntiClip.enabled = true end
+function AntiClip.Disable() AntiClip.enabled = false end
+
+-- Break long teleport into small chunks the server accepts
+function AntiClip.SmoothMove(hrp, targetPos)
+    if not hrp or not hrp.Parent then return false end
+    local startPos = hrp.Position
+    local totalDist = (targetPos - startPos).Magnitude
+    
+    if totalDist <= AntiClip.maxTPDist then
+        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+        return true
+    end
+    
+    local chunks = math.ceil(totalDist / AntiClip.maxTPDist)
+    local direction = (targetPos - startPos).Unit
+    
+    for i = 1, chunks do
+        if not hrp or not hrp.Parent then return false end
+        local stepDist = math.min(AntiClip.maxTPDist * i, totalDist)
+        local stepPos = startPos + direction * stepDist
+        pcall(function() 
+            hrp.CFrame = CFrame.new(stepPos)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end)
+        task.wait(AntiClip.chunkInterval)
+    end
+    pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+    return true
+end
+
+--━ FALL GUARD
+local FallGuard = { stateChangedConns = {} }
+
+local function ClearFallGuardConns()
+    for _, c in ipairs(FallGuard.stateChangedConns) do pcall(function() c:Disconnect() end) end
     FallGuard.stateChangedConns = {}
 end
 
@@ -205,7 +308,6 @@ function FallGuard.Enable()
     ClearFallGuardConns()
     local function hook(hum)
         if not hum then return end
-        -- Disable FallingDown state and prevent StateChanged to Freefall issues
         local c1 = hum.StateChanged:Connect(function(old, new)
             if not State.NoFallDamage then return end
             if new == Enum.HumanoidStateType.Freefall or new == Enum.HumanoidStateType.FallingDown then
@@ -213,14 +315,12 @@ function FallGuard.Enable()
             end
         end)
         table.insert(FallGuard.stateChangedConns, c1)
-        -- Disable states that cause fall damage/ragdoll
         pcall(function()
             hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
             hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
         end)
     end
-    local h = GetHuman()
-    if h then hook(h) end
+    local h = GetHuman(); if h then hook(h) end
 end
 
 function FallGuard.Disable()
@@ -234,65 +334,20 @@ function FallGuard.Disable()
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SAFE POSITION FINDER - Raycast down to find ground
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--━ FIND GROUND
 local function FindGroundBelow(pos, maxDrop)
     maxDrop = maxDrop or 500
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
     local ch = GetChar()
     if ch then rayParams.FilterDescendantsInstances = {ch} end
-    
     local result = Workspace:Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -maxDrop, 0), rayParams)
-    if result then
-        return result.Position + Vector3.new(0, 3, 0)  -- 3 studs above ground
-    end
+    if result then return result.Position + Vector3.new(0, 3, 0) end
     return nil
 end
 
---━ ANTITP
-local AntiTp = { enabled=false, hidden=false, origParent=nil, holds=0 }
-
-function AntiTp.Enable() AntiTp.enabled = true end
-function AntiTp.Disable() AntiTp.enabled = false; AntiTp.Release(true) end
-
-function AntiTp.Hold()
-    if not AntiTp.enabled then return end
-    AntiTp.holds = AntiTp.holds + 1
-    if not AntiTp.hidden and BRP.ApplyRollbackCFrame then
-        local r = BRP.ApplyRollbackCFrame
-        if r and r.Parent then
-            AntiTp.origParent = r.Parent
-            local ok = pcall(function() r.Parent = nil end)
-            if ok then AntiTp.hidden = true end
-        end
-    end
-end
-
-function AntiTp.Release(force)
-    if not force then
-        AntiTp.holds = math.max(0, AntiTp.holds - 1)
-        if AntiTp.holds > 0 then return end
-    else
-        AntiTp.holds = 0
-    end
-    if AntiTp.hidden then
-        local r = BRP.ApplyRollbackCFrame
-        if r and AntiTp.origParent then pcall(function() r.Parent = AntiTp.origParent end) end
-        AntiTp.hidden = false
-    end
-end
-
-task.spawn(function()
-    while true do
-        task.wait(6)
-        if AntiTp.hidden and AntiTp.holds == 0 then AntiTp.Release(true) end
-    end
-end)
-
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- TELEPORT WITH SAFE LANDING
+-- TELEPORT SYSTEM
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local SmartTP = {}
 local _noclip = nil
@@ -311,10 +366,8 @@ local function DisableNoclip()
     if _noclip then pcall(function() _noclip:Disconnect() end); _noclip = nil end
 end
 
--- Reset all velocity on character
 local function ZeroVelocity()
-    local ch = GetChar()
-    if not ch then return end
+    local ch = GetChar(); if not ch then return end
     for _, p in ipairs(ch:GetDescendants()) do
         if p:IsA("BasePart") then
             pcall(function()
@@ -327,7 +380,6 @@ local function ZeroVelocity()
     end
 end
 
--- Pre-teleport prep: freeze character
 local function PrepareTP(hum)
     if hum then
         pcall(function() hum.PlatformStand = true end)
@@ -336,28 +388,22 @@ local function PrepareTP(hum)
     ZeroVelocity()
 end
 
--- Post-teleport recovery: unfreeze safely
-local function RecoverAfterTP(hum, targetPos)
+local function RecoverAfterTP(hum)
     ZeroVelocity()
-    
-    -- Anchor briefly to prevent fall momentum
     local hrp = GetHRP()
     if hrp then
         local wasAnchored = hrp.Anchored
         pcall(function() hrp.Anchored = true end)
-        task.wait(0.15)  -- let physics settle
+        task.wait(0.15)
         ZeroVelocity()
         pcall(function() hrp.Anchored = wasAnchored end)
     end
-    
-    -- Restore humanoid state
     if hum then
         pcall(function() hum.PlatformStand = false end)
         pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
         task.wait(0.05)
         pcall(function() hum:ChangeState(Enum.HumanoidStateType.Landed) end)
     end
-    
     ZeroVelocity()
 end
 
@@ -365,18 +411,20 @@ function SmartTP.Instant(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
     local hum = GetHuman()
-    
-    -- Find safe ground if enabled
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
     if State.SafeLanding then
         local ground = FindGroundBelow(pos, 500)
         if ground then targetPos = ground end
     end
-    
     PrepareTP(hum)
-    pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+    -- Use anti-clip chunked movement if enabled
+    if State.AntiClipBypass then
+        AntiClip.SmoothMove(hrp, targetPos)
+    else
+        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+    end
     task.wait(0.2)
-    RecoverAfterTP(hum, targetPos)
+    RecoverAfterTP(hum)
     task.wait(0.1)
     return true
 end
@@ -385,19 +433,17 @@ function SmartTP.Tween(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
     local hum = GetHuman()
-    
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
     if State.SafeLanding then
         local ground = FindGroundBelow(pos, 500)
         if ground then targetPos = ground end
     end
-    
     local totalDist = (targetPos - hrp.Position).Magnitude
     if totalDist < 5 then
         PrepareTP(hum)
         pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
         task.wait(0.1)
-        RecoverAfterTP(hum, targetPos)
+        RecoverAfterTP(hum)
         return true
     end
 
@@ -415,7 +461,7 @@ function SmartTP.Tween(pos, yOff)
         local t0 = tick()
         while tick() - t0 < duration + 1 do
             task.wait(0.1)
-            ZeroVelocity()  -- keep zeroing during tween
+            ZeroVelocity()
             if not hrp or not hrp.Parent then break end
         end
         pcall(function() tween:Cancel() end)
@@ -424,7 +470,7 @@ function SmartTP.Tween(pos, yOff)
     local fhrp = GetHRP()
     if fhrp then pcall(function() fhrp.CFrame = CFrame.new(targetPos) end) end
     DisableNoclip()
-    RecoverAfterTP(hum, targetPos)
+    RecoverAfterTP(hum)
     task.wait(0.2)
     return true
 end
@@ -434,7 +480,7 @@ function SmartTP.Go(pos, yOff)
     local result
     if State.TPStrategy == "Instant" then result = SmartTP.Instant(pos, yOff)
     else result = SmartTP.Tween(pos, yOff) end
-    if State.AntiTpBypass then task.delay(2, function() pcall(AntiTp.Release) end) end
+    if State.AntiTpBypass then task.delay(3, function() pcall(AntiTp.Release) end) end
     return result
 end
 
@@ -450,7 +496,6 @@ function SmartTP.DirectVehicle(car, targetPos, faceCFrame)
     local cf = faceCFrame or CFrame.new(targetPos)
     pcall(function() if car:IsA("Model") then car:PivotTo(cf) else root.CFrame = cf end end)
     task.wait(0.3)
-    -- Zero velocity again after TP
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
             pcall(function() p.AssemblyLinearVelocity = Vector3.zero; p.AssemblyAngularVelocity = Vector3.zero end)
@@ -483,7 +528,9 @@ function SmartTP.WeldVehicle(car, targetPos, faceCFrame)
     local targetCF = faceCFrame or CFrame.new(targetPos)
     local startCF = root.CFrame
     local totalDist = (targetCF.Position - startCF.Position).Magnitude
-    local chunks = math.max(3, math.ceil(totalDist / 80))
+    -- Smaller chunks with anti-clip
+    local chunkSize = State.AntiClipBypass and 40 or 80
+    local chunks = math.max(3, math.ceil(totalDist / chunkSize))
     for i = 1, chunks do
         local alpha = i / chunks
         local stepCF = startCF:Lerp(targetCF, alpha)
@@ -491,11 +538,10 @@ function SmartTP.WeldVehicle(car, targetPos, faceCFrame)
         for _, p in ipairs(car:GetDescendants()) do
             if p:IsA("BasePart") then pcall(function() p.AssemblyLinearVelocity=Vector3.zero; p.AssemblyAngularVelocity=Vector3.zero end) end
         end
-        task.wait(0.08)
+        task.wait(0.06)
     end
     pcall(function() if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end end)
     task.wait(0.3)
-    -- Final velocity zero
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then pcall(function() p.AssemblyLinearVelocity=Vector3.zero; p.AssemblyAngularVelocity=Vector3.zero end) end
     end
@@ -1011,6 +1057,7 @@ task.spawn(function() while task.wait(1) do if State.GodMode then local h=GetHum
 CM:Add(UserInputService.JumpRequest, function() if State.InfiniteJump then local h=GetHuman(); if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end) end end end)
 
 if State.AntiTpBypass then AntiTp.Enable() end
+if State.AntiClipBypass then AntiClip.Enable() end
 if State.NoFallDamage then FallGuard.Enable() end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1037,6 +1084,196 @@ local function Notify(t, c, d)
     pcall(function() WindUI:Notify({ Title=tostring(t), Content=tostring(c), Duration=d or 4, Icon="info" }) end)
 end
 
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FLOATING LOGO (minimized state)
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local FloatingLogo = {}
+local logoGui, logoBtn, logoActive = nil, nil, false
+
+local function CreateFloatingLogo()
+    if logoGui and logoGui.Parent then return end
+    
+    logoGui = Instance.new("ScreenGui")
+    logoGui.Name = "X0DEC04T_Logo"
+    logoGui.ResetOnSpawn = false
+    logoGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    logoGui.IgnoreGuiInset = true
+    pcall(function() logoGui.Parent = GuiParent() end)
+    
+    -- Container for hover effects
+    local container = Instance.new("Frame")
+    container.Name = "Container"
+    container.Size = UDim2.new(0, 55, 0, 55)
+    container.Position = UDim2.new(0, 20, 0.5, -27)
+    container.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+    container.BorderSizePixel = 0
+    container.Active = true
+    container.Draggable = true
+    container.Parent = logoGui
+    
+    local containerCorner = Instance.new("UICorner")
+    containerCorner.CornerRadius = UDim.new(1, 0)  -- Full circle
+    containerCorner.Parent = container
+    
+    local containerStroke = Instance.new("UIStroke")
+    containerStroke.Color = Color3.fromRGB(140, 100, 255)
+    containerStroke.Thickness = 2
+    containerStroke.Parent = container
+    
+    -- Glow effect
+    local glow = Instance.new("ImageLabel")
+    glow.Name = "Glow"
+    glow.Size = UDim2.new(1.6, 0, 1.6, 0)
+    glow.Position = UDim2.new(-0.3, 0, -0.3, 0)
+    glow.BackgroundTransparency = 1
+    glow.Image = "rbxassetid://132469099334813"
+    glow.ImageColor3 = Color3.fromRGB(140, 100, 255)
+    glow.ImageTransparency = 0.5
+    glow.ScaleType = Enum.ScaleType.Slice
+    glow.SliceCenter = Rect.new(24, 24, 276, 276)
+    glow.Parent = container
+    
+    -- Logo image (X0DEC04T)
+    logoBtn = Instance.new("ImageButton")
+    logoBtn.Name = "Logo"
+    logoBtn.Size = UDim2.new(1, -6, 1, -6)
+    logoBtn.Position = UDim2.new(0, 3, 0, 3)
+    logoBtn.BackgroundTransparency = 1
+    logoBtn.Image = "rbxassetid://18821990466"  -- X logo placeholder - you can replace with your uploaded asset ID
+    logoBtn.ImageColor3 = Color3.fromRGB(240, 240, 255)
+    logoBtn.AutoButtonColor = false
+    logoBtn.Parent = container
+    
+    local logoCorner = Instance.new("UICorner")
+    logoCorner.CornerRadius = UDim.new(1, 0)
+    logoCorner.Parent = logoBtn
+    
+    -- Center text "XD" as fallback
+    local xdLabel = Instance.new("TextLabel")
+    xdLabel.Size = UDim2.new(1, 0, 1, 0)
+    xdLabel.BackgroundTransparency = 1
+    xdLabel.Text = "XD"
+    xdLabel.Font = Enum.Font.GothamBlack
+    xdLabel.TextSize = 20
+    xdLabel.TextColor3 = Color3.fromRGB(240, 240, 255)
+    xdLabel.TextStrokeTransparency = 0
+    xdLabel.TextStrokeColor3 = Color3.fromRGB(140, 100, 255)
+    xdLabel.Parent = logoBtn
+    
+    -- Version label below
+    local versionLabel = Instance.new("TextLabel")
+    versionLabel.Size = UDim2.new(2, 0, 0, 14)
+    versionLabel.Position = UDim2.new(-0.5, 0, 1, 4)
+    versionLabel.BackgroundTransparency = 1
+    versionLabel.Text = "v" .. HUB.Version
+    versionLabel.Font = Enum.Font.GothamBold
+    versionLabel.TextSize = 10
+    versionLabel.TextColor3 = Color3.fromRGB(140, 100, 255)
+    versionLabel.TextStrokeTransparency = 0
+    versionLabel.Parent = container
+    
+    -- Rotation animation
+    task.spawn(function()
+        local rot = 0
+        while logoGui and logoGui.Parent do
+            rot = (rot + 1) % 360
+            pcall(function() glow.Rotation = rot end)
+            task.wait(0.03)
+        end
+    end)
+    
+    -- Pulse animation
+    task.spawn(function()
+        while logoGui and logoGui.Parent do
+            local pulseIn = TweenService:Create(containerStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine), {Thickness = 3})
+            pulseIn:Play()
+            task.wait(1.2)
+            local pulseOut = TweenService:Create(containerStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine), {Thickness = 2})
+            pulseOut:Play()
+            task.wait(1.2)
+        end
+    end)
+    
+    -- Hover effect
+    logoBtn.MouseEnter:Connect(function()
+        pcall(function()
+            TweenService:Create(container, TweenInfo.new(0.2), {Size = UDim2.new(0, 65, 0, 65)}):Play()
+            containerStroke.Color = Color3.fromRGB(180, 140, 255)
+        end)
+    end)
+    logoBtn.MouseLeave:Connect(function()
+        pcall(function()
+            TweenService:Create(container, TweenInfo.new(0.2), {Size = UDim2.new(0, 55, 0, 55)}):Play()
+            containerStroke.Color = Color3.fromRGB(140, 100, 255)
+        end)
+    end)
+    
+    -- Click to open UI
+    logoBtn.MouseButton1Click:Connect(function()
+        FloatingLogo.Hide()
+        pcall(function() Window:Open() end)
+    end)
+    
+    logoActive = true
+end
+
+function FloatingLogo.Show()
+    if not logoGui or not logoGui.Parent then CreateFloatingLogo() end
+    if logoGui then pcall(function() logoGui.Enabled = true end) end
+    logoActive = true
+end
+
+function FloatingLogo.Hide()
+    if logoGui then pcall(function() logoGui.Enabled = false end) end
+    logoActive = false
+end
+
+function FloatingLogo.Destroy()
+    if logoGui then pcall(function() logoGui:Destroy() end); logoGui = nil end
+    logoActive = false
+end
+
+-- Create logo but keep hidden initially
+CreateFloatingLogo()
+FloatingLogo.Hide()
+
+-- Hook WindUI minimize/close events to show/hide logo
+-- Poll for window visibility since WindUI's events may vary
+task.spawn(function()
+    local lastVisible = true
+    while task.wait(0.3) do
+        if not Window then break end
+        -- WindUI stores window state internally; we check if it's open
+        local isOpen = true
+        pcall(function()
+            -- Try multiple property paths that WindUI might use
+            if Window.UIElements and Window.UIElements.Main then
+                isOpen = Window.UIElements.Main.Visible
+            elseif Window.Root then
+                isOpen = Window.Root.Visible
+            end
+        end)
+        
+        if isOpen ~= lastVisible then
+            lastVisible = isOpen
+            if isOpen then
+                FloatingLogo.Hide()
+            else
+                FloatingLogo.Show()
+            end
+        end
+    end
+end)
+
+-- Also listen for close via keybind
+CM:Add(UserInputService.InputBegan, function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        task.wait(0.1)
+        if not logoActive then FloatingLogo.Show() else FloatingLogo.Hide(); pcall(function() Window:Open() end) end
+    end
+end)
+
 local Tabs = {
     Main     = Window:Tab({ Title="Main", Icon="home" }),
     Vehicle  = Window:Tab({ Title="Vehicle", Icon="car" }),
@@ -1054,8 +1291,8 @@ Window:SelectTab(1)
 -- MAIN
 Tabs.Main:Section({ Title = "X0DEC04T Hub v" .. HUB.Version })
 Tabs.Main:Paragraph({
-    Title = "Border RP - Fall Safe Build",
-    Desc = "TP zeroes velocity + anchors briefly\nRaycast finds ground beneath target\nNoFallDamage disables Freefall/Ragdoll states",
+    Title = "Advanced Anti-Cheat Bypass",
+    Desc = "AntiTp: Multi-remote hide\nAntiClip: Chunked movement (50 stud steps)\nFall Guard: State override\nFloating Logo when minimized",
 })
 Tabs.Main:Section({ Title = "Status" })
 Tabs.Main:Paragraph({
@@ -1063,33 +1300,31 @@ Tabs.Main:Paragraph({
     Desc = "Remotes: " .. remoteCount .. "\nSellers: " .. #GetSellerNames() .. "\nSpawner: " .. (BRP_PATHS.VehicleSpawners and BRP_PATHS.VehicleSpawners.Name or "none"),
 })
 
+Tabs.Main:Button({ Title = "Minimize UI (Show Logo)", Callback = safeCB(function()
+    pcall(function() Window:Close() end)
+    task.wait(0.2)
+    FloatingLogo.Show()
+end) })
+
 -- VEHICLE
 Tabs.Vehicle:Section({ Title = "Speed" })
 Tabs.Vehicle:Slider({ Title = "Extra Speed", Value = { Min=0, Max=500, Default=0 }, Step=10, Callback = safeCB(function(v) State.CarSpeed = v; Car.ApplySpeed() end) })
 Tabs.Vehicle:Slider({ Title = "SpeedHack Value", Value = { Min=100, Max=2000, Default=500 }, Step=50, Callback = safeCB(function(v) State.SpeedHackValue = v end) })
 Tabs.Vehicle:Toggle({ Title = "Speed Hack", Default = false, Callback = safeCB(function(v) State.SpeedHack = v; Car.SetSpeedHack(v) end) })
-
 Tabs.Vehicle:Section({ Title = "Actions" })
 Tabs.Vehicle:Button({ Title = "Flip Car", Callback = safeCB(Car.Flip) })
 Tabs.Vehicle:Button({ Title = "Boost", Callback = safeCB(Car.Boost) })
-Tabs.Vehicle:Button({ Title = "Unstuck", Callback = safeCB(function()
-    if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end
-end) })
-
+Tabs.Vehicle:Button({ Title = "Unstuck", Callback = safeCB(function() if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end end) })
 Tabs.Vehicle:Section({ Title = "Abilities" })
 Tabs.Vehicle:Toggle({ Title = "NoClip", Default = false, Callback = safeCB(function(v) State.NoClip=v; Car.SetNoClip(v) end) })
 Tabs.Vehicle:Toggle({ Title = "Fly (WASD)", Default = false, Callback = safeCB(function(v) State.FlyActive=v; Car.SetFly(v) end) })
 Tabs.Vehicle:Toggle({ Title = "God Mode", Default = false, Callback = safeCB(function(v) State.GodMode=v; Car.SetGod(v) end) })
-
 Tabs.Vehicle:Section({ Title = "Character" })
 Tabs.Vehicle:Slider({ Title = "WalkSpeed", Value = { Min=16, Max=200, Default=16 }, Step=4, Callback = safeCB(function(v) State.WalkSpeed=v; local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end) })
 Tabs.Vehicle:Slider({ Title = "JumpPower", Value = { Min=50, Max=300, Default=50 }, Step=10, Callback = safeCB(function(v) State.JumpPower=v; local h=GetHuman(); if h then pcall(function() h.JumpPower=v end) end end) })
 Tabs.Vehicle:Toggle({ Title = "Infinite Jump", Default = false, Callback = safeCB(function(v) State.InfiniteJump=v end) })
 
 -- SMUGGLER
-Tabs.Smuggler:Section({ Title = "Auto Smuggler" })
-Tabs.Smuggler:Paragraph({ Title = "Flow", Desc = "Buy → Spawn → Sit → Tires → TP Seller → Sell → TP Laundry → Launder" })
-
 Tabs.Smuggler:Section({ Title = "Item" })
 Tabs.Smuggler:Dropdown({ Title = "Item to Buy", Values = GetBuyableItemNames(), Value = "Fake Diamond Ring", Callback = safeCB(function(v) State.Smuggler_ItemName = v end) })
 Tabs.Smuggler:Slider({ Title = "Buy Retries", Value = { Min=1, Max=5, Default=2 }, Step=1, Callback = safeCB(function(v) State.Smuggler_BuyRetries = v end) })
@@ -1099,7 +1334,7 @@ Tabs.Smuggler:Toggle({ Title = "Auto Spawn Car", Default = true, Callback = safe
 Tabs.Smuggler:Toggle({ Title = "Remove Tires", Default = true, Callback = safeCB(function(v) State.Smuggler_RemoveTires = v end) })
 Tabs.Smuggler:Dropdown({ Title = "Vehicle", Values = {"Camry6", "BorderPatrolCrownVic", "2020Rs3Done", "jzs171 touring", "TAPVSWAT"}, Value = "Camry6", Callback = safeCB(function(v) State.Smuggler_VehicleName = v end) })
 Tabs.Smuggler:Input({ Title = "Custom Vehicle", Placeholder = "overrides", Callback = safeCB(function(v) if v ~= "" then State.Smuggler_VehicleName = v end end) })
-Tabs.Smuggler:Button({ Title = "Save Spawner Pos", Callback = safeCB(function() local h = GetHRP(); if h then State.POS_CarSpawner = h.Position; Notify("Saved", "Pos saved", 2) end end) })
+Tabs.Smuggler:Button({ Title = "Save Spawner Pos", Callback = safeCB(function() local h = GetHRP(); if h then State.POS_CarSpawner = h.Position; Notify("Saved", "Pos", 2) end end) })
 Tabs.Smuggler:Button({ Title = "List Spawners (Console)", Callback = safeCB(function()
     local s = FindAllSpawners()
     Log("=== SPAWNERS: " .. #s .. " ===")
@@ -1120,10 +1355,14 @@ Tabs.Smuggler:Section({ Title = "Seller" })
 Tabs.Smuggler:Dropdown({ Title = "Target Seller", Values = GetSellerNames(), Value = State.Smuggler_SellerName, Callback = safeCB(function(v) State.Smuggler_SellerName = v end) })
 Tabs.Smuggler:Slider({ Title = "Sell Retries", Value = { Min=1, Max=15, Default=8 }, Step=1, Callback = safeCB(function(v) State.Smuggler_SellRetries = v end) })
 
-Tabs.Smuggler:Section({ Title = "Player TP" })
-Tabs.Smuggler:Toggle({ Title = "AntiTp Bypass", Default = true, Callback = safeCB(function(v) State.AntiTpBypass = v; if v then AntiTp.Enable() else AntiTp.Disable() end end) })
-Tabs.Smuggler:Toggle({ Title = "Safe Landing (raycast)", Default = true, Callback = safeCB(function(v) State.SafeLanding = v end) })
+Tabs.Smuggler:Section({ Title = "Anti-Cheat Bypass" })
+Tabs.Smuggler:Toggle({ Title = "AntiTp Bypass (Multi-remote)", Default = true, Callback = safeCB(function(v) State.AntiTpBypass = v; if v then AntiTp.Enable() else AntiTp.Disable() end end) })
+Tabs.Smuggler:Toggle({ Title = "AntiClip Bypass (Chunked TP)", Default = true, Callback = safeCB(function(v) State.AntiClipBypass = v; if v then AntiClip.Enable() else AntiClip.Disable() end end) })
+Tabs.Smuggler:Toggle({ Title = "Safe Landing (Raycast)", Default = true, Callback = safeCB(function(v) State.SafeLanding = v end) })
 Tabs.Smuggler:Toggle({ Title = "No Fall Damage", Default = true, Callback = safeCB(function(v) State.NoFallDamage = v; if v then FallGuard.Enable() else FallGuard.Disable() end end) })
+Tabs.Smuggler:Slider({ Title = "AntiClip Chunk Size", Value = { Min=20, Max=200, Default=50 }, Step=5, Callback = safeCB(function(v) AntiClip.maxTPDist = v end) })
+
+Tabs.Smuggler:Section({ Title = "Player TP" })
 Tabs.Smuggler:Dropdown({ Title = "TP Method", Values = {"Tween", "Instant"}, Value = "Tween", Callback = safeCB(function(v) State.TPStrategy = v end) })
 Tabs.Smuggler:Slider({ Title = "Tween Speed", Value = { Min=50, Max=1000, Default=200 }, Step=25, Callback = safeCB(function(v) State.TweenSpeed = v end) })
 
@@ -1171,12 +1410,10 @@ Tabs.Teleport:Button({ Title = "TP to Player", Callback = safeCB(function()
     local th = t.Character:FindFirstChild("HumanoidRootPart")
     if th then SmartTP.Go(th.Position + Vector3.new(0,0,4), 0) end
 end) })
-
 Tabs.Teleport:Section({ Title = "Locations" })
 Tabs.Teleport:Button({ Title = "Shop", Callback = safeCB(function() SmartTP.Go(State.POS_Shop, 3) end) })
 Tabs.Teleport:Button({ Title = "Laundry", Callback = safeCB(function() SmartTP.Go(State.POS_Laundry, 3) end) })
 Tabs.Teleport:Button({ Title = "Car Spawner", Callback = safeCB(function() local sp = FindNearestSpawner(); if sp then SmartTP.Go(sp.position, 3) else SmartTP.Go(State.POS_CarSpawner, 3) end end) })
-
 Tabs.Teleport:Section({ Title = "Sellers" })
 for _, name in ipairs(GetSellerNames()) do
     Tabs.Teleport:Button({ Title = "TP to " .. name, Callback = safeCB(function()
@@ -1231,16 +1468,28 @@ end) })
 -- SETTINGS
 Tabs.Settings:Section({ Title = "General" })
 Tabs.Settings:Toggle({ Title = "Anti-AFK", Default = true, Callback = safeCB(function(v) State.AntiAFK = v end) })
+
+Tabs.Settings:Section({ Title = "UI" })
+Tabs.Settings:Button({ Title = "Minimize (Show Floating Logo)", Callback = safeCB(function()
+    pcall(function() Window:Close() end)
+    task.wait(0.2)
+    FloatingLogo.Show()
+end) })
+Tabs.Settings:Paragraph({ Title = "Toggle", Desc = "Press RightShift to toggle UI/Logo" })
+
 Tabs.Settings:Section({ Title = "Panic" })
 Tabs.Settings:Button({ Title = "PANIC (Off All)", Callback = safeCB(function()
     ESP.ClearAll(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
     Smuggler.SetAutoLoop(false); Notify("PANIC", "All off", 3)
 end) })
-Tabs.Settings:Paragraph({ Title = HUB.Name .. " v" .. HUB.Version, Desc = "Fall Safe Build" })
+
+Tabs.Settings:Paragraph({ Title = HUB.Name .. " v" .. HUB.Version, Desc = "Advanced Anti-Cheat Bypass\nFloating Logo Minimize" })
+
 Tabs.Settings:Section({ Title = "Unload" })
 Tabs.Settings:Button({ Title = "Unload Hub", Callback = safeCB(function()
     Smuggler.SetAutoLoop(false); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-    AntiTp.Disable(); FallGuard.Disable(); DisableNoclip()
+    AntiTp.Disable(); AntiClip.Disable(); FallGuard.Disable(); DisableNoclip()
+    FloatingLogo.Destroy()
     if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
     if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
     if State.FlyConn then pcall(function() State.FlyConn:Disconnect() end) end
@@ -1257,6 +1506,7 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.FlyActive then pcall(Car.SetFly, true) end
     if State.FullBright then pcall(Vis.FullBright, true) end
     if State.AntiTpBypass then AntiTp.Enable() end
+    if State.AntiClipBypass then AntiClip.Enable() end
     if State.NoFallDamage then FallGuard.Enable() end
 end)
 
@@ -1264,11 +1514,12 @@ _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
         Smuggler.SetAutoLoop(false); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
-        AntiTp.Disable(); FallGuard.Disable(); DisableNoclip()
+        AntiTp.Disable(); AntiClip.Disable(); FallGuard.Disable(); DisableNoclip()
+        FloatingLogo.Destroy()
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle:Remove() end) end
         CM:Cleanup(); ESP.ClearAll()
         pcall(function() Window:Destroy() end)
     end,
 }
 
-Log("v3.2.1 ready | Fall protection: ON")
+Log("v3.3.0 ready | AntiTp+AntiClip active | Floating logo enabled")
