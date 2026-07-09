@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.7.3 - Border RP (Scarface)
+-- X0DEC04T Hub v2.7.4 - Border RP (Scarface)
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -16,7 +16,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v273"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v274"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -27,7 +27,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.7.3 starting...")
+Log("BorderRP Hub v2.7.4 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -36,7 +36,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.3", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.4", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -138,6 +138,7 @@ local State = {
     Smuggler_ItemName = "Fake Diamond Ring",
     Smuggler_SellerName = "Seller4",
     Smuggler_BuyRetries = 2,
+    Smuggler_SellRetries = 3,
     Smuggler_Delay = 1,
     Smuggler_DebugMode = false,
     POS_Shop = DEFAULT_POS.Shop,
@@ -146,7 +147,7 @@ local State = {
 
     -- Anti-cheat
     AntiTpBypass = true,
-    TPStrategy = "Chunked",   -- Instant / Chunked / Tween / Velocity
+    TPStrategy = "Chunked",
     TPChunkSize = 150,
     TPTweenSpeed = 500,
 
@@ -181,13 +182,24 @@ local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLe
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTITP BYPASS
+-- ANTITP BYPASS - Both outgoing and inbound rollback
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local AntiTpBypass = {
     enabled = false,
     hookInstalled = false,
-    blockedCount = 0,
+    blockedOut = 0,
+    blockedIn = 0,
+    lastTPTime = 0,
+    protectDuration = 3,
 }
+
+function AntiTpBypass.MarkTeleport()
+    AntiTpBypass.lastTPTime = tick()
+end
+
+function AntiTpBypass.IsProtected()
+    return AntiTpBypass.enabled and (tick() - AntiTpBypass.lastTPTime) < AntiTpBypass.protectDuration
+end
 
 function AntiTpBypass.Enable()
     if AntiTpBypass.hookInstalled then
@@ -206,9 +218,9 @@ function AntiTpBypass.Enable()
             local method = getnamecallmethod()
             if AntiTpBypass.enabled and rollbackRemote and self == rollbackRemote
             and (method == "FireServer" or method == "InvokeServer") then
-                AntiTpBypass.blockedCount = AntiTpBypass.blockedCount + 1
+                AntiTpBypass.blockedOut = AntiTpBypass.blockedOut + 1
                 if State.Smuggler_DebugMode then
-                    Log("[AntiTp] Blocked outgoing #" .. AntiTpBypass.blockedCount)
+                    Log("[AntiTp] Blocked out #" .. AntiTpBypass.blockedOut)
                 end
                 return
             end
@@ -228,16 +240,6 @@ function AntiTpBypass.Enable()
         AntiTpBypass.enabled = true
         Log("[AntiTp] Bypass hook installed")
     end
-    
-    if rollbackRemote and rollbackRemote:IsA("RemoteEvent") then
-        pcall(function()
-            rollbackRemote.OnClientEvent:Connect(function(...)
-                if AntiTpBypass.enabled and State.Smuggler_DebugMode then
-                    Log("[AntiTp] Ignored inbound rollback")
-                end
-            end)
-        end)
-    end
 end
 
 function AntiTpBypass.Disable()
@@ -251,6 +253,7 @@ local SmartTP = {}
 
 function SmartTP.Instant(pos, yOff)
     if not pos then return false end
+    AntiTpBypass.MarkTeleport()
     local hrp = GetHRP(); if not hrp then return false end
     hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0))
     task.wait(0.3)
@@ -259,6 +262,7 @@ end
 
 function SmartTP.Chunked(pos, yOff)
     if not pos then return false end
+    AntiTpBypass.MarkTeleport()
     local hrp = GetHRP(); if not hrp then return false end
     local chunkSize = State.TPChunkSize or 150
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
@@ -282,12 +286,13 @@ function SmartTP.Chunked(pos, yOff)
     end
     
     hrp.CFrame = CFrame.new(targetPos)
-    task.wait(0.2)
+    task.wait(0.3)
     return true
 end
 
 function SmartTP.Tween(pos, yOff)
     if not pos then return false end
+    AntiTpBypass.MarkTeleport()
     local hrp = GetHRP(); if not hrp then return false end
     local speed = State.TPTweenSpeed or 500
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
@@ -299,12 +304,13 @@ function SmartTP.Tween(pos, yOff)
         {CFrame = CFrame.new(targetPos)})
     tween:Play()
     tween.Completed:Wait()
-    task.wait(0.2)
+    task.wait(0.3)
     return true
 end
 
 function SmartTP.Velocity(pos, yOff)
     if not pos then return false end
+    AntiTpBypass.MarkTeleport()
     local hrp = GetHRP(); if not hrp then return false end
     local targetPos = pos + Vector3.new(0, yOff or 3, 0)
     local dist = (targetPos - hrp.Position).Magnitude
@@ -319,7 +325,7 @@ function SmartTP.Velocity(pos, yOff)
     
     bv:Destroy()
     hrp.CFrame = CFrame.new(targetPos)
-    task.wait(0.2)
+    task.wait(0.3)
     return true
 end
 
@@ -542,21 +548,70 @@ end
 function Smuggler.SellItems()
     Log("[Smuggler] Moving to seller")
     local prompt, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
-    if seller then
-        local hrp = seller:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            SmartTP.Go(hrp.Position + hrp.CFrame.LookVector * -3, 0)
-            task.wait(0.4)
-        end
-    else
+    
+    if not seller then
         SmartTP.Go(State.POS_Sell, 3)
+        task.wait(0.8)
+    else
+        local sHRP = seller:FindFirstChild("HumanoidRootPart")
+        if not sHRP then
+            SmartTP.Go(State.POS_Sell, 3)
+            task.wait(0.8)
+        else
+            -- TP right in front of NPC very close (2 studs)
+            local sellerPos = sHRP.Position
+            local frontPos = sellerPos + sHRP.CFrame.LookVector * 2
+            SmartTP.Go(frontPos, 0)
+            task.wait(0.8)
+            
+            -- Verify distance and force closer if needed
+            local myHRP = GetHRP()
+            if myHRP then
+                local dist = (myHRP.Position - sellerPos).Magnitude
+                if State.Smuggler_DebugMode then
+                    Log("[Smuggler] Distance to seller: " .. math.floor(dist) .. " studs")
+                end
+                
+                if dist > 8 then
+                    Log("[Smuggler] Too far - forcing closer")
+                    AntiTpBypass.MarkTeleport()
+                    myHRP.CFrame = CFrame.new(sellerPos + sHRP.CFrame.LookVector * 1.5)
+                    task.wait(0.6)
+                end
+                
+                -- Face the NPC
+                myHRP.CFrame = CFrame.lookAt(myHRP.Position, sellerPos)
+                task.wait(0.3)
+            end
+        end
     end
     
     Log("[Smuggler] Selling")
-    if prompt then Smuggler.FirePrompt(prompt); task.wait(0.6) end
-    if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
-        pcall(function() BRP.SellSmuggledGoods:FireServer() end); task.wait(0.4)
+    
+    -- Fire prompt multiple times with re-positioning between attempts
+    local retries = State.Smuggler_SellRetries or 3
+    for i = 1, retries do
+        -- Re-verify position each attempt
+        if seller then
+            local sHRP = seller:FindFirstChild("HumanoidRootPart")
+            local myHRP = GetHRP()
+            if sHRP and myHRP then
+                local dist = (myHRP.Position - sHRP.Position).Magnitude
+                if dist > 8 then
+                    AntiTpBypass.MarkTeleport()
+                    myHRP.CFrame = CFrame.new(sHRP.Position + sHRP.CFrame.LookVector * 1.5)
+                    task.wait(0.4)
+                end
+            end
+        end
+        
+        if prompt then Smuggler.FirePrompt(prompt) end
+        if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
+            pcall(function() BRP.SellSmuggledGoods:FireServer() end)
+        end
+        task.wait(0.5)
     end
+    
     State.Smuggler_JobsDone = State.Smuggler_JobsDone + 1
     Log("[Smuggler] Sold #" .. State.Smuggler_JobsDone)
     return true
@@ -572,10 +627,15 @@ end
 function Smuggler.LaunderMoney()
     if not State.Smuggler_AutoLaunder then return true end
     Log("[Smuggler] Moving to laundry")
-    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.4)
+    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.5)
     Log("[Smuggler] Laundering")
     local prompt = Smuggler.GetLaunderPrompt()
-    if prompt then Smuggler.FirePrompt(prompt); task.wait(0.5) end
+    if prompt then 
+        for i = 1, 2 do
+            Smuggler.FirePrompt(prompt)
+            task.wait(0.4)
+        end
+    end
     if State.Smuggler_UseRemotes and BRP.LaunderBriefcase then
         pcall(function() BRP.LaunderBriefcase:FireServer() end); task.wait(0.4)
     end
@@ -797,7 +857,6 @@ local function GetSellerNames()
     return names
 end
 
--- Enable AntiTp bypass at startup
 if State.AntiTpBypass then AntiTpBypass.Enable() end
 
 --━ WINDOW
@@ -892,6 +951,8 @@ if Tabs.Smuggler then
     Drp(T, {Name="Target Seller", Options=sellerNames,
         CurrentOption={State.Smuggler_SellerName}, MultiOption=false, Flag="SN",
         Callback=function(v) State.Smuggler_SellerName = (type(v)=="table" and v[1]) or v end})
+    Sld(T, {Name="Sell Retries", Range={1,10}, Increment=1, CurrentValue=3, Flag="SR",
+        Callback=function(v) State.Smuggler_SellRetries = v end})
     
     Sec(T, "Anti-Cheat Bypass")
     Tog(T, {Name="AntiTp Rollback Bypass", CurrentValue=true, Flag="ATP",
@@ -1127,4 +1188,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v" .. HUB.Version .. " loaded", 4)
-Log("v2.7.3 init complete | " .. remoteCount .. " remotes")
+Log("v2.7.4 init complete | " .. remoteCount .. " remotes")
