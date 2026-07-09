@@ -1124,7 +1124,7 @@ local function CreateLogo()
     Instance.new("UICorner", btn).CornerRadius = UDim.new(1,0)
         local xd = Instance.new("ImageLabel", btn)
     xd.Size=UDim2.new(1,0,1,0); xd.BackgroundTransparency=1
-    xd.Image="rbxassetid://91626851418651"
+    xd.Image="rbxassetid://132469099334813"
     xd.ImageColor3=Color3.fromRGB(255,255,255)
     xd.ScaleType=Enum.ScaleType.Fit
     Instance.new("UICorner", xd).CornerRadius=UDim.new(1,0)
