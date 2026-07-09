@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.7.4 - Border RP (Scarface)
+-- X0DEC04T Hub v2.7.5 - Border RP (Scarface)
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -16,7 +16,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v274"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v275"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -27,7 +27,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.7.4 starting...")
+Log("BorderRP Hub v2.7.5 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -36,7 +36,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.4", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.5", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -138,9 +138,11 @@ local State = {
     Smuggler_ItemName = "Fake Diamond Ring",
     Smuggler_SellerName = "Seller4",
     Smuggler_BuyRetries = 2,
-    Smuggler_SellRetries = 3,
+    Smuggler_SellRetries = 5,
     Smuggler_Delay = 1,
     Smuggler_DebugMode = false,
+    Smuggler_ApproachMethod = "WalkFinal",  -- WalkFinal / SmartTP / HighSpeedWalk
+    Smuggler_SyncWait = 1.5,
     POS_Shop = DEFAULT_POS.Shop,
     POS_Sell = DEFAULT_POS.SellNPC,
     POS_Laundry = DEFAULT_POS.Laundry,
@@ -182,23 +184,18 @@ local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLe
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTITP BYPASS - Both outgoing and inbound rollback
+-- ANTITP BYPASS
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local AntiTpBypass = {
     enabled = false,
     hookInstalled = false,
     blockedOut = 0,
-    blockedIn = 0,
     lastTPTime = 0,
     protectDuration = 3,
 }
 
 function AntiTpBypass.MarkTeleport()
     AntiTpBypass.lastTPTime = tick()
-end
-
-function AntiTpBypass.IsProtected()
-    return AntiTpBypass.enabled and (tick() - AntiTpBypass.lastTPTime) < AntiTpBypass.protectDuration
 end
 
 function AntiTpBypass.Enable()
@@ -339,6 +336,57 @@ function SmartTP.Go(pos, yOff)
     return SmartTP.Chunked(pos, yOff)
 end
 
+-- WALK to position using Humanoid:MoveTo (server-accepted movement)
+function SmartTP.Walk(targetPos, timeout)
+    local hrp = GetHRP()
+    local hum = GetHuman()
+    if not hrp or not hum then return false end
+    
+    timeout = timeout or 5
+    hum:MoveTo(targetPos)
+    
+    local start = tick()
+    while tick() - start < timeout do
+        if (hrp.Position - targetPos).Magnitude < 4 then return true end
+        task.wait(0.1)
+    end
+    return false
+end
+
+-- Combined: TP most of the way, then WALK the last 20 studs
+function SmartTP.TPAndWalk(finalPos, walkDist)
+    walkDist = walkDist or 20
+    local hrp = GetHRP()
+    if not hrp then return false end
+    
+    local myPos = hrp.Position
+    local totalDist = (finalPos - myPos).Magnitude
+    
+    -- If far, TP to a spot walkDist away
+    if totalDist > walkDist then
+        local direction = (finalPos - myPos).Unit
+        local tpPos = finalPos - direction * walkDist
+        SmartTP.Go(tpPos, 3)
+        task.wait(0.5)
+    end
+    
+    -- Now walk the last bit (server accepts this)
+    local origSpeed = 16
+    if State.Smuggler_ApproachMethod == "HighSpeedWalk" then
+        local hum = GetHuman()
+        if hum then origSpeed = hum.WalkSpeed; hum.WalkSpeed = 100 end
+    end
+    
+    SmartTP.Walk(finalPos, 3)
+    
+    if State.Smuggler_ApproachMethod == "HighSpeedWalk" then
+        local hum = GetHuman()
+        if hum then hum.WalkSpeed = origSpeed end
+    end
+    
+    return true
+end
+
 --━ ESP
 local ESP = {}
 function ESP.Clear(o)
@@ -466,7 +514,7 @@ function Car.TeleportToPlayer(name)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SMUGGLER
+-- SMUGGLER - WITH WALK APPROACH
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Smuggler = {}
 
@@ -550,61 +598,100 @@ function Smuggler.SellItems()
     local prompt, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
     
     if not seller then
+        Log("[Smuggler] Seller not found - using saved position")
         SmartTP.Go(State.POS_Sell, 3)
-        task.wait(0.8)
+        task.wait(State.Smuggler_SyncWait)
     else
         local sHRP = seller:FindFirstChild("HumanoidRootPart")
         if not sHRP then
             SmartTP.Go(State.POS_Sell, 3)
-            task.wait(0.8)
+            task.wait(State.Smuggler_SyncWait)
         else
-            -- TP right in front of NPC very close (2 studs)
             local sellerPos = sHRP.Position
-            local frontPos = sellerPos + sHRP.CFrame.LookVector * 2
-            SmartTP.Go(frontPos, 0)
-            task.wait(0.8)
             
-            -- Verify distance and force closer if needed
+            if State.Smuggler_ApproachMethod == "WalkFinal" then
+                -- Method 1: TP near seller, then WALK last 15 studs (server accepts)
+                Log("[Smuggler] TP + walk approach")
+                
+                -- TP to 15 studs away first
+                local direction = (LocalPlayer.Character.HumanoidRootPart.Position - sellerPos)
+                if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
+                direction = direction.Unit
+                local nearPos = sellerPos + direction * 15
+                SmartTP.Go(nearPos, 3)
+                task.wait(0.6)
+                
+                -- Now WALK to final position (server accepts natural movement)
+                local hum = GetHuman()
+                if hum then
+                    local walkTarget = sellerPos + sHRP.CFrame.LookVector * 2
+                    Log("[Smuggler] Walking to seller...")
+                    hum:MoveTo(walkTarget)
+                    
+                    -- Wait for walk to complete or timeout
+                    local walkStart = tick()
+                    while tick() - walkStart < 4 do
+                        local myHRP = GetHRP()
+                        if myHRP and (myHRP.Position - sellerPos).Magnitude < 4 then break end
+                        task.wait(0.1)
+                    end
+                    task.wait(0.5)  -- Let server register final position
+                end
+                
+            elseif State.Smuggler_ApproachMethod == "HighSpeedWalk" then
+                -- Method 2: Set WalkSpeed high, TP nearby, walk fast
+                Log("[Smuggler] High-speed walk approach")
+                local hum = GetHuman()
+                local origSpeed = hum and hum.WalkSpeed or 16
+                
+                local direction = (LocalPlayer.Character.HumanoidRootPart.Position - sellerPos)
+                if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
+                direction = direction.Unit
+                local nearPos = sellerPos + direction * 25
+                SmartTP.Go(nearPos, 3)
+                task.wait(0.5)
+                
+                if hum then hum.WalkSpeed = 80 end
+                if hum then
+                    hum:MoveTo(sellerPos + sHRP.CFrame.LookVector * 2)
+                    local walkStart = tick()
+                    while tick() - walkStart < 3 do
+                        local myHRP = GetHRP()
+                        if myHRP and (myHRP.Position - sellerPos).Magnitude < 4 then break end
+                        task.wait(0.1)
+                    end
+                end
+                if hum then hum.WalkSpeed = origSpeed end
+                task.wait(0.5)
+                
+            else
+                -- Method 3: SmartTP direct (old method)
+                Log("[Smuggler] Direct TP approach")
+                local frontPos = sellerPos + sHRP.CFrame.LookVector * 2
+                SmartTP.Go(frontPos, 0)
+                task.wait(State.Smuggler_SyncWait)
+            end
+            
+            -- Final distance check
             local myHRP = GetHRP()
             if myHRP then
                 local dist = (myHRP.Position - sellerPos).Magnitude
                 if State.Smuggler_DebugMode then
-                    Log("[Smuggler] Distance to seller: " .. math.floor(dist) .. " studs")
-                end
-                
-                if dist > 8 then
-                    Log("[Smuggler] Too far - forcing closer")
-                    AntiTpBypass.MarkTeleport()
-                    myHRP.CFrame = CFrame.new(sellerPos + sHRP.CFrame.LookVector * 1.5)
-                    task.wait(0.6)
+                    Log("[Smuggler] Final distance to seller: " .. math.floor(dist) .. " studs")
                 end
                 
                 -- Face the NPC
                 myHRP.CFrame = CFrame.lookAt(myHRP.Position, sellerPos)
-                task.wait(0.3)
+                task.wait(0.2)
             end
         end
     end
     
-    Log("[Smuggler] Selling")
+    Log("[Smuggler] Firing sell prompt")
     
-    -- Fire prompt multiple times with re-positioning between attempts
-    local retries = State.Smuggler_SellRetries or 3
+    -- Multiple attempts with position hold
+    local retries = State.Smuggler_SellRetries or 5
     for i = 1, retries do
-        -- Re-verify position each attempt
-        if seller then
-            local sHRP = seller:FindFirstChild("HumanoidRootPart")
-            local myHRP = GetHRP()
-            if sHRP and myHRP then
-                local dist = (myHRP.Position - sHRP.Position).Magnitude
-                if dist > 8 then
-                    AntiTpBypass.MarkTeleport()
-                    myHRP.CFrame = CFrame.new(sHRP.Position + sHRP.CFrame.LookVector * 1.5)
-                    task.wait(0.4)
-                end
-            end
-        end
-        
         if prompt then Smuggler.FirePrompt(prompt) end
         if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
             pcall(function() BRP.SellSmuggledGoods:FireServer() end)
@@ -627,7 +714,7 @@ end
 function Smuggler.LaunderMoney()
     if not State.Smuggler_AutoLaunder then return true end
     Log("[Smuggler] Moving to laundry")
-    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.5)
+    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.6)
     Log("[Smuggler] Laundering")
     local prompt = Smuggler.GetLaunderPrompt()
     if prompt then 
@@ -897,12 +984,10 @@ if Tabs.Main then
     Sec(T, "X0DEC04T Hub v" .. HUB.Version)
     Lbl(T, "Game: Border RP (Scarface)")
     Lbl(T, "PlaceId: 136020512003847")
-    Lbl(T, "Author: " .. HUB.Author)
     Sec(T, "System")
     Lbl(T, "Remotes wired: " .. remoteCount)
     Lbl(T, "Buyable items: " .. (BRP_PATHS.WorldBuyableItems and #BRP_PATHS.WorldBuyableItems:GetChildren() or 0))
     Lbl(T, "Sellers found: " .. #GetSellerNames())
-    Lbl(T, "AntiTp bypass: " .. (BRP.ApplyRollbackCFrame and "Ready" or "Not found"))
     Sec(T, "Player")
     Lbl(T, "Team: " .. (LocalPlayer.Team and LocalPlayer.Team.Name or "None"))
     Lbl(T, "Rank: " .. GetRank(LocalPlayer))
@@ -946,13 +1031,21 @@ if Tabs.Smuggler then
     Sld(T, {Name="Buy Prompt Retries", Range={1,5}, Increment=1, CurrentValue=2, Flag="BR",
         Callback=function(v) State.Smuggler_BuyRetries = v end})
     
-    Sec(T, "Seller Selection")
+    Sec(T, "Seller Approach")
     local sellerNames = GetSellerNames()
     Drp(T, {Name="Target Seller", Options=sellerNames,
         CurrentOption={State.Smuggler_SellerName}, MultiOption=false, Flag="SN",
         Callback=function(v) State.Smuggler_SellerName = (type(v)=="table" and v[1]) or v end})
-    Sld(T, {Name="Sell Retries", Range={1,10}, Increment=1, CurrentValue=3, Flag="SR",
+    Drp(T, {Name="Approach Method", Options={"WalkFinal","HighSpeedWalk","DirectTP"},
+        CurrentOption={"WalkFinal"}, MultiOption=false, Flag="AM",
+        Callback=function(v) State.Smuggler_ApproachMethod = (type(v)=="table" and v[1]) or v end})
+    Lbl(T, "WalkFinal = TP near + walk (bypasses AntiTp)")
+    Lbl(T, "HighSpeedWalk = fast walk approach")
+    Lbl(T, "DirectTP = old method")
+    Sld(T, {Name="Sell Retries", Range={1,10}, Increment=1, CurrentValue=5, Flag="SR",
         Callback=function(v) State.Smuggler_SellRetries = v end})
+    Sld(T, {Name="Server Sync Wait (0.1s)", Range={5,30}, Increment=1, CurrentValue=15, Flag="SW",
+        Callback=function(v) State.Smuggler_SyncWait = v / 10 end})
     
     Sec(T, "Anti-Cheat Bypass")
     Tog(T, {Name="AntiTp Rollback Bypass", CurrentValue=true, Flag="ATP",
@@ -966,10 +1059,6 @@ if Tabs.Smuggler then
         Callback=function(v) State.TPStrategy = (type(v)=="table" and v[1]) or v end})
     Sld(T, {Name="Chunk Size (studs)", Range={50,500}, Increment=25, CurrentValue=150, Flag="TCS",
         Callback=function(v) State.TPChunkSize = v end})
-    Sld(T, {Name="Tween Speed (studs/s)", Range={100,2000}, Increment=100, CurrentValue=500, Flag="TTS",
-        Callback=function(v) State.TPTweenSpeed = v end})
-    Lbl(T, "Chunked = safe stealth, recommended")
-    Lbl(T, "Tween = smooth flight, most natural")
     
     Sec(T, "Timing")
     Sld(T, {Name="Cycle Delay (sec)", Range={0,10}, Increment=1, CurrentValue=1, Flag="SD",
@@ -978,7 +1067,7 @@ if Tabs.Smuggler then
         Callback=function(v) State.Smuggler_UseRemotes = v end})
     Tog(T, {Name="Auto Launder", CurrentValue=true, Flag="AL",
         Callback=function(v) State.Smuggler_AutoLaunder = v end})
-    Tog(T, {Name="Debug Mode (console)", CurrentValue=false, Flag="DBG",
+    Tog(T, {Name="Debug Mode", CurrentValue=false, Flag="DBG",
         Callback=function(v) State.Smuggler_DebugMode = v end})
     
     Sec(T, "Main Toggle")
@@ -1188,4 +1277,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v" .. HUB.Version .. " loaded", 4)
-Log("v2.7.4 init complete | " .. remoteCount .. " remotes")
+Log("v2.7.5 init complete | " .. remoteCount .. " remotes")
