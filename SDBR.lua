@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.9.4 - Border RP (Scarface)
--- Fixed: Stack overflow, spawner (DogSpawners), WeldTP
+-- X0DEC04T Hub v2.9.5 - Border RP (Scarface)
+-- Fixed: SEH crashes, safe hooks, stable car spawn
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -17,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v294"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v295"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -28,7 +28,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.9.4 starting...")
+Log("BorderRP Hub v2.9.5 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -37,7 +37,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.9.4", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.9.5", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -94,16 +94,14 @@ local BRP_PATHS = {
     VehicleSpawners = nil,
 }
 
--- Find LaunderTrigger
 pcall(function()
     local lp = Workspace:FindFirstChild("LaunderPrompts")
     if lp then BRP_PATHS.LaunderTrigger = lp:FindFirstChild("LaunderTrigger") end
 end)
 
--- Find spawner folder
 for _, obj in ipairs(Workspace:GetChildren()) do
     local n = obj.Name:lower()
-    if n:find("spawner") or n:find("kendaraan") or n:find("dogspawner") then
+    if n:find("spawner") or n:find("kendaraan") then
         BRP_PATHS.VehicleSpawners = obj
         Log("Spawner folder: " .. obj.Name)
         break
@@ -170,7 +168,7 @@ local State = {
     POS_CarSpawner = DEFAULT_POS.CarSpawner,
 
     AntiTpBypass = true,
-    AntiTpMethod = "none", -- will be set during Enable
+    AntiTpMethod = "hide",
     TPStrategy = "Tween",
     TweenSpeed = 200, TweenNoclip = true,
 
@@ -208,95 +206,70 @@ local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLe
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTITP BYPASS (FIXED - NO STACK OVERFLOW)
+-- ANTITP BYPASS - HIDE METHOD ONLY (SAFEST, NO SEH CRASH)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local AntiTpBypass = {
-    enabled = false, hookInstalled = false, blockedCount = 0,
-    _oldHook = nil, _remoteHidden = false, _origParent = nil,
+    enabled = false,
+    blockedCount = 0,
+    _remoteHidden = false,
+    _origParent = nil,
+    _activeHolds = 0,
 }
 
 function AntiTpBypass.Enable()
-    if AntiTpBypass.hookInstalled then AntiTpBypass.enabled = true; return end
-
-    local rollbackRemote = BRP.ApplyRollbackCFrame
-    local installed = false
-
-    -- METHOD 1: hookmetamethod (SAFE - no stack overflow)
-    if not installed then
-        local ok = pcall(function()
-            if hookmetamethod then
-                local old
-                old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-                    if AntiTpBypass.enabled then
-                        local m = getnamecallmethod()
-                        if (m == "FireServer" or m == "InvokeServer") and typeof(self) == "Instance" then
-                            if self == rollbackRemote then
-                                AntiTpBypass.blockedCount = AntiTpBypass.blockedCount + 1
-                                return
-                            end
-                            local n = self.Name:lower()
-                            if n:find("rollback") or n:find("antitp") or n:find("anticheat") then
-                                AntiTpBypass.blockedCount = AntiTpBypass.blockedCount + 1
-                                return
-                            end
-                        end
-                    end
-                    return old(self, ...)
-                end))
-                installed = true
-                State.AntiTpMethod = "hookmetamethod"
-            end
-        end)
-    end
-
-    -- METHOD 2: hookfunction on the remote itself (SAFE)
-    if not installed and rollbackRemote then
-        local ok = pcall(function()
-            if hookfunction then
-                local origFire = rollbackRemote.FireServer
-                hookfunction(origFire, newcclosure(function(self, ...)
-                    if AntiTpBypass.enabled and self == rollbackRemote then
-                        AntiTpBypass.blockedCount = AntiTpBypass.blockedCount + 1
-                        return
-                    end
-                    return origFire(self, ...)
-                end))
-                installed = true
-                State.AntiTpMethod = "hookfunction"
-            end
-        end)
-    end
-
-    -- METHOD 3: Hide the remote (move parent to nil during TP)
-    if not installed then
-        State.AntiTpMethod = "hide"
-        installed = true
-        Log("[AntiTp] Using hide-remote fallback")
-    end
-
-    AntiTpBypass.hookInstalled = installed
+    State.AntiTpMethod = "hide"
     AntiTpBypass.enabled = true
-    Log("[AntiTp] Installed via: " .. State.AntiTpMethod .. " | blocked: " .. AntiTpBypass.blockedCount)
+    Log("[AntiTp] Enabled (hide method - safe)")
 end
 
-function AntiTpBypass.Disable() AntiTpBypass.enabled = false end
+function AntiTpBypass.Disable()
+    AntiTpBypass.enabled = false
+    AntiTpBypass.EndTP(true) -- force restore
+end
 
--- For "hide" method: temporarily hide rollback remote during TP
 function AntiTpBypass.BeginTP()
-    AntiTpBypass.enabled = true
-    if State.AntiTpMethod == "hide" and BRP.ApplyRollbackCFrame then
-        AntiTpBypass._origParent = BRP.ApplyRollbackCFrame.Parent
-        pcall(function() BRP.ApplyRollbackCFrame.Parent = nil end)
-        AntiTpBypass._remoteHidden = true
+    if not AntiTpBypass.enabled then return end
+    AntiTpBypass._activeHolds = AntiTpBypass._activeHolds + 1
+    if not AntiTpBypass._remoteHidden and BRP.ApplyRollbackCFrame then
+        local r = BRP.ApplyRollbackCFrame
+        if r and r.Parent then
+            AntiTpBypass._origParent = r.Parent
+            local ok = pcall(function() r.Parent = nil end)
+            if ok then
+                AntiTpBypass._remoteHidden = true
+                AntiTpBypass.blockedCount = AntiTpBypass.blockedCount + 1
+                if State.Smuggler_DebugMode then Log("[AntiTp] Hidden #" .. AntiTpBypass.blockedCount) end
+            end
+        end
     end
 end
 
-function AntiTpBypass.EndTP()
-    if AntiTpBypass._remoteHidden and BRP.ApplyRollbackCFrame and AntiTpBypass._origParent then
-        pcall(function() BRP.ApplyRollbackCFrame.Parent = AntiTpBypass._origParent end)
+function AntiTpBypass.EndTP(force)
+    if not force then
+        AntiTpBypass._activeHolds = math.max(0, AntiTpBypass._activeHolds - 1)
+        if AntiTpBypass._activeHolds > 0 then return end
+    else
+        AntiTpBypass._activeHolds = 0
+    end
+    if AntiTpBypass._remoteHidden then
+        local r = BRP.ApplyRollbackCFrame
+        if r and AntiTpBypass._origParent then
+            pcall(function() r.Parent = AntiTpBypass._origParent end)
+        end
         AntiTpBypass._remoteHidden = false
+        if State.Smuggler_DebugMode then Log("[AntiTp] Restored") end
     end
 end
+
+-- Auto-restore safety: never leave remote hidden more than 10s
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if AntiTpBypass._remoteHidden and AntiTpBypass._activeHolds == 0 then
+            AntiTpBypass.EndTP(true)
+        end
+    end
+end)
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- SMART TELEPORT
@@ -336,18 +309,25 @@ function SmartTP.Tween(pos, yOff)
 
     if State.Smuggler_DebugMode then Log(string.format("[Tween] dist=%.0f dur=%.2fs", totalDist, duration)) end
 
-    local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
-    tween:Play()
+    local ok, tween = pcall(function()
+        return TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
+    end)
+    if not ok or not tween then
+        if hum and hum.Parent then hum.PlatformStand = wasPlatform end
+        DisableTweenNoclip()
+        return false
+    end
 
-    local done = false
-    local conn = tween.Completed:Connect(function() done = true end)
+    tween:Play()
     local t0 = tick()
-    while not done and tick() - t0 < duration + 2 do task.wait(0.1) end
-    pcall(function() conn:Disconnect() end)
+    while tick() - t0 < duration + 1 do
+        task.wait(0.1)
+        if not hrp or not hrp.Parent then break end
+    end
     pcall(function() tween:Cancel() end)
 
     local fhrp = GetHRP()
-    if fhrp then fhrp.CFrame = CFrame.new(targetPos) end
+    if fhrp then pcall(function() fhrp.CFrame = CFrame.new(targetPos) end) end
     if hum and hum.Parent then hum.PlatformStand = wasPlatform end
     DisableTweenNoclip()
     task.wait(0.2)
@@ -357,7 +337,7 @@ end
 function SmartTP.Instant(pos, yOff)
     if not pos then return false end
     local hrp = GetHRP(); if not hrp then return false end
-    hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0))
+    pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0)) end)
     task.wait(0.3)
     return true
 end
@@ -371,36 +351,37 @@ function SmartTP.Go(pos, yOff)
         result = SmartTP.Tween(pos, yOff)
     end
     if State.AntiTpBypass then
-        task.delay(3, function() AntiTpBypass.EndTP() end)
+        task.delay(2, function() pcall(AntiTpBypass.EndTP) end)
     end
     return result
 end
 
--- Direct vehicle teleport (fast, may rollback without bypass)
 function SmartTP.TeleportVehicle(car, targetPos, faceCFrame)
     if not car then return false end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if not root then return false end
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.AssemblyLinearVelocity = Vector3.zero
-            p.AssemblyAngularVelocity = Vector3.zero
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
     local cf = faceCFrame or CFrame.new(targetPos)
-    if car:IsA("Model") then car:PivotTo(cf) else root.CFrame = cf end
+    pcall(function()
+        if car:IsA("Model") then car:PivotTo(cf) else root.CFrame = cf end
+    end)
     task.wait(0.3)
     return true
 end
 
--- WeldTP: move car in small chunks while player sits inside
 function SmartTP.WeldCarTP(car, targetPos, faceCFrame)
     if not car then return false end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if not root then return false end
 
     local hum = GetHuman()
-    -- Verify player is sitting in car
     local seated = false
     if hum then
         for _, obj in ipairs(car:GetDescendants()) do
@@ -408,17 +389,21 @@ function SmartTP.WeldCarTP(car, targetPos, faceCFrame)
         end
     end
     if not seated then
-        Log("[WeldTP] Not in car, fallback to direct TP")
-        return SmartTP.TeleportVehicle(car, targetPos, faceCFrame)
+        Log("[WeldTP] Not in car, fallback to direct")
+        AntiTpBypass.BeginTP()
+        local r = SmartTP.TeleportVehicle(car, targetPos, faceCFrame)
+        task.delay(3, function() pcall(AntiTpBypass.EndTP) end)
+        return r
     end
 
     AntiTpBypass.BeginTP()
 
-    -- Freeze velocities
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.AssemblyLinearVelocity = Vector3.zero
-            p.AssemblyAngularVelocity = Vector3.zero
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
 
@@ -428,30 +413,33 @@ function SmartTP.WeldCarTP(car, targetPos, faceCFrame)
 
     if State.Smuggler_DebugMode then Log(string.format("[WeldTP] dist=%.0f", totalDist)) end
 
-    -- Move in small chunks (80 studs each)
     local chunks = math.max(3, math.ceil(totalDist / 80))
     for i = 1, chunks do
         local alpha = i / chunks
         local stepCF = startCF:Lerp(targetCF, alpha)
-        if car:IsA("Model") then car:PivotTo(stepCF) else root.CFrame = stepCF end
+        pcall(function()
+            if car:IsA("Model") then car:PivotTo(stepCF) else root.CFrame = stepCF end
+        end)
         for _, p in ipairs(car:GetDescendants()) do
             if p:IsA("BasePart") then
-                p.AssemblyLinearVelocity = Vector3.zero
-                p.AssemblyAngularVelocity = Vector3.zero
+                pcall(function()
+                    p.AssemblyLinearVelocity = Vector3.zero
+                    p.AssemblyAngularVelocity = Vector3.zero
+                end)
             end
         end
         task.wait(0.08)
     end
 
-    -- Final snap
-    if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end
+    pcall(function()
+        if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end
+    end)
     task.wait(0.3)
 
-    task.delay(5, function() AntiTpBypass.EndTP() end)
+    task.delay(3, function() pcall(AntiTpBypass.EndTP) end)
     return true
 end
 
--- Tween vehicle
 function SmartTP.TweenVehicle(car, targetPos, faceCFrame)
     if not car then return false end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
@@ -461,8 +449,10 @@ function SmartTP.TweenVehicle(car, targetPos, faceCFrame)
 
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.AssemblyLinearVelocity = Vector3.zero
-            p.AssemblyAngularVelocity = Vector3.zero
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
 
@@ -473,31 +463,32 @@ function SmartTP.TweenVehicle(car, targetPos, faceCFrame)
 
     if State.Smuggler_DebugMode then Log(string.format("[TweenVeh] dist=%.0f dur=%.2fs", totalDist, duration)) end
 
-    local tween = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
-    tween:Play()
+    local ok, tween = pcall(function()
+        return TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
+    end)
+    if ok and tween then
+        tween:Play()
+        local t0 = tick()
+        while tick() - t0 < duration + 1 do task.wait(0.1) end
+        pcall(function() tween:Cancel() end)
+    end
 
-    local done = false
-    local conn = tween.Completed:Connect(function() done = true end)
-    local t0 = tick()
-    while not done and tick() - t0 < duration + 2 do task.wait(0.1) end
-    pcall(function() conn:Disconnect() end)
-    pcall(function() tween:Cancel() end)
-
-    if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end
+    pcall(function()
+        if car:IsA("Model") then car:PivotTo(targetCF) else root.CFrame = targetCF end
+    end)
     task.wait(0.2)
 
-    task.delay(5, function() AntiTpBypass.EndTP() end)
+    task.delay(3, function() pcall(AntiTpBypass.EndTP) end)
     return true
 end
 
--- Dispatcher
 function SmartTP.CarTP(car, targetPos, faceCFrame)
     local m = State.Smuggler_CarTPMethod or "WeldTP"
     if m == "WeldTP" then return SmartTP.WeldCarTP(car, targetPos, faceCFrame) end
     if m == "TweenVehicle" then return SmartTP.TweenVehicle(car, targetPos, faceCFrame) end
     AntiTpBypass.BeginTP()
     local r = SmartTP.TeleportVehicle(car, targetPos, faceCFrame)
-    task.delay(5, function() AntiTpBypass.EndTP() end)
+    task.delay(3, function() pcall(AntiTpBypass.EndTP) end)
     return r
 end
 
@@ -541,7 +532,7 @@ function Car.SetSpeedHack(e)
     if State.SpeedHackConn then pcall(function() State.SpeedHackConn:Disconnect() end); State.SpeedHackConn=nil end
     if e then State.SpeedHackConn=RunService.Heartbeat:Connect(function() local s=GetVehicleSeat(); if s then s.MaxSpeed=tonumber(State.SpeedHackValue)or 500 end end) end
 end
-function Car.Flip() local c=GetPlayerCar(); if c then local r=c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart"); if r then r.CFrame=CFrame.new(r.Position) end end end
+function Car.Flip() local c=GetPlayerCar(); if c then local r=c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart"); if r then pcall(function() r.CFrame=CFrame.new(r.Position) end) end end end
 function Car.Boost() local r=GetCarRoot(); if not r then return end; local bv=Instance.new("BodyVelocity"); bv.Velocity=r.CFrame.LookVector*400; bv.MaxForce=Vector3.new(math.huge,0,math.huge); bv.Parent=r; game:GetService("Debris"):AddItem(bv,0.3) end
 function Car.SetNoClip(e)
     if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn=nil end
@@ -578,9 +569,7 @@ function Car.TeleportToPlayer(name)
     local th=t.Character:FindFirstChild("HumanoidRootPart"); if not th then return end; SmartTP.Go(th.Position+Vector3.new(0,0,4),0)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SPAWNER DETECTION
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--━ SPAWNER
 local function FindAllSpawners()
     local spawners = {}
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -599,8 +588,7 @@ local function FindAllSpawners()
                     container = container.Parent
                 end
                 table.insert(spawners, {
-                    prompt = obj,
-                    part = part,
+                    prompt = obj, part = part,
                     container = container or obj.Parent,
                     position = part and part.Position or Vector3.zero,
                 })
@@ -621,9 +609,7 @@ local function FindNearestSpawner()
     return best
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SMUGGLER
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--━ SMUGGLER
 local Smuggler = {}
 
 function Smuggler.FirePrompt(prompt)
@@ -677,7 +663,6 @@ function Smuggler.GetLaunderPrompt()
     if BRP_PATHS.LaunderTrigger then local pp=BRP_PATHS.LaunderTrigger:FindFirstChild("PromptPart"); if pp then return pp:FindFirstChild("LaunderBriefcasePrompt") end end
 end
 
--- STEP 1: BUY
 function Smuggler.BuyItem()
     Log("[Step 1] Buying " .. State.Smuggler_ItemName)
     local prompt, item = Smuggler.GetBuyPrompt(State.Smuggler_ItemName)
@@ -689,34 +674,29 @@ function Smuggler.BuyItem()
     Log("[Step 1] Done"); return true
 end
 
--- STEP 2: SPAWN CAR (FIXED)
 function Smuggler.SpawnCar()
     local vehicleName = State.Smuggler_VehicleName
     if vehicleName == "" or not vehicleName then vehicleName = "Camry6" end
     Log("[Step 2] Spawn: " .. vehicleName)
 
-    -- TP to spawner
     local spawner = FindNearestSpawner()
     if spawner then
         Log("[Step 2] Spawner: " .. spawner.container.Name .. " at " .. tostring(spawner.position))
         SmartTP.Go(spawner.position, 3)
         task.wait(0.6)
-        -- Re-find (we might be closer now)
         spawner = FindNearestSpawner()
     else
-        Log("[Step 2] No spawner, using saved pos")
+        Log("[Step 2] No spawner detected, using saved pos")
         SmartTP.Go(State.POS_CarSpawner, 3)
         task.wait(0.8)
         spawner = FindNearestSpawner()
     end
 
-    -- Snapshot existing cars
     local existingCars = {}
     if BRP_PATHS.Vehicles then
         for _, v in ipairs(BRP_PATHS.Vehicles:GetChildren()) do existingCars[v] = true end
     end
 
-    -- Listener
     local newCar = nil
     local addedConn
     if BRP_PATHS.Vehicles then
@@ -728,14 +708,12 @@ function Smuggler.SpawnCar()
         end)
     end
 
-    -- Fire spawner prompt
     if spawner and spawner.prompt then
         Log("[Step 2] Fire prompt: " .. spawner.prompt:GetFullName())
         Smuggler.FirePrompt(spawner.prompt)
         task.wait(0.5)
     end
 
-    -- Fire remote with different args
     if BRP.SpawnVehicleFromSpawner then
         local cont = spawner and spawner.container or nil
         local part = spawner and spawner.part or nil
@@ -761,19 +739,16 @@ function Smuggler.SpawnCar()
         end
     end
 
-    -- Wait
     local t0 = tick()
     while tick() - t0 < 5 do if newCar then break end; task.wait(0.1) end
-    if addedConn then addedConn:Disconnect() end
+    if addedConn then pcall(function() addedConn:Disconnect() end) end
 
-    -- Fallback diff
     if not newCar and BRP_PATHS.Vehicles then
         for _, v in ipairs(BRP_PATHS.Vehicles:GetChildren()) do
             if not existingCars[v] then newCar = v; Log("[Step 2] Diff: " .. v.Name); break end
         end
     end
 
-    -- Nearest fallback
     if not newCar then
         local myHRP = GetHRP()
         if myHRP and BRP_PATHS.Vehicles then
@@ -797,7 +772,6 @@ function Smuggler.SpawnCar()
     return nil
 end
 
--- STEP 3: SIT
 function Smuggler.SitInCar(car)
     Log("[Step 3] Sit")
     if not car or not car.Parent then return false end
@@ -823,7 +797,6 @@ function Smuggler.SitInCar(car)
     Log("[Step 3] Failed"); return false
 end
 
--- STEP 4: REMOVE TIRES
 function Smuggler.RemoveTires(car)
     if not car then return end; Log("[Step 4] Tires")
     local removed = 0
@@ -836,7 +809,6 @@ function Smuggler.RemoveTires(car)
     Log("[Step 4] Removed " .. removed)
 end
 
--- STEP 5: TP CAR TO SELLER
 function Smuggler.TeleportCarToSeller(car)
     Log("[Step 5] TP car -> seller")
     if not car then return false end
@@ -856,7 +828,6 @@ function Smuggler.TeleportCarToSeller(car)
     return true
 end
 
--- STEP 6: SELL
 function Smuggler.FireSell()
     Log("[Step 6] Sell")
     if State.Smuggler_AutoEquip then
@@ -872,7 +843,6 @@ function Smuggler.FireSell()
     Log("[Step 6] Done")
 end
 
--- STEP 7: TP LAUNDRY
 function Smuggler.TeleportCarToLaundry(car)
     Log("[Step 7] TP -> laundry")
     if not car then SmartTP.Go(State.POS_Laundry, 3); task.wait(0.6); return end
@@ -881,7 +851,6 @@ function Smuggler.TeleportCarToLaundry(car)
     task.wait(0.5)
 end
 
--- STEP 8: LAUNDER
 function Smuggler.FireLaunder()
     if not State.Smuggler_AutoLaunder then return end; Log("[Step 8] Launder")
     local prompt = Smuggler.GetLaunderPrompt()
@@ -892,7 +861,6 @@ function Smuggler.FireLaunder()
     end
 end
 
--- FULL CYCLE
 function Smuggler.RunCycle()
     Smuggler.BuyItem(); if not State.Smuggler_AutoLoop then return end; task.wait(0.4)
 
@@ -1031,8 +999,8 @@ local function Drp(t,c) if t then pcall(function() t:CreateDropdown(c) end) end 
 if Tabs.Main then
     local T=Tabs.Main
     Sec(T,"X0DEC04T Hub v"..HUB.Version)
-    Lbl(T,"Fixed: No stack overflow + WeldTP")
-    Lbl(T,"AntiTp: "..State.AntiTpMethod)
+    Lbl(T,"Stable version - no SEH crashes")
+    Lbl(T,"AntiTp: "..State.AntiTpMethod.." (safe)")
     Lbl(T,"Spawner: "..(BRP_PATHS.VehicleSpawners and BRP_PATHS.VehicleSpawners.Name or "none"))
     Lbl(T,"Remotes: "..remoteCount)
     Lbl(T,"Sellers: "..#GetSellerNames())
@@ -1072,18 +1040,18 @@ if Tabs.Smuggler then
     Drp(T,{Name="Vehicle",Options={"Camry6","BorderPatrolCrownVic","2020Rs3Done","jzs171 touring","TAPVSWAT"},CurrentOption={"Camry6"},MultiOption=false,Flag="VNP",Callback=function(v) State.Smuggler_VehicleName=(type(v)=="table" and v[1]) or v end})
     Inp(T,{Name="Custom Vehicle Name",PlaceholderText="overrides dropdown",RemoveTextAfterFocusLost=false,Callback=function(v) if v~="" then State.Smuggler_VehicleName=v end end})
     Btn(T,{Name="Save Spawner Pos Here",Callback=function() local h=GetHRP(); if h then State.POS_CarSpawner=h.Position; Notify("OK","Saved",2) end end})
-    Btn(T,{Name="List All Spawners (Console)",Callback=function()
+    Btn(T,{Name="List All Spawners",Callback=function()
         local s=FindAllSpawners(); Log("=== SPAWNERS: "..#s.." ===")
         for i,sp in ipairs(s) do Log(string.format("[%d] %s | prompt=%s | pos=%s",i,sp.container and sp.container.Name or "?",sp.prompt.Name,tostring(sp.position))) end
         Notify("Spawners","Found "..#s.." see console",4)
     end})
 
-    Sec(T,"Car TP (Anti-Rollback)")
+    Sec(T,"Car TP Method")
     Drp(T,{Name="Car TP Method",Options={"WeldTP","DirectTP","TweenVehicle"},CurrentOption={"WeldTP"},MultiOption=false,Flag="CTM",Callback=function(v) State.Smuggler_CarTPMethod=(type(v)=="table" and v[1]) or v end})
     Lbl(T,"WeldTP = safest (sit in car first)")
 
     Sec(T,"Equip")
-    Tog(T,{Name="Auto Equip Before Sell",CurrentValue=true,Flag="AE",Callback=function(v) State.Smuggler_AutoEquip=v end})
+    Tog(T,{Name="Auto Equip",CurrentValue=true,Flag="AE",Callback=function(v) State.Smuggler_AutoEquip=v end})
     Tog(T,{Name="Equip All Copies",CurrentValue=true,Flag="EA",Callback=function(v) State.Smuggler_EquipAll=v end})
 
     Sec(T,"Seller")
@@ -1220,5 +1188,5 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Notify(HUB.Name, "v"..HUB.Version.." loaded | AntiTp: "..State.AntiTpMethod, 5)
-Log("v2.9.4 ready | AntiTp: "..State.AntiTpMethod.." | Spawner: "..(BRP_PATHS.VehicleSpawners and BRP_PATHS.VehicleSpawners.Name or "none"))
+Notify(HUB.Name, "v"..HUB.Version.." loaded (stable)", 4)
+Log("v2.9.5 ready | AntiTp: hide | Spawner: "..(BRP_PATHS.VehicleSpawners and BRP_PATHS.VehicleSpawners.Name or "none"))
