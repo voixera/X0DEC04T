@@ -1,6 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v1.0.0 - Car Driving Indonesia
+-- X0DEC04T Hub v2.0.0 - Car Driving Indonesia
 -- UI: Rayfield | Compatible: Xeno, Delta, Solara, Wave, Codex
+-- Uses exact ReplicaRemoteEvents from game scan
 --═══════════════════════════════════════════════════════════════
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -23,12 +24,10 @@ local Camera      = Workspace.CurrentCamera
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DUPLICATE GUARD
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local INSTANCE_KEY = "__X0DEC04T_CDI_v100"
+local INSTANCE_KEY = "__X0DEC04T_CDI_v200"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
-    if type(prev.destroy) == "function" then
-        pcall(prev.destroy)
-    end
+    if type(prev.destroy) == "function" then pcall(prev.destroy) end
     _G[INSTANCE_KEY] = nil
     task.wait(0.1)
 end
@@ -44,7 +43,7 @@ local function Err(msg, detail)
     warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock() - _logStart, tostring(msg), tostring(detail or "")))
 end
 
-Log("Car Driving Indonesia Hub starting...")
+Log("CDI Hub v2.0.0 starting...")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- LOAD RAYFIELD
@@ -71,7 +70,7 @@ for _, url in ipairs(RAYFIELD_URLS) do
 end
 
 if not Rayfield then
-    Err("FATAL: Rayfield could not be loaded. Check your executor HTTP permissions.")
+    Err("FATAL: Rayfield could not be loaded.")
     return
 end
 
@@ -81,7 +80,7 @@ end
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Car Driving Indonesia",
-    Version = "1.0.0",
+    Version = "2.0.0",
     Author  = "voixera",
 }
 
@@ -114,24 +113,118 @@ function CM:Cleanup()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- REMOTE SCANNER + DATABASE
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local RemoteDB    = {}
+local RemoteDBAll = {}
+
+local function ScanRemotes()
+    RemoteDB    = {}
+    RemoteDBAll = {}
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local key = obj.Name:lower():gsub("%s+", "")
+            RemoteDB[key] = obj
+            table.insert(RemoteDBAll, obj)
+        end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local key = obj.Name:lower():gsub("%s+", "")
+            RemoteDB[key] = obj
+            table.insert(RemoteDBAll, obj)
+        end
+    end
+    Log("Remote scan: " .. #RemoteDBAll .. " remotes found")
+end
+
+ScanRemotes()
+
+local function FindRemote(name)
+    local key = name:lower():gsub("%s+", "")
+    if RemoteDB[key] then return RemoteDB[key] end
+    for k, v in pairs(RemoteDB) do
+        if k:find(key, 1, true) then return v end
+    end
+    return nil
+end
+
+local function DumpRemotes()
+    Log("=== REMOTE DUMP (" .. #RemoteDBAll .. " total) ===")
+    for _, r in ipairs(RemoteDBAll) do
+        Log("  [" .. r.ClassName .. "] " .. r:GetFullName())
+    end
+    Log("=== END DUMP ===")
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CDI EXACT REMOTES (from ReplicaRemoteEvents scan)
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local RRE = ReplicatedStorage:FindFirstChild("ReplicaRemoteEvents")
+
+local R = {
+    RequestData = RRE and RRE:FindFirstChild("Replica_ReplicaRequestData"),
+    SetValue    = RRE and RRE:FindFirstChild("Replica_ReplicaSetValue"),
+    SetValues   = RRE and RRE:FindFirstChild("Replica_ReplicaSetValues"),
+    ArrayInsert = RRE and RRE:FindFirstChild("Replica_ReplicaArrayInsert"),
+    ArraySet    = RRE and RRE:FindFirstChild("Replica_ReplicaArraySet"),
+    ArrayRemove = RRE and RRE:FindFirstChild("Replica_ReplicaArrayRemove"),
+    Write       = RRE and RRE:FindFirstChild("Replica_ReplicaWrite"),
+    Signal      = RRE and RRE:FindFirstChild("Replica_ReplicaSignal"),
+    SetParent   = RRE and RRE:FindFirstChild("Replica_ReplicaSetParent"),
+    Create      = RRE and RRE:FindFirstChild("Replica_ReplicaCreate"),
+    Destroy     = RRE and RRE:FindFirstChild("Replica_ReplicaDestroy"),
+}
+
+for k, v in pairs(R) do
+    Log("R." .. k .. " = " .. (v and "OK" or "NOT FOUND"))
+end
+
+-- Fire a replica remote safely
+local function FireReplica(remoteName, ...)
+    local rem = R[remoteName]
+    if not rem then
+        Notify("Remote", "Not found: " .. tostring(remoteName), 3)
+        return false
+    end
+    local args = {...}
+    local ok, err = pcall(function() rem:FireServer(unpack(args)) end)
+    if ok then
+        Log("Fired: " .. remoteName)
+        return true
+    else
+        Err("Fire failed: " .. remoteName, err)
+        return false
+    end
+end
+
+-- Fire any remote by name
+local function FireByName(name, ...)
+    local rem = FindRemote(name)
+    if not rem then
+        Notify("Remote", "Not found: " .. tostring(name), 3)
+        return false
+    end
+    local args = {...}
+    local ok = pcall(function()
+        if rem:IsA("RemoteEvent") then rem:FireServer(unpack(args))
+        else rem:InvokeServer(unpack(args)) end
+    end)
+    return ok
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CDI GAME REFERENCES
--- Car Driving Indonesia structure:
---   Workspace.Cars          - all spawned cars
---   Workspace.Roads         - road system
---   Workspace.SpawnPoints   - spawn locations
---   ReplicatedStorage.CarData - car configs
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local CDI = {
     Cars        = Workspace:FindFirstChild("Cars"),
     Roads       = Workspace:FindFirstChild("Roads"),
     SpawnPoints = Workspace:FindFirstChild("SpawnPoints"),
     CarData     = ReplicatedStorage:FindFirstChild("CarData"),
-    Remotes     = ReplicatedStorage:FindFirstChild("Remotes")
-               or ReplicatedStorage:FindFirstChild("Events")
-               or ReplicatedStorage:FindFirstChild("RemoteEvents"),
+    Rank        = ReplicatedStorage:FindFirstChild("Rank"),
+    Sound       = ReplicatedStorage:FindFirstChild("Sound"),
 }
 
--- Fallback searches for common CDI folder names
 if not CDI.Cars then
     CDI.Cars = Workspace:FindFirstChild("Vehicles")
             or Workspace:FindFirstChild("car")
@@ -144,22 +237,7 @@ end
 
 Log("CDI.Cars = "        .. tostring(CDI.Cars ~= nil))
 Log("CDI.SpawnPoints = " .. tostring(CDI.SpawnPoints ~= nil))
-Log("CDI.Remotes = "     .. tostring(CDI.Remotes ~= nil))
-
--- Remote references (CDI uses these for car control)
-local Remotes = {}
-if CDI.Remotes then
-    local function F(name)
-        return CDI.Remotes:FindFirstChild(name)
-            or CDI.Remotes:FindFirstChildWhichIsA("RemoteEvent", true)
-    end
-    Remotes.SpawnCar  = CDI.Remotes:FindFirstChild("SpawnCar")
-                     or CDI.Remotes:FindFirstChild("CarSpawn")
-    Remotes.DeleteCar = CDI.Remotes:FindFirstChild("DeleteCar")
-                     or CDI.Remotes:FindFirstChild("DespawnCar")
-    Remotes.MoneyGive = CDI.Remotes:FindFirstChild("GiveMoney")
-                     or CDI.Remotes:FindFirstChild("AddMoney")
-end
+Log("CDI.CarData = "     .. tostring(CDI.CarData ~= nil))
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- STATE
@@ -174,18 +252,41 @@ local State = {
     Color_Player    = Color3.fromRGB(60,  220, 255),
     Color_Car       = Color3.fromRGB(255, 200,  60),
 
-    -- Car / Movement
-    CarSpeed        = 0,       -- extra speed added on top
+    -- Car
+    CarSpeed        = 0,
     NitroActive     = false,
     FlyActive       = false,
     FlyConn         = nil,
     GodMode         = false,
-    InfNitroConn    = nil,
     NoclipConn      = nil,
     NoClip          = false,
+    RainbowCar      = false,
+    RainbowConn     = nil,
+    SpeedHack       = false,
+    SpeedHackConn   = nil,
+    SpeedHackValue  = 500,
+    InfNitro        = false,
+    InfNitroConn    = nil,
+
+    -- Freecam / Camera
+    Freecam         = false,
+    FreecamConn     = nil,
 
     -- Teleport
     TP_Target       = "",
+    SavedPositions  = {},
+
+    -- Remote spam
+    RemoteName      = "",
+    RemoteArg       = "",
+    RemoteSpamConn  = nil,
+
+    -- Folder
+    FolderName      = "",
+
+    -- Auto features
+    AutoRespawn     = false,
+    AutoRespawnConn = nil,
 
     -- Visuals
     FullBright      = false,
@@ -196,8 +297,6 @@ local State = {
     RemoveBlur      = false,
     LowGraphics     = false,
     NoParticles     = false,
-    Freecam         = false,
-    FreecamConn     = nil,
 
     -- Misc
     AntiAFK         = true,
@@ -208,6 +307,7 @@ local State = {
     -- Internal
     ESPCache        = {},
     LightBackup     = {},
+    CurrentCarModel = nil,
 }
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -227,9 +327,7 @@ end
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- HELPERS
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local function GetCharacter()
-    return LocalPlayer.Character
-end
+local function GetCharacter() return LocalPlayer.Character end
 
 local function GetHRP()
     local ch = GetCharacter()
@@ -247,21 +345,17 @@ local function GuiParent()
     return p
 end
 
--- Find the car the local player is currently sitting in
 local function GetPlayerCar()
     local ch = GetCharacter()
     if not ch then return nil end
-    -- Check if any seat in any car contains our character
     local carsFolder = CDI.Cars
     if not carsFolder then return nil end
     for _, car in ipairs(carsFolder:GetChildren()) do
         for _, seat in ipairs(car:GetDescendants()) do
             if (seat:IsA("VehicleSeat") or seat:IsA("Seat")) then
-                if seat.Occupant then
-                    local occ = seat.Occupant
-                    if occ.Parent == ch then
-                        return car
-                    end
+                if seat.Occupant and seat.Occupant.Parent == ch then
+                    State.CurrentCarModel = car
+                    return car
                 end
             end
         end
@@ -269,12 +363,17 @@ local function GetPlayerCar()
     return nil
 end
 
--- Get VehicleSeat of player's current car
 local function GetVehicleSeat()
     local car = GetPlayerCar()
     if not car then return nil end
     return car:FindFirstChildOfClass("VehicleSeat")
         or car:FindFirstChildWhichIsA("VehicleSeat", true)
+end
+
+local function GetCarRoot()
+    local car = GetPlayerCar()
+    if not car then return nil end
+    return car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -376,7 +475,7 @@ function ESP.ScanPlayers()
                 local hrp = ch:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     if State.ESP_Players and not State.ESPCache[hrp] then
-                        ESP.AddTarget(hrp, ch, "🚗 " .. p.Name, State.Color_Player)
+                        ESP.AddTarget(hrp, ch, "👤 " .. p.Name, State.Color_Player)
                     elseif not State.ESP_Players then
                         ESP.Clear(hrp)
                     end
@@ -392,7 +491,6 @@ function ESP.ScanCars()
         local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
         if root then
             if State.ESP_Cars and not State.ESPCache[root] then
-                -- Try to find owner name from car
                 local ownerTag = car:FindFirstChild("Owner")
                     or car:FindFirstChild("PlayerName")
                     or car:FindFirstChild("OwnerName")
@@ -411,7 +509,6 @@ function ESP.RefreshAll()
     ESP.ScanCars()
 end
 
--- Background refresh
 task.spawn(function()
     while task.wait(2) do pcall(ESP.RefreshAll) end
 end)
@@ -439,111 +536,184 @@ end, "PlayerAdded")
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Car = {}
 
--- Apply speed boost to the current VehicleSeat
 function Car.ApplySpeed()
     local seat = GetVehicleSeat()
     if seat then
-        -- CDI typically uses MaxSpeed on VehicleSeat
-        -- We add State.CarSpeed on top of the default
-        local base = 100  -- CDI default max speed
+        local base = 100
         seat.MaxSpeed = base + (tonumber(State.CarSpeed) or 0)
-        Log("Car MaxSpeed set to " .. seat.MaxSpeed)
+        Notify("Speed", "MaxSpeed = " .. seat.MaxSpeed, 2)
     else
-        Notify("Speed","You must be in a car first.",3)
+        Notify("Speed", "You must be in a car first.", 3)
     end
 end
 
--- Reset car speed to default
 function Car.ResetSpeed()
     local seat = GetVehicleSeat()
     if seat then
         seat.MaxSpeed = 100
-        Notify("Speed","Speed reset to default.",3)
+        Notify("Speed", "Reset to default.", 3)
     end
 end
 
--- Flip the car upright
+function Car.SetSpeedHack(e)
+    if State.SpeedHackConn then
+        pcall(function() State.SpeedHackConn:Disconnect() end)
+        State.SpeedHackConn = nil
+    end
+    if e then
+        State.SpeedHackConn = RunService.Heartbeat:Connect(function()
+            local seat = GetVehicleSeat()
+            if seat then
+                seat.MaxSpeed = tonumber(State.SpeedHackValue) or 500
+            end
+        end)
+        Notify("SpeedHack", "ON - MaxSpeed locked at " .. State.SpeedHackValue, 3)
+    else
+        Notify("SpeedHack", "OFF", 3)
+    end
+end
+
 function Car.Flip()
     local car = GetPlayerCar()
-    if not car then Notify("Flip","You must be in a car.",3); return end
+    if not car then Notify("Flip", "Get in a car first.", 3); return end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if root then
         root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, root.CFrame.Y, 0)
-        Notify("Flip","Car flipped upright.",3)
+        Notify("Flip", "Car flipped upright.", 3)
     end
 end
 
--- Launch the car upward
 function Car.Launch()
     local car = GetPlayerCar()
-    if not car then Notify("Launch","You must be in a car.",3); return end
+    if not car then Notify("Launch", "Get in a car first.", 3); return end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if root then
         local bv = Instance.new("BodyVelocity")
-        bv.Velocity    = Vector3.new(0, 150, 0)
+        bv.Velocity    = Vector3.new(0, 200, 0)
         bv.MaxForce    = Vector3.new(0, math.huge, 0)
         bv.Parent      = root
         game:GetService("Debris"):AddItem(bv, 0.2)
-        Notify("Launch","Car launched! 🚀",3)
+        Notify("Launch", "Car launched!", 2)
     end
 end
 
--- Teleport car to another player
+function Car.Boost()
+    local car = GetPlayerCar()
+    if not car then Notify("Boost", "Get in a car first.", 3); return end
+    local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+    if root then
+        local bv = Instance.new("BodyVelocity")
+        bv.Velocity  = root.CFrame.LookVector * 400
+        bv.MaxForce  = Vector3.new(math.huge, 0, math.huge)
+        bv.Parent    = root
+        game:GetService("Debris"):AddItem(bv, 0.3)
+        Notify("Boost", "Forward boost applied!", 2)
+    end
+end
+
+function Car.SetRainbow(e)
+    if State.RainbowConn then
+        pcall(function() State.RainbowConn:Disconnect() end)
+        State.RainbowConn = nil
+    end
+    if e then
+        State.RainbowConn = RunService.Heartbeat:Connect(function()
+            local car = GetPlayerCar()
+            if not car then return end
+            local hue = (tick() * 0.3) % 1
+            local color = Color3.fromHSV(hue, 1, 1)
+            for _, p in ipairs(car:GetDescendants()) do
+                if p:IsA("BasePart")
+                and not p.Name:lower():find("wheel")
+                and not p.Name:lower():find("tire") then
+                    p.Color = color
+                end
+            end
+        end)
+        Notify("Rainbow", "Rainbow car ON!", 3)
+    else
+        Notify("Rainbow", "OFF", 3)
+    end
+end
+
 function Car.TeleportToPlayer(name)
     if not name or name == "" then
-        Notify("TP","Enter a player name first.",3); return
+        Notify("TP", "Enter a player name first.", 3); return
     end
     local target = Players:FindFirstChild(name)
     if not target or not target.Character then
-        Notify("TP","Player not found: " .. name, 3); return
+        Notify("TP", "Player not found: " .. name, 3); return
     end
     local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-    if not tHRP then Notify("TP","Target has no HRP.",3); return end
+    if not tHRP then Notify("TP", "Target has no HRP.", 3); return end
 
     local car = GetPlayerCar()
     if car then
-        -- Teleport the whole car
         local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
         if root then
-            root.CFrame = tHRP.CFrame + Vector3.new(0, 4, 5)
-            Notify("TP","Car teleported to " .. name, 3)
+            root.CFrame = tHRP.CFrame + Vector3.new(0, 5, 6)
+            Notify("TP", "Car teleported to " .. name, 3)
             return
         end
     end
 
-    -- If not in a car, teleport character
     local hrp = GetHRP()
     if hrp then
         hrp.CFrame = tHRP.CFrame + Vector3.new(0, 0, 4)
-        Notify("TP","Teleported to " .. name, 3)
+        Notify("TP", "Teleported to " .. name, 3)
     end
 end
 
--- Teleport to a spawn point
 function Car.TeleportToSpawn(index)
     if not CDI.SpawnPoints then
-        Notify("TP","No spawn points found.",3); return
+        Notify("TP", "No spawn points found.", 3); return
     end
     local spawns = CDI.SpawnPoints:GetChildren()
     local sp = spawns[tonumber(index) or 1]
-    if not sp then Notify("TP","Spawn #" .. tostring(index) .. " not found.",3); return end
+    if not sp then
+        Notify("TP", "Spawn #" .. tostring(index) .. " not found.", 3); return
+    end
 
     local pos = sp:IsA("BasePart") and sp.CFrame
              or (sp.PrimaryPart and sp:GetPrimaryPartCFrame())
-    if not pos then Notify("TP","Invalid spawn.",3); return end
+    if not pos then Notify("TP", "Invalid spawn.", 3); return end
 
     local car = GetPlayerCar()
     if car then
         local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
-        if root then root.CFrame = pos + Vector3.new(0,4,0) end
+        if root then root.CFrame = pos + Vector3.new(0, 4, 0) end
     else
         local hrp = GetHRP()
-        if hrp then hrp.CFrame = pos + Vector3.new(0,4,0) end
+        if hrp then hrp.CFrame = pos + Vector3.new(0, 4, 0) end
     end
-    Notify("TP","Teleported to spawn " .. tostring(index), 3)
+    Notify("TP", "Teleported to spawn " .. tostring(index), 3)
 end
 
--- Noclip for car
+function Car.SavePosition(label)
+    local hrp = GetHRP()
+    if not hrp then Notify("Save", "No character.", 3); return end
+    label = label ~= "" and label or ("Pos" .. (#State.SavedPositions + 1))
+    table.insert(State.SavedPositions, { name = label, cframe = hrp.CFrame })
+    Notify("Save", "Position '" .. label .. "' saved.", 3)
+end
+
+function Car.LoadPosition(label)
+    for _, entry in ipairs(State.SavedPositions) do
+        if entry.name == label then
+            local root = GetCarRoot()
+            if root then
+                root.CFrame = entry.cframe + Vector3.new(0, 3, 0)
+            else
+                local hrp = GetHRP()
+                if hrp then hrp.CFrame = entry.cframe end
+            end
+            Notify("Load", "Teleported to '" .. label .. "'", 3)
+            return
+        end
+    end
+    Notify("Load", "'" .. label .. "' not found.", 3)
+end
+
 function Car.SetNoClip(e)
     if State.NoclipConn then
         pcall(function() State.NoclipConn:Disconnect() end)
@@ -564,13 +734,12 @@ function Car.SetNoClip(e)
                 end
             end
         end)
-        Notify("NoClip","Car NoClip ON",3)
+        Notify("NoClip", "Car NoClip ON", 3)
     else
-        Notify("NoClip","Car NoClip OFF",3)
+        Notify("NoClip", "OFF", 3)
     end
 end
 
--- Fly mode (character flies when not in car)
 function Car.SetFly(e)
     if State.FlyConn then
         pcall(function() State.FlyConn:Disconnect() end)
@@ -603,7 +772,7 @@ function Car.SetFly(e)
                 local bv2 = hrp2:FindFirstChild("__FlyVel")
                 if not bg2 or not bv2 then return end
 
-                local speed = 60
+                local speed = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 120 or 60
                 local cf    = Camera.CFrame
                 local mv    = Vector3.zero
 
@@ -620,7 +789,7 @@ function Car.SetFly(e)
                 bg2.CFrame    = cf
             end)
         end
-        Notify("Fly","Fly Mode ON — WASD / Space / Ctrl",4)
+        Notify("Fly", "ON - WASD/Space/Ctrl/Shift=Fast", 4)
     else
         if h then h.PlatformStand = false end
         local hrp = GetHRP()
@@ -630,22 +799,154 @@ function Car.SetFly(e)
             if bg then bg:Destroy() end
             if bv then bv:Destroy() end
         end
-        Notify("Fly","Fly Mode OFF",3)
+        Notify("Fly", "OFF", 3)
     end
 end
 
--- God mode (infinite health)
 function Car.SetGodMode(e)
     local h = GetHuman()
     if not h then return end
     if e then
         h.MaxHealth = math.huge
         h.Health    = math.huge
-        Notify("God Mode","ON — Invincible!",3)
+        Notify("God Mode", "ON - Invincible!", 3)
     else
         h.MaxHealth = 100
         h.Health    = 100
-        Notify("God Mode","OFF",3)
+        Notify("God Mode", "OFF", 3)
+    end
+end
+
+function Car.DeleteAllCars()
+    if not CDI.Cars then Notify("Cars", "Cars folder not found.", 3); return end
+    local count = #CDI.Cars:GetChildren()
+    for _, c in ipairs(CDI.Cars:GetChildren()) do
+        pcall(function() c:Destroy() end)
+    end
+    Notify("Cars", "Deleted " .. count .. " cars.", 3)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FOLDER ENGINE
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local FolderEngine = {}
+
+local function FindFolder(name)
+    local key = name:lower():gsub("%s+", "_")
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if (obj:IsA("Folder") or obj:IsA("Model"))
+        and obj.Name:lower():gsub("%s+", "_") == key then
+            return obj
+        end
+    end
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if (obj:IsA("Folder") or obj:IsA("Model"))
+        and obj.Name:lower():gsub("%s+", "_") == key then
+            return obj
+        end
+    end
+    -- Partial match
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if (obj:IsA("Folder") or obj:IsA("Model"))
+        and obj.Name:lower():find(name:lower(), 1, true) then
+            return obj
+        end
+    end
+    return nil
+end
+
+function FolderEngine.Delete(name)
+    local f = FindFolder(name)
+    if not f then Notify("Folder", "Not found: " .. name, 3); return end
+    local fn = f:GetFullName()
+    pcall(function() f:Destroy() end)
+    Notify("Folder", "Deleted: " .. fn, 4)
+end
+
+function FolderEngine.Hide(name)
+    local f = FindFolder(name)
+    if not f then Notify("Folder", "Not found: " .. name, 3); return end
+    local count = 0
+    for _, v in ipairs(f:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("UnionOperation") or v:IsA("MeshPart") then
+            v.Transparency = 1
+            count = count + 1
+        end
+    end
+    Notify("Folder", "Hidden " .. count .. " parts in " .. f.Name, 4)
+end
+
+function FolderEngine.Show(name)
+    local f = FindFolder(name)
+    if not f then Notify("Folder", "Not found: " .. name, 3); return end
+    local count = 0
+    for _, v in ipairs(f:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("UnionOperation") or v:IsA("MeshPart") then
+            v.Transparency = 0
+            count = count + 1
+        end
+    end
+    Notify("Folder", "Restored " .. count .. " parts in " .. f.Name, 4)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- REMOTE EXPLOIT
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function ParseArg(str)
+    if str == nil or str == "" then return nil end
+    local n = tonumber(str)
+    if n then return n end
+    if str:lower() == "true"  then return true  end
+    if str:lower() == "false" then return false end
+    return str
+end
+
+local RemoteExploit = {}
+
+function RemoteExploit.Fire(remoteName, argStr)
+    local rem = FindRemote(remoteName)
+    if not rem then
+        Notify("Remote", "Not found: " .. tostring(remoteName), 3); return
+    end
+    local arg = ParseArg(argStr)
+    local ok, result = pcall(function()
+        if rem:IsA("RemoteEvent") then
+            rem:FireServer(arg)
+        elseif rem:IsA("RemoteFunction") then
+            return rem:InvokeServer(arg)
+        end
+    end)
+    if ok then
+        Notify("Remote", "Fired: " .. rem.Name, 3)
+        Log("Fired remote: " .. rem:GetFullName() .. " with " .. tostring(arg))
+    else
+        Notify("Remote", "Error: " .. tostring(result), 4)
+    end
+end
+
+function RemoteExploit.SetSpam(e, remoteName, argStr, interval)
+    if State.RemoteSpamConn then
+        pcall(function() State.RemoteSpamConn:Disconnect() end)
+        State.RemoteSpamConn = nil
+    end
+    if e then
+        local rem = FindRemote(remoteName)
+        if not rem then Notify("Spam", "Not found: " .. remoteName, 3); return end
+        local arg = ParseArg(argStr)
+        local iv = tonumber(interval) or 0.5
+        local last = 0
+        State.RemoteSpamConn = RunService.Heartbeat:Connect(function()
+            if tick() - last >= iv then
+                last = tick()
+                pcall(function()
+                    if rem:IsA("RemoteEvent") then rem:FireServer(arg)
+                    else rem:InvokeServer(arg) end
+                end)
+            end
+        end)
+        Notify("Spam", "Spamming " .. rem.Name .. " every " .. iv .. "s", 4)
+    else
+        Notify("Spam", "OFF", 3)
     end
 end
 
@@ -782,10 +1083,10 @@ function Vis.Freecam(e)
             pos = pos + mv * spd
             Camera.CFrame = CFrame.new(pos, pos + look)
         end)
-        Notify("Freecam","ON — WASD / Space / Ctrl / Shift=Fast",4)
+        Notify("Freecam", "ON - WASD/Space/Ctrl/Shift=Fast", 4)
     else
         Camera.CameraType = Enum.CameraType.Custom
-        Notify("Freecam","OFF",3)
+        Notify("Freecam", "OFF", 3)
     end
 end
 
@@ -806,13 +1107,13 @@ function Vis.ServerHop()
                 end
             end
         end
-        Notify("Server Hop","No available server found.",4)
+        Notify("Server Hop", "No server found.", 4)
     end)
-    if not ok then Notify("Server Hop","Error: " .. tostring(e), 4) end
+    if not ok then Notify("Server Hop", "Error: " .. tostring(e), 4) end
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTI-AFK
+-- ANTI-AFK & LOOPS
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CM:Add(LocalPlayer.Idled, function()
     if State.AntiAFK then
@@ -821,9 +1122,6 @@ CM:Add(LocalPlayer.Idled, function()
     end
 end, "AntiAFK")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LIGHTING ENFORCE LOOP
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 task.spawn(function()
     while task.wait(5) do
         if State.FullBright  then pcall(Vis.FullBright, true)  end
@@ -832,9 +1130,6 @@ task.spawn(function()
     end
 end)
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- GOD MODE LOOP
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 task.spawn(function()
     while task.wait(1) do
         if State.GodMode then
@@ -869,13 +1164,15 @@ Log("Window created")
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Tabs = {}
 local TAB_DEFS = {
-    { key="Main",      name="Main",      icon="home"       },
-    { key="Car",       name="Car",       icon="zap"        },
-    { key="Teleport",  name="Teleport",  icon="map-pin"    },
-    { key="ESP",       name="ESP",       icon="eye"        },
-    { key="Visuals",   name="Visuals",   icon="sun"        },
-    { key="Misc",      name="Misc",      icon="wrench"     },
-    { key="Settings",  name="Settings",  icon="settings"   },
+    { key="Main",     name="Main",     icon="home"      },
+    { key="Car",      name="Car",      icon="zap"       },
+    { key="Teleport", name="Teleport", icon="map-pin"   },
+    { key="ESP",      name="ESP",      icon="eye"       },
+    { key="Remote",   name="Remotes",  icon="radio"     },
+    { key="Folder",   name="Folders",  icon="folder"    },
+    { key="Visuals",  name="Visuals",  icon="sun"       },
+    { key="Misc",     name="Misc",     icon="wrench"    },
+    { key="Settings", name="Settings", icon="settings"  },
 }
 
 for _, def in ipairs(TAB_DEFS) do
@@ -890,7 +1187,7 @@ for _, def in ipairs(TAB_DEFS) do
     end
 end
 
-assert(next(Tabs), "No tabs created - aborting")
+assert(next(Tabs), "No tabs created")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- ELEMENT HELPERS
@@ -900,37 +1197,31 @@ local function Sec(tab, name)
     local ok, err = pcall(function() tab:CreateSection(name) end)
     if not ok then Err("Section:" .. name, err) end
 end
-
 local function Tog(tab, cfg, label)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateToggle(cfg) end)
     if not ok then Err("Toggle:" .. tostring(label), err) end
 end
-
 local function Btn(tab, cfg, label)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateButton(cfg) end)
     if not ok then Err("Button:" .. tostring(label), err) end
 end
-
 local function Sld(tab, cfg, label)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateSlider(cfg) end)
     if not ok then Err("Slider:" .. tostring(label), err) end
 end
-
 local function Inp(tab, cfg, label)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateInput(cfg) end)
     if not ok then Err("Input:" .. tostring(label), err) end
 end
-
 local function Lbl(tab, text)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateLabel(text) end)
     if not ok then Err("Label:" .. tostring(text), err) end
 end
-
 local function Kbnd(tab, cfg, label)
     if not tab then return end
     local ok, err = pcall(function() tab:CreateKeybind(cfg) end)
@@ -938,7 +1229,7 @@ local function Kbnd(tab, cfg, label)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: MAIN
+-- MAIN TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Main then
     local T = Tabs.Main
@@ -947,17 +1238,37 @@ if Tabs.Main then
     Lbl(T, "X0DEC04T Hub v" .. HUB.Version)
     Lbl(T, "Game: Car Driving Indonesia")
     Lbl(T, "Author: " .. HUB.Author)
-    Lbl(T, "Executors: Xeno · Delta · Solara · Wave · Codex")
+    Lbl(T, "Executors: Xeno, Delta, Solara, Wave, Codex")
 
-    Sec(T, "Quick Info")
-    Lbl(T, "RightShift → Toggle UI visibility")
-    Lbl(T, "End → Clear all ESP instantly")
-    Lbl(T, "Car tab: speed boost, fly, noclip, flip")
-    Lbl(T, "Teleport tab: TP to players & spawn points")
+    Sec(T, "Game Info")
+    Lbl(T, "Remotes found: " .. #RemoteDBAll)
+    Lbl(T, "Cars folder: " .. (CDI.Cars and "OK" or "MISSING"))
+    Lbl(T, "Spawns folder: " .. (CDI.SpawnPoints and "OK" or "MISSING"))
+    Lbl(T, "ReplicaRemoteEvents: " .. (RRE and "DETECTED" or "MISSING"))
+
+    Sec(T, "Quick Guide")
+    Lbl(T, "Car tab - speed, fly, noclip, rainbow, launch")
+    Lbl(T, "Teleport tab - players, spawns, saved positions")
+    Lbl(T, "Remote tab - fire any remote in the game")
+    Lbl(T, "Folder tab - delete/hide any folder or model")
+    Lbl(T, "RightShift = Toggle UI | End = Panic ESP")
+
+    Sec(T, "Debug Tools")
+    Btn(T, {
+        Name="Dump All Remotes to Console",
+        Callback=DumpRemotes,
+    }, "DumpRemotes")
+    Btn(T, {
+        Name="Rescan Remotes",
+        Callback=function()
+            ScanRemotes()
+            Notify("Scan", "Found " .. #RemoteDBAll .. " remotes", 3)
+        end,
+    }, "Rescan")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: CAR
+-- CAR TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Car then
     local T = Tabs.Car
@@ -965,7 +1276,7 @@ if Tabs.Car then
     Sec(T, "Speed Boost")
     Sld(T, {
         Name="Extra Speed",
-        Range={0, 400},
+        Range={0, 500},
         Increment=10,
         CurrentValue=0,
         Flag="CarExtraSpeed",
@@ -976,7 +1287,7 @@ if Tabs.Car then
     }, "CarSpeed")
     Btn(T, {
         Name="Apply Speed Now",
-        Callback=function() Car.ApplySpeed() end,
+        Callback=Car.ApplySpeed,
     }, "ApplySpeed")
     Btn(T, {
         Name="Reset Speed",
@@ -986,15 +1297,45 @@ if Tabs.Car then
         end,
     }, "ResetSpeed")
 
+    Sec(T, "Speed Hack (Continuous)")
+    Sld(T, {
+        Name="SpeedHack Value",
+        Range={100, 2000},
+        Increment=50,
+        CurrentValue=500,
+        Flag="SpeedHackVal",
+        Callback=function(v)
+            State.SpeedHackValue = tonumber(v) or 500
+            if State.SpeedHack then Car.SetSpeedHack(true) end
+        end,
+    }, "SpeedHackVal")
+    Tog(T, {
+        Name="Speed Hack (locks MaxSpeed)",
+        CurrentValue=false,
+        Flag="SpeedHack",
+        Callback=function(v)
+            State.SpeedHack = v
+            Car.SetSpeedHack(v)
+        end,
+    }, "SpeedHack")
+
     Sec(T, "Car Actions")
     Btn(T, {
         Name="Flip Car (Upright)",
         Callback=Car.Flip,
     }, "Flip")
     Btn(T, {
-        Name="Launch Car 🚀",
+        Name="Launch Car Upward",
         Callback=Car.Launch,
     }, "Launch")
+    Btn(T, {
+        Name="Forward Boost",
+        Callback=Car.Boost,
+    }, "Boost")
+    Btn(T, {
+        Name="Delete All Cars in Workspace",
+        Callback=Car.DeleteAllCars,
+    }, "DeleteAllCars")
 
     Sec(T, "Abilities")
     Tog(T, {
@@ -1024,10 +1365,21 @@ if Tabs.Car then
             Car.SetGodMode(v)
         end,
     }, "GodMode")
+
+    Sec(T, "Visual FX")
+    Tog(T, {
+        Name="Rainbow Car",
+        CurrentValue=false,
+        Flag="Rainbow",
+        Callback=function(v)
+            State.RainbowCar = v
+            Car.SetRainbow(v)
+        end,
+    }, "Rainbow")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: TELEPORT
+-- TELEPORT TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Teleport then
     local T = Tabs.Teleport
@@ -1050,29 +1402,57 @@ if Tabs.Teleport then
 
     Sec(T, "Teleport to Spawn")
     Lbl(T, "Spawns available: " .. (function()
-        if CDI.SpawnPoints then
-            return tostring(#CDI.SpawnPoints:GetChildren())
-        end
+        if CDI.SpawnPoints then return tostring(#CDI.SpawnPoints:GetChildren()) end
         return "0 (folder not found)"
     end)())
 
-    -- Build buttons for up to 10 spawn points
     if CDI.SpawnPoints then
         local spawns = CDI.SpawnPoints:GetChildren()
         for i, sp in ipairs(spawns) do
-            if i > 10 then break end  -- limit to 10 in UI
+            if i > 15 then break end
             Btn(T, {
-                Name="Spawn " .. i .. " — " .. sp.Name,
+                Name="Spawn " .. i .. " - " .. sp.Name,
                 Callback=function()
                     Car.TeleportToSpawn(i)
                 end,
             }, "Spawn"..i)
         end
     else
-        Lbl(T, "SpawnPoints folder not detected in this server.")
+        Lbl(T, "SpawnPoints folder not detected.")
     end
 
-    Sec(T, "Quick Coords")
+    Sec(T, "Saved Positions")
+    local savedPosName = ""
+    Inp(T, {
+        Name="Position Label",
+        PlaceholderText="e.g. Garage, Racetrack",
+        RemoveTextAfterFocusLost=false,
+        Callback=function(v) savedPosName = tostring(v or "") end,
+    }, "SavedName")
+    Btn(T, {
+        Name="Save Current Position",
+        Callback=function() Car.SavePosition(savedPosName) end,
+    }, "SavePos")
+    Btn(T, {
+        Name="Load Saved Position",
+        Callback=function() Car.LoadPosition(savedPosName) end,
+    }, "LoadPos")
+    Btn(T, {
+        Name="List Saved Positions",
+        Callback=function()
+            if #State.SavedPositions == 0 then
+                Notify("Positions", "No positions saved yet.", 3)
+                return
+            end
+            local list = {}
+            for _, e in ipairs(State.SavedPositions) do
+                table.insert(list, e.name)
+            end
+            Notify("Positions", table.concat(list, ", "), 6)
+        end,
+    }, "ListPos")
+
+    Sec(T, "Quick Tools")
     Btn(T, {
         Name="Print My Position",
         Callback=function()
@@ -1082,13 +1462,14 @@ if Tabs.Teleport then
                 local str = string.format("X:%.1f Y:%.1f Z:%.1f", p.X, p.Y, p.Z)
                 Notify("Position", str, 5)
                 if setclipboard then setclipboard(str) end
+                Log("Position: " .. str)
             end
         end,
     }, "PrintPos")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: ESP
+-- ESP TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.ESP then
     local T = Tabs.ESP
@@ -1165,7 +1546,7 @@ if Tabs.ESP then
     Sec(T, "Actions")
     Btn(T, {
         Name="Refresh ESP",
-                Callback=function()
+        Callback=function()
             ESP.ClearAll()
             ESP.RefreshAll()
             Notify("ESP","Refreshed!",2)
@@ -1181,130 +1562,212 @@ if Tabs.ESP then
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: VISUALS
+-- REMOTE TAB
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if Tabs.Remote then
+    local T = Tabs.Remote
+
+    Sec(T, "Remote Info")
+    Lbl(T, "Total remotes found: " .. #RemoteDBAll)
+    Lbl(T, "Type name (partial OK)")
+
+    Sec(T, "Detected Replica Remotes")
+    Lbl(T, "SetValue:    " .. (R.SetValue and "OK" or "MISSING"))
+    Lbl(T, "SetValues:   " .. (R.SetValues and "OK" or "MISSING"))
+    Lbl(T, "ArrayInsert: " .. (R.ArrayInsert and "OK" or "MISSING"))
+    Lbl(T, "ArrayRemove: " .. (R.ArrayRemove and "OK" or "MISSING"))
+    Lbl(T, "Create:      " .. (R.Create and "OK" or "MISSING"))
+    Lbl(T, "Destroy:     " .. (R.Destroy and "OK" or "MISSING"))
+    Lbl(T, "Signal:      " .. (R.Signal and "OK" or "MISSING"))
+
+    Sec(T, "Fire Any Remote")
+    Inp(T, {
+        Name="Remote Name",
+        PlaceholderText="e.g. ReplicaSetValue, GiveMoney",
+        RemoveTextAfterFocusLost=false,
+        Callback=function(v) State.RemoteName = tostring(v or "") end,
+    }, "RemoteName")
+    Inp(T, {
+        Name="Argument (number/string/true/false)",
+        PlaceholderText="e.g. 999999",
+        RemoveTextAfterFocusLost=false,
+        Callback=function(v) State.RemoteArg = tostring(v or "") end,
+    }, "RemoteArg")
+    Btn(T, {
+        Name="Fire Remote",
+        Callback=function()
+            RemoteExploit.Fire(State.RemoteName, State.RemoteArg)
+        end,
+    }, "FireRemote")
+
+    Sec(T, "Remote Spam")
+    local spamInterval = 0.5
+    Sld(T, {
+        Name="Spam Interval (x0.1 seconds)",
+        Range={1, 50},
+        Increment=1,
+        CurrentValue=5,
+        Flag="SpamInterval",
+        Callback=function(v) spamInterval = (tonumber(v) or 5) / 10 end,
+    }, "SpamInterval")
+    Tog(T, {
+        Name="Spam Remote (uses fields above)",
+        CurrentValue=false,
+        Flag="RemoteSpam",
+        Callback=function(v)
+            RemoteExploit.SetSpam(v, State.RemoteName, State.RemoteArg, spamInterval)
+        end,
+    }, "RemoteSpam")
+
+    Sec(T, "Debug")
+    Btn(T, {
+        Name="Dump All Remotes to Console",
+        Callback=DumpRemotes,
+    }, "DumpR")
+    Btn(T, {
+        Name="Rescan Remotes",
+        Callback=function()
+            ScanRemotes()
+            Notify("Scan", "Found " .. #RemoteDBAll .. " remotes", 3)
+        end,
+    }, "RescanR")
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FOLDER TAB
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if Tabs.Folder then
+    local T = Tabs.Folder
+
+    Sec(T, "Folder by Name")
+    Lbl(T, "Supports partial match")
+    Lbl(T, "Works on Workspace & ReplicatedStorage")
+    Inp(T, {
+        Name="Folder / Model Name",
+        PlaceholderText="e.g. Roads, Cars, Map",
+        RemoveTextAfterFocusLost=false,
+        Callback=function(v) State.FolderName = tostring(v or "") end,
+    }, "FolderName")
+    Btn(T, {
+        Name="Delete Folder",
+        Callback=function() FolderEngine.Delete(State.FolderName) end,
+    }, "DelFolder")
+    Btn(T, {
+        Name="Hide Folder (transparent)",
+        Callback=function() FolderEngine.Hide(State.FolderName) end,
+    }, "HideFolder")
+    Btn(T, {
+        Name="Show Folder (restore)",
+        Callback=function() FolderEngine.Show(State.FolderName) end,
+    }, "ShowFolder")
+
+    Sec(T, "Quick Deletes")
+    Btn(T, {
+        Name="Delete All Cars",
+        Callback=Car.DeleteAllCars,
+    }, "QuickDelCars")
+    Btn(T, {
+        Name="Delete Roads",
+        Callback=function()
+            local f = Workspace:FindFirstChild("Roads")
+            if f then pcall(function() f:Destroy() end); Notify("Roads", "Deleted!", 3)
+            else Notify("Roads", "Not found.", 3) end
+        end,
+    }, "DelRoads")
+    Btn(T, {
+        Name="Delete Map",
+        Callback=function()
+            local f = Workspace:FindFirstChild("Map")
+            if f then pcall(function() f:Destroy() end); Notify("Map", "Deleted!", 3)
+            else Notify("Map", "Not found.", 3) end
+        end,
+    }, "DelMap")
+    Btn(T, {
+        Name="Delete Lighting Effects",
+        Callback=function()
+            local count = 0
+            for _, v in ipairs(Lighting:GetChildren()) do
+                if v:IsA("Atmosphere") or v:IsA("BlurEffect")
+                or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect")
+                or v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") then
+                    pcall(function() v:Destroy() end)
+                    count = count + 1
+                end
+            end
+            Notify("Lighting", "Deleted " .. count .. " effects.", 4)
+        end,
+    }, "DelLightFX")
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- VISUALS TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Visuals then
     local T = Tabs.Visuals
 
     Sec(T, "Lighting")
     Tog(T, {
-        Name="FullBright",
-        CurrentValue=false,
-        Flag="FullBright",
-        Callback=function(v)
-            State.FullBright = v
-            Vis.FullBright(v)
-        end,
+        Name="FullBright", CurrentValue=false, Flag="FullBright",
+        Callback=function(v) State.FullBright=v; Vis.FullBright(v) end,
     }, "FullBright")
     Tog(T, {
-        Name="No Fog",
-        CurrentValue=false,
-        Flag="NoFog",
-        Callback=function(v)
-            State.NoFog = v
-            Vis.NoFog(v)
-        end,
+        Name="No Fog", CurrentValue=false, Flag="NoFog",
+        Callback=function(v) State.NoFog=v; Vis.NoFog(v) end,
     }, "NoFog")
     Tog(T, {
-        Name="No Shadows",
-        CurrentValue=false,
-        Flag="NoShadows",
-        Callback=function(v)
-            State.NoShadows = v
-            Vis.NoShadows(v)
-        end,
+        Name="No Shadows", CurrentValue=false, Flag="NoShadows",
+        Callback=function(v) State.NoShadows=v; Vis.NoShadows(v) end,
     }, "NoShadows")
     Sld(T, {
-        Name="Time of Day",
-        Range={0, 24},
-        Increment=1,
-        CurrentValue=14,
-        Flag="TimeOfDay",
-        Callback=function(v)
-            State.ClockTime = tonumber(v) or 14
-            Vis.SetClock(State.ClockTime)
-        end,
+        Name="Time of Day", Range={0,24}, Increment=1,
+        CurrentValue=14, Flag="TimeOfDay",
+        Callback=function(v) State.ClockTime=tonumber(v) or 14; Vis.SetClock(State.ClockTime) end,
     }, "TimeOfDay")
 
     Sec(T, "Camera")
     Sld(T, {
-        Name="Field of View",
-        Range={30, 120},
-        Increment=5,
-        CurrentValue=70,
-        Flag="FOV",
-        Callback=function(v)
-            State.FOV = tonumber(v) or 70
-            Vis.SetFOV(State.FOV)
-        end,
+        Name="Field of View", Range={30,120}, Increment=5,
+        CurrentValue=70, Flag="FOV",
+        Callback=function(v) State.FOV=tonumber(v) or 70; Vis.SetFOV(State.FOV) end,
     }, "FOV")
     Tog(T, {
-        Name="Freecam",
-        CurrentValue=false,
-        Flag="Freecam",
-        Callback=function(v)
-            State.Freecam = v
-            Vis.Freecam(v)
-        end,
+        Name="Freecam", CurrentValue=false, Flag="Freecam",
+        Callback=function(v) State.Freecam=v; Vis.Freecam(v) end,
     }, "Freecam")
 
     Sec(T, "Post-Processing")
     Tog(T, {
-        Name="Remove Blur / Bloom",
-        CurrentValue=false,
-        Flag="RemoveBlur",
-        Callback=function(v)
-            State.RemoveBlur = v
-            Vis.RemoveBlur(v)
-        end,
+        Name="Remove Blur / Bloom", CurrentValue=false, Flag="RemoveBlur",
+        Callback=function(v) State.RemoveBlur=v; Vis.RemoveBlur(v) end,
     }, "RemoveBlur")
     Tog(T, {
-        Name="No Particles",
-        CurrentValue=false,
-        Flag="NoParticles",
-        Callback=function(v)
-            State.NoParticles = v
-            Vis.NoParticles(v)
-        end,
+        Name="No Particles", CurrentValue=false, Flag="NoParticles",
+        Callback=function(v) State.NoParticles=v; Vis.NoParticles(v) end,
     }, "NoParticles")
 
     Sec(T, "Performance")
     Tog(T, {
-        Name="Low Graphics",
-        CurrentValue=false,
-        Flag="LowGfx",
-        Callback=function(v)
-            State.LowGraphics = v
-            Vis.LowGfx(v)
-        end,
+        Name="Low Graphics", CurrentValue=false, Flag="LowGfx",
+        Callback=function(v) State.LowGraphics=v; Vis.LowGfx(v) end,
     }, "LowGfx")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: MISC
+-- MISC TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Misc then
     local T = Tabs.Misc
 
     Sec(T, "Audio")
     Tog(T, {
-        Name="Mute All Sounds",
-        CurrentValue=false,
-        Flag="MuteAll",
-        Callback=function(v)
-            State.NoSound = v
-            Vis.MuteAll(v)
-        end,
+        Name="Mute All Sounds", CurrentValue=false, Flag="MuteAll",
+        Callback=function(v) State.NoSound=v; Vis.MuteAll(v) end,
     }, "MuteAll")
 
     Sec(T, "Utility")
     Tog(T, {
-        Name="Auto Rejoin",
-        CurrentValue=false,
-        Flag="AutoRejoin",
-        Callback=function(v)
-            State.AutoRejoin = v
-        end,
+        Name="Auto Rejoin", CurrentValue=false, Flag="AutoRejoin",
+        Callback=function(v) State.AutoRejoin=v end,
     }, "AutoRejoin")
     Btn(T, {
         Name="Server Hop",
@@ -1315,9 +1778,9 @@ if Tabs.Misc then
         Callback=function()
             if setclipboard then
                 setclipboard(tostring(game.JobId))
-                Notify("Copied","JobId copied to clipboard!",3)
+                Notify("Copied", "JobId copied!", 3)
             else
-                Notify("Error","Clipboard not supported on this executor.",3)
+                Notify("Error", "Clipboard not supported.", 3)
             end
         end,
     }, "CopyJob")
@@ -1337,88 +1800,77 @@ if Tabs.Misc then
             local h = GetHuman()
             if h then
                 h.Health = 0
-                Notify("Reset","Character reset.",3)
+                Notify("Reset", "Character reset.", 3)
             end
         end,
     }, "ResetChar")
     Btn(T, {
-        Name="Respawn at Spawn",
-        Callback=function()
-            Car.TeleportToSpawn(1)
-        end,
+        Name="Respawn at Spawn 1",
+        Callback=function() Car.TeleportToSpawn(1) end,
     }, "RespawnSpawn")
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POPULATE: SETTINGS
+-- SETTINGS TAB
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Settings then
     local T = Tabs.Settings
 
     Sec(T, "Anti-AFK")
     Tog(T, {
-        Name="Anti-AFK",
-        CurrentValue=true,
-        Flag="AntiAFK",
-        Callback=function(v)
-            State.AntiAFK = v
-        end,
+        Name="Anti-AFK", CurrentValue=true, Flag="AntiAFK",
+        Callback=function(v) State.AntiAFK=v end,
     }, "AntiAFK")
 
     Sec(T, "Keybinds")
     Kbnd(T, {
-        Name="Toggle UI",
-        CurrentKeybind="RightShift",
-        HoldToInteract=false,
-        Flag="KB_ToggleUI",
-        Callback=function()
-            pcall(function() Window:Toggle() end)
-        end,
-    }, "KB_Toggle")
+        Name="Toggle UI", CurrentKeybind="RightShift",
+        HoldToInteract=false, Flag="KB_UI",
+        Callback=function() pcall(function() Window:Toggle() end) end,
+    }, "KB_UI")
     Kbnd(T, {
-        Name="Panic — Clear All ESP",
-        CurrentKeybind="End",
-        HoldToInteract=false,
-        Flag="KB_Panic",
+        Name="Panic - Clear All ESP", CurrentKeybind="End",
+        HoldToInteract=false, Flag="KB_Panic",
         Callback=function()
             State.ESP_Players = false
             State.ESP_Cars    = false
             ESP.ClearAll()
-            Notify("Panic","All ESP cleared!",3)
+            Notify("Panic", "All ESP cleared!", 3)
         end,
     }, "KB_Panic")
     Kbnd(T, {
-        Name="Flip Car",
-        CurrentKeybind="F",
-        HoldToInteract=false,
-        Flag="KB_Flip",
+        Name="Flip Car", CurrentKeybind="F",
+        HoldToInteract=false, Flag="KB_Flip",
         Callback=Car.Flip,
     }, "KB_Flip")
     Kbnd(T, {
-        Name="Launch Car",
-        CurrentKeybind="G",
-        HoldToInteract=false,
-        Flag="KB_Launch",
+        Name="Launch Car", CurrentKeybind="G",
+        HoldToInteract=false, Flag="KB_Launch",
         Callback=Car.Launch,
     }, "KB_Launch")
+    Kbnd(T, {
+        Name="Forward Boost", CurrentKeybind="H",
+        HoldToInteract=false, Flag="KB_Boost",
+        Callback=Car.Boost,
+    }, "KB_Boost")
 
     Sec(T, "Credits")
     Lbl(T, HUB.Name .. " v" .. HUB.Version)
     Lbl(T, "Author: " .. HUB.Author)
     Lbl(T, "Game: " .. HUB.Game)
     Lbl(T, "UI: Rayfield")
-    Lbl(T, "Executors: Xeno · Delta · Solara · Wave · Codex")
 
     Sec(T, "Danger Zone")
     Btn(T, {
         Name="Unload Hub",
         Callback=function()
-            -- Disconnect toggle-based connections
-            if State.NoclipConn  then pcall(function() State.NoclipConn:Disconnect()  end); State.NoclipConn  = nil end
-            if State.FlyConn     then pcall(function() State.FlyConn:Disconnect()     end); State.FlyConn     = nil end
-            if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end); State.FreecamConn = nil end
+            if State.NoclipConn    then pcall(function() State.NoclipConn:Disconnect()    end) end
+            if State.FlyConn       then pcall(function() State.FlyConn:Disconnect()       end) end
+            if State.FreecamConn   then pcall(function() State.FreecamConn:Disconnect()   end) end
+            if State.SpeedHackConn then pcall(function() State.SpeedHackConn:Disconnect() end) end
+            if State.RainbowConn   then pcall(function() State.RainbowConn:Disconnect()   end) end
+            if State.RemoteSpamConn then pcall(function() State.RemoteSpamConn:Disconnect() end) end
 
-            -- Clean fly objects from character
             local hrp = GetHRP()
             if hrp then
                 local bg = hrp:FindFirstChild("__FlyGyro")
@@ -1427,7 +1879,6 @@ if Tabs.Settings then
                 if bv then pcall(function() bv:Destroy() end) end
             end
 
-            -- Restore humanoid state
             local h = GetHuman()
             if h then
                 pcall(function()
@@ -1437,72 +1888,38 @@ if Tabs.Settings then
                 end)
             end
 
-            -- Reset car speed
             local seat = GetVehicleSeat()
-            if seat then
-                pcall(function() seat.MaxSpeed = 100 end)
-            end
+            if seat then pcall(function() seat.MaxSpeed = 100 end) end
 
-            -- All managed connections
             CM:Cleanup()
-
-            -- Restore visuals
             Vis.RestoreLight()
-            pcall(function() Camera.CameraType  = Enum.CameraType.Custom end)
-            pcall(function() Camera.FieldOfView = 70                     end)
-
-            -- Restore muted sounds
             Vis.MuteAll(false)
-
-            -- Clear ESP
+            pcall(function() Camera.CameraType  = Enum.CameraType.Custom end)
+            pcall(function() Camera.FieldOfView = 70 end)
             ESP.ClearAll()
-
-            -- Clear instance guard
             _G[INSTANCE_KEY] = nil
-
-            -- Destroy window last
             pcall(function() Window:Destroy() end)
-
-            Log("Hub unloaded cleanly.")
+            Log("Hub unloaded.")
         end,
     }, "Unload")
 end
 
-Log("All controls created successfully")
+Log("All controls created")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CHARACTER RESPAWN HANDLER
--- Re-applies active features when the character respawns.
+-- CHARACTER RESPAWN
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CM:Add(LocalPlayer.CharacterAdded, function()
     task.wait(1)
-
-    -- Reapply god mode
-    if State.GodMode then
-        pcall(Car.SetGodMode, true)
-    end
-
-    -- Reapply noclip
-    if State.NoClip then
-        pcall(Car.SetNoClip, true)
-    end
-
-    -- Reapply fly
-    if State.FlyActive then
-        pcall(Car.SetFly, true)
-    end
-
-    -- Reapply visuals
-    if State.FullBright then pcall(Vis.FullBright, true) end
-    if State.NoFog      then pcall(Vis.NoFog,      true) end
+    if State.GodMode    then pcall(Car.SetGodMode, true)  end
+    if State.NoClip     then pcall(Car.SetNoClip, true)   end
+    if State.FlyActive  then pcall(Car.SetFly, true)      end
+    if State.FullBright then pcall(Vis.FullBright, true)  end
+    if State.NoFog      then pcall(Vis.NoFog, true)       end
     if State.FOV ~= 70  then pcall(Vis.SetFOV, State.FOV) end
-
     Log("Character respawned - features reapplied")
 end, "CharacterAdded")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO REJOIN HANDLER
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CM:Add(LocalPlayer.OnTeleport, function(ts)
     if State.AutoRejoin and ts == Enum.TeleportState.Failed then
         task.wait(3)
@@ -1513,15 +1930,18 @@ CM:Add(LocalPlayer.OnTeleport, function(ts)
 end, "OnTeleport")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REGISTER INSTANCE GUARD
+-- INSTANCE GUARD
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _G[INSTANCE_KEY] = {
     version   = HUB.Version,
     timestamp = os.time(),
     destroy   = function()
-        if State.NoclipConn  then pcall(function() State.NoclipConn:Disconnect()  end) end
-        if State.FlyConn     then pcall(function() State.FlyConn:Disconnect()     end) end
-        if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end) end
+        if State.NoclipConn     then pcall(function() State.NoclipConn:Disconnect()     end) end
+        if State.FlyConn        then pcall(function() State.FlyConn:Disconnect()        end) end
+        if State.FreecamConn    then pcall(function() State.FreecamConn:Disconnect()    end) end
+        if State.SpeedHackConn  then pcall(function() State.SpeedHackConn:Disconnect()  end) end
+        if State.RainbowConn    then pcall(function() State.RainbowConn:Disconnect()    end) end
+        if State.RemoteSpamConn then pcall(function() State.RemoteSpamConn:Disconnect() end) end
 
         local hrp = GetHRP()
         if hrp then
@@ -1546,10 +1966,8 @@ _G[INSTANCE_KEY] = {
         CM:Cleanup()
         Vis.RestoreLight()
         Vis.MuteAll(false)
-
         pcall(function() Camera.CameraType  = Enum.CameraType.Custom end)
-        pcall(function() Camera.FieldOfView = 70                     end)
-
+        pcall(function() Camera.FieldOfView = 70 end)
         ESP.ClearAll()
         pcall(function() Window:Destroy() end)
     end,
@@ -1558,5 +1976,5 @@ _G[INSTANCE_KEY] = {
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DONE
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Notify(HUB.Name, "Loaded v" .. HUB.Version .. " — Car Driving Indonesia 🚗", 5)
-Log("Initialization complete — v" .. HUB.Version)
+Notify(HUB.Name, "Loaded v" .. HUB.Version .. " - Car Driving Indonesia", 5)
+Log("Initialization complete - v" .. HUB.Version)
