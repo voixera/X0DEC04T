@@ -54,6 +54,16 @@ end
 print("[X0DEC04T] WindUI loaded successfully")
 
 --═══════════════════════════════════════════════════════════════
+-- SAFE UI HELPER
+--═══════════════════════════════════════════════════════════════
+local function Safe(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        warn("[X0DEC04T] UI element failed: " .. tostring(err))
+    end
+end
+
+--═══════════════════════════════════════════════════════════════
 -- HUB CONFIGURATION
 --═══════════════════════════════════════════════════════════════
 local HUB = {
@@ -62,7 +72,7 @@ local HUB = {
     Version = "0.0.6",
     Author  = "voixera",
     Folder  = "X0DEC04T_Hub",
-    LogoID  = "rbxassetid://132469099334813",
+    LogoID  = "rbxassetid://91626851418651",
 }
 
 pcall(function()
@@ -1299,44 +1309,57 @@ or not Tabs.Movement or not Tabs.Visuals or not Tabs.Misc or not Tabs.Settings t
     return
 end
 
-Window:SelectTab(1)
+Safe(function()
+    if Window.SelectTab then
+        Window:SelectTab(1)
+    end
+end)
+
 print("[X0DEC04T] All tabs created: " .. table.concat(tabList, ", "))
 
 --═══════════════════════════════════════════════════════════════
 -- MAIN TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Main:Section({ Title = "Welcome" })
+Safe(function() Tabs.Main:Section({ Title = "Welcome" }) end)
 
-Tabs.Main:Paragraph({
-    Title = HUB.Name,
-    Desc  = "Premium hub for " .. HUB.Game .. "\nVersion " .. HUB.Version .. " by " .. HUB.Author,
-})
+Safe(function()
+    Tabs.Main:Paragraph({
+        Title = HUB.Name,
+        Desc  = "Premium hub for " .. HUB.Game .. "\nVersion " .. HUB.Version .. " by " .. HUB.Author,
+    })
+end)
 
-Tabs.Main:Paragraph({
-    Title = "Game Architecture",
-    Desc  = "Server-authoritative game.\nFocus: Awareness, ESP, Movement, Visuals.",
-})
+Safe(function()
+    Tabs.Main:Paragraph({
+        Title = "Game Architecture",
+        Desc  = "Server-authoritative game.\nFocus: Awareness, ESP, Movement, Visuals.",
+    })
+end)
 
 local killersText = {}
 for k, _ in pairs(KNOWN_KILLERS) do
     table.insert(killersText, k:gsub("^%l", string.upper))
 end
-Tabs.Main:Paragraph({
-    Title = "Detected Killers",
-    Desc  = #killersText > 0 and table.concat(killersText, ", ") or "None detected",
-})
 
-Tabs.Main:Section({ Title = "Match Info" })
+Safe(function()
+    Tabs.Main:Paragraph({
+        Title = "Detected Killers",
+        Desc  = #killersText > 0 and table.concat(killersText, ", ") or "None detected",
+    })
+end)
 
-local RoleLabel  = Tabs.Main:Paragraph({ Title = "Your Role", Desc = "Waiting..." })
-local MatchLabel = Tabs.Main:Paragraph({ Title = "Match State", Desc = "Waiting..." })
+Safe(function() Tabs.Main:Section({ Title = "Match Info" }) end)
+
+local RoleLabel, MatchLabel
+Safe(function() RoleLabel  = Tabs.Main:Paragraph({ Title = "Your Role", Desc = "Waiting..." }) end)
+Safe(function() MatchLabel = Tabs.Main:Paragraph({ Title = "Match State", Desc = "Waiting..." }) end)
 
 task.spawn(function()
     while true do
         task.wait(1)
         pcall(function()
-            RoleLabel:SetDesc(State.IsKiller and "KILLER" or "SURVIVOR")
-            MatchLabel:SetDesc(State.MatchActive and "In Match" or "Lobby")
+            if RoleLabel then RoleLabel:SetDesc(State.IsKiller and "KILLER" or "SURVIVOR") end
+            if MatchLabel then MatchLabel:SetDesc(State.MatchActive and "In Match" or "Lobby") end
         end)
     end
 end)
@@ -1344,220 +1367,248 @@ end)
 --═══════════════════════════════════════════════════════════════
 -- AWARENESS TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Awareness:Section({ Title = "Killer Alerts" })
+Safe(function() Tabs.Awareness:Section({ Title = "Killer Alerts" }) end)
 
-Tabs.Awareness:Toggle({ 
-    Title = "Chase Music Alert", 
-    Desc  = "Alert when chase music plays", 
-    Value = true, 
-    Callback = function(v) State.ChaseAlert = v end 
-})
+Safe(function()
+    Tabs.Awareness:Toggle({ 
+        Title = "Chase Music Alert", 
+        Desc  = "Alert when chase music plays", 
+        Value = true, 
+        Callback = function(v) State.ChaseAlert = v end 
+    })
+end)
 
-Tabs.Awareness:Toggle({ 
-    Title = "Attack Alert (Lunge/Scourge)", 
-    Desc  = "Alert when killer attacks", 
-    Value = true, 
-    Callback = function(v) State.AttackAlert = v end 
-})
+Safe(function()
+    Tabs.Awareness:Toggle({ 
+        Title = "Attack Alert (Lunge/Scourge)", 
+        Desc  = "Alert when killer attacks", 
+        Value = true, 
+        Callback = function(v) State.AttackAlert = v end 
+    })
+end)
 
-Tabs.Awareness:Section({ Title = "Skill Checks" })
+Safe(function() Tabs.Awareness:Section({ Title = "Skill Checks" }) end)
 
-Tabs.Awareness:Toggle({ 
-    Title = "Gen Skill Check Notify", 
-    Value = true, 
-    Callback = function(v) State.SkillCheckNotify = v end 
-})
+Safe(function()
+    Tabs.Awareness:Toggle({ 
+        Title = "Gen Skill Check Notify", 
+        Value = true, 
+        Callback = function(v) State.SkillCheckNotify = v end 
+    })
+end)
 
-Tabs.Awareness:Toggle({ 
-    Title = "Heal Skill Check Notify", 
-    Value = true, 
-    Callback = function(v) State.HealSkillNotify = v end 
-})
+Safe(function()
+    Tabs.Awareness:Toggle({ 
+        Title = "Heal Skill Check Notify", 
+        Value = true, 
+        Callback = function(v) State.HealSkillNotify = v end 
+    })
+end)
 
-Tabs.Awareness:Section({ Title = "Objectives" })
+Safe(function() Tabs.Awareness:Section({ Title = "Objectives" }) end)
 
-Tabs.Awareness:Toggle({ Title = "Gen Done Notify",    Value = true, Callback = function(v) State.GenDoneNotify = v end })
-Tabs.Awareness:Toggle({ Title = "All Gens Done Notify", Value = true, Callback = function(v) State.AllGensNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Hook Notify",           Value = true, Callback = function(v) State.HookNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Death Notify",          Value = true, Callback = function(v) State.DeathNotify = v end })
-Tabs.Awareness:Toggle({ Title = "Last Survivor Notify",  Value = true, Callback = function(v) State.OneLeftNotify = v end })
+Safe(function() Tabs.Awareness:Toggle({ Title = "Gen Done Notify",    Value = true, Callback = function(v) State.GenDoneNotify = v end }) end)
+Safe(function() Tabs.Awareness:Toggle({ Title = "All Gens Done Notify", Value = true, Callback = function(v) State.AllGensNotify = v end }) end)
+Safe(function() Tabs.Awareness:Toggle({ Title = "Hook Notify",           Value = true, Callback = function(v) State.HookNotify = v end }) end)
+Safe(function() Tabs.Awareness:Toggle({ Title = "Death Notify",          Value = true, Callback = function(v) State.DeathNotify = v end }) end)
+Safe(function() Tabs.Awareness:Toggle({ Title = "Last Survivor Notify",  Value = true, Callback = function(v) State.OneLeftNotify = v end }) end)
 
 --═══════════════════════════════════════════════════════════════
 -- ESP TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.ESP:Section({ Title = "Players (Highlight)" })
+Safe(function() Tabs.ESP:Section({ Title = "Players (Highlight)" }) end)
 
-Tabs.ESP:Toggle({
-    Title = "Killer ESP",
-    Desc  = "Red highlight through walls + killer name",
-    Value = false,
-    Callback = function(v)
-        State.ESP_Killer = v
-        if not v then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr.Character and Role.IsKiller(plr.Character) then 
-                    ESP.Clear(plr.Character) 
+Safe(function()
+    Tabs.ESP:Toggle({
+        Title = "Killer ESP",
+        Desc  = "Red highlight through walls + killer name",
+        Value = false,
+        Callback = function(v)
+            State.ESP_Killer = v
+            if not v then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and Role.IsKiller(plr.Character) then 
+                        ESP.Clear(plr.Character) 
+                    end
                 end
             end
-        end
-    end,
-})
+        end,
+    })
+end)
 
-Tabs.ESP:Toggle({
-    Title = "Survivor ESP",
-    Desc  = "Cyan highlight through walls + player name",
-    Value = false,
-    Callback = function(v)
-        State.ESP_Survivors = v
-        if not v then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr.Character and not Role.IsFakeCharacter(plr.Character) and not Role.IsKiller(plr.Character) then 
-                    ESP.Clear(plr.Character) 
+Safe(function()
+    Tabs.ESP:Toggle({
+        Title = "Survivor ESP",
+        Desc  = "Cyan highlight through walls + player name",
+        Value = false,
+        Callback = function(v)
+            State.ESP_Survivors = v
+            if not v then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and not Role.IsFakeCharacter(plr.Character) and not Role.IsKiller(plr.Character) then 
+                        ESP.Clear(plr.Character) 
+                    end
                 end
             end
-        end
-    end,
-})
+        end,
+    })
+end)
 
-Tabs.ESP:Section({ Title = "Objects" })
+Safe(function() Tabs.ESP:Section({ Title = "Objects" }) end)
 
-Tabs.ESP:Toggle({
-    Title = "Generator ESP",
-    Desc  = "Yellow highlight",
-    Value = false,
-    Callback = function(v)
-        State.ESP_Generators = v
-        if not v and WS.Generators then 
-            for _, g in ipairs(WS.Generators:GetChildren()) do 
-                ESP.Clear(g) 
+Safe(function()
+    Tabs.ESP:Toggle({
+        Title = "Generator ESP",
+        Desc  = "Yellow highlight",
+        Value = false,
+        Callback = function(v)
+            State.ESP_Generators = v
+            if not v and WS.Generators then 
+                for _, g in ipairs(WS.Generators:GetChildren()) do 
+                    ESP.Clear(g) 
+                end 
+            end
+        end,
+    })
+end)
+
+Safe(function() Tabs.ESP:Toggle({ Title = "Item ESP", Desc = "Green highlight", Value = false, Callback = function(v) State.ESP_Items = v end }) end)
+Safe(function() Tabs.ESP:Toggle({ Title = "Weapon ESP", Desc = "Pink highlight", Value = false, Callback = function(v) State.ESP_Weapons = v; if not v and WS.Weapons then for _, w in ipairs(WS.Weapons:GetChildren()) do ESP.Clear(w) end end end }) end)
+Safe(function() Tabs.ESP:Toggle({ Title = "Clone ESP", Desc = "Gray highlight", Value = false, Callback = function(v) State.ESP_Clones = v; if not v and WS.Clones then for _, c in ipairs(WS.Clones:GetChildren()) do ESP.Clear(c) end end end }) end)
+
+Safe(function() Tabs.ESP:Section({ Title = "Display" }) end)
+
+Safe(function()
+    Tabs.ESP:Toggle({ 
+        Title = "Show Name", 
+        Value = true, 
+        Callback = function(v) 
+            State.ESP_ShowName = v 
+            for _, cache in pairs(State.ESPCache) do 
+                if cache.nameLabel then cache.nameLabel.Visible = v end 
             end 
-        end
-    end,
-})
+        end,
+    })
+end)
 
-Tabs.ESP:Toggle({ Title = "Item ESP",      Desc  = "Green highlight", Value = false, Callback = function(v) State.ESP_Items = v end })
-Tabs.ESP:Toggle({ Title = "Weapon ESP",    Desc  = "Pink highlight", Value = false, Callback = function(v) State.ESP_Weapons = v; if not v and WS.Weapons then for _, w in ipairs(WS.Weapons:GetChildren()) do ESP.Clear(w) end end end })
-Tabs.ESP:Toggle({ Title = "Clone ESP",       Desc  = "Gray highlight", Value = false, Callback = function(v) State.ESP_Clones = v; if not v and WS.Clones then for _, c in ipairs(WS.Clones:GetChildren()) do ESP.Clear(c) end end end })
+Safe(function()
+    Tabs.ESP:Toggle({
+        Title = "Show Distance",
+        Value = true,
+        Callback = function(v)
+            State.ESP_ShowDistance = v
+            for _, cache in pairs(State.ESPCache) do
+                if cache.distLabel then cache.distLabel.Visible = v end 
+            end
+        end,
+    })
+end)
 
-Tabs.ESP:Section({ Title = "Display" })
+Safe(function()
+    Tabs.ESP:Slider({
+        Title = "Max Distance",
+        Value = { Min = 50, Max = 2000, Default = 500, Step = 50 },
+        Callback = function(v)
+            local num = tonumber(v) or 500
+            State.ESP_MaxDistance = num
+            for _, cache in pairs(State.ESPCache) do
+                if cache.billboard then cache.billboard.MaxDistance = num end 
+            end
+        end,
+    })
+end)
 
-Tabs.ESP:Toggle({ 
-    Title = "Show Name", 
-    Value = true, 
-    Callback = function(v) 
-        State.ESP_ShowName = v 
-        for _, cache in pairs(State.ESPCache) do 
-            if cache.nameLabel then 
-                cache.nameLabel.Visible = v 
-            end 
-        end 
-    end,
-})
-
-Tabs.ESP:Toggle({
-    Title = "Show Distance",
-    Value = true,
-    Callback = function(v)
-        State.ESP_ShowDistance = v
-        for _, cache in pairs(State.ESPCache) do
-            if cache.distLabel then 
-                cache.distLabel.Visible = v 
-            end 
-        end
-    end,
-})
-
-Tabs.ESP:Slider({
-    Title = "Max Distance",
-    Value = { Min = 50, Max = 2000, Default = 500, Step = 50 },
-    Callback = function(v)
-        local num = tonumber(v) or 500
-        State.ESP_MaxDistance = num
-        for _, cache in pairs(State.ESPCache) do
-            if cache.billboard then 
-                cache.billboard.MaxDistance = num 
-            end 
-        end
-    end,
-})
-
-Tabs.ESP:Button({ Title = "Refresh All ESP", Callback = function() ESP.ClearAll(); ESP.RefreshAll(); Util.Notify("ESP", "Refreshed", 2) end })
-Tabs.ESP:Button({ Title = "Clear All ESP",  Callback = function() ESP.ClearAll(); Util.Notify("ESP", "Cleared", 2) end })
+Safe(function() Tabs.ESP:Button({ Title = "Refresh All ESP", Callback = function() ESP.ClearAll(); ESP.RefreshAll(); Util.Notify("ESP", "Refreshed", 2) end }) end)
+Safe(function() Tabs.ESP:Button({ Title = "Clear All ESP",  Callback = function() ESP.ClearAll(); Util.Notify("ESP", "Cleared", 2) end }) end)
 
 --═══════════════════════════════════════════════════════════════
 -- MOVEMENT TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Movement:Section({ Title = "Speed" })
+Safe(function() Tabs.Movement:Section({ Title = "Speed" }) end)
 
-Tabs.Movement:Slider({
-    Title = "WalkSpeed",
-    Value = { Min = 16, Max = 100, Default = 16, Step = 1 },
-    Callback = function(v)
-        State.WalkSpeed = tonumber(v) or 16
-        Movement.ApplyWalkSpeed()
-    end,
-})
+Safe(function()
+    Tabs.Movement:Slider({
+        Title = "WalkSpeed",
+        Value = { Min = 16, Max = 100, Default = 16, Step = 1 },
+        Callback = function(v)
+            State.WalkSpeed = tonumber(v) or 16
+            Movement.ApplyWalkSpeed()
+        end,
+    })
+end)
 
-Tabs.Movement:Slider({
-    Title = "JumpPower",
-    Value = { Min = 50, Max = 200, Default = 50, Step = 1 },
-    Callback = function(v)
-        State.JumpPower = tonumber(v) or 50
-        Movement.ApplyJumpPower()
-    end,
-})
+Safe(function()
+    Tabs.Movement:Slider({
+        Title = "JumpPower",
+        Value = { Min = 50, Max = 200, Default = 50, Step = 1 },
+        Callback = function(v)
+            State.JumpPower = tonumber(v) or 50
+            Movement.ApplyJumpPower()
+        end,
+    })
+end)
 
-Tabs.Movement:Section({ Title = "Advanced" })
+Safe(function() Tabs.Movement:Section({ Title = "Advanced" }) end)
 
-Tabs.Movement:Toggle({
-    Title = "NoClip",
-    Desc  = "Walk through walls",
-    Value = false,
-    Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end,
-})
+Safe(function()
+    Tabs.Movement:Toggle({
+        Title = "NoClip",
+        Desc  = "Walk through walls",
+        Value = false,
+        Callback = function(v) State.NoClip = v; Movement.SetNoClip(v) end,
+    })
+end)
 
-Tabs.Movement:Toggle({
-    Title = "Infinite Jump",
-    Desc  = "Jump mid-air",
-    Value = false,
-    Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end,
-})
+Safe(function()
+    Tabs.Movement:Toggle({
+        Title = "Infinite Jump",
+        Desc  = "Jump mid-air",
+        Value = false,
+        Callback = function(v) State.InfJump = v; Movement.SetInfJump(v) end,
+    })
+end)
 
-Tabs.Movement:Section({ Title = "Teleport" })
+Safe(function() Tabs.Movement:Section({ Title = "Teleport" }) end)
 
-Tabs.Movement:Button({
-    Title = "Teleport to Nearest Generator",
-    Callback = Movement.TeleportToNearestGenerator,
-})
+Safe(function()
+    Tabs.Movement:Button({
+        Title = "Teleport to Nearest Generator",
+        Callback = Movement.TeleportToNearestGenerator,
+    })
+end)
 
 local teleTargetName = ""
-Tabs.Movement:Input({
-    Title = "Target Player Name",
-    Desc  = "Enter exact name (case-sensitive)",
-    Value = "",
-    Placeholder = "PlayerName...",
-    Callback = function(v)
-        teleTargetName = tostring(v or "")
-    end,
-})
+Safe(function()
+    Tabs.Movement:Input({
+        Title = "Target Player Name",
+        Desc  = "Enter exact name (case-sensitive)",
+        Value = "",
+        Placeholder = "PlayerName...",
+        Callback = function(v)
+            teleTargetName = tostring(v or "")
+        end,
+    })
+end)
 
-Tabs.Movement:Button({
-    Title = "Teleport to Target",
-    Callback = function()
-        if teleTargetName and teleTargetName ~= "" then
-            Movement.TeleportToPlayer(teleTargetName)
-        else
-            Util.Notify("Movement", "Enter a target player name above", 3)
-        end
-    end,
-})
+Safe(function()
+    Tabs.Movement:Button({
+        Title = "Teleport to Target",
+        Callback = function()
+            if teleTargetName and teleTargetName ~= "" then
+                Movement.TeleportToPlayer(teleTargetName)
+            else
+                Util.Notify("Movement", "Enter a target player name above", 3)
+            end
+        end,
+    })
+end)
 
 --═══════════════════════════════════════════════════════════════
 -- VISUALS TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Visuals:Section({ Title = "Lighting" })
+Safe(function() Tabs.Visuals:Section({ Title = "Lighting" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "FullBright",
         Desc  = "Max brightness",
@@ -1566,7 +1617,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "No Fog",
         Desc  = "Remove fog + atmosphere",
@@ -1575,7 +1626,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "No Shadows",
         Desc  = "Disable global shadows",
@@ -1584,7 +1635,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "Clear Weather",
         Desc  = "Remove haze/rain",
@@ -1593,7 +1644,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Slider({
         Title = "Time of Day",
         Value = { Min = 0, Max = 24, Default = 14, Step = 0.5 },
@@ -1601,9 +1652,9 @@ pcall(function()
     })
 end)
 
-Tabs.Visuals:Section({ Title = "Camera" })
+Safe(function() Tabs.Visuals:Section({ Title = "Camera" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Slider({
         Title = "FOV",
         Value = { Min = 30, Max = 120, Default = 70, Step = 5 },
@@ -1611,7 +1662,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "Freecam",
         Desc  = "Free camera (WASD + Space/Ctrl)",
@@ -1620,9 +1671,9 @@ pcall(function()
     })
 end)
 
-Tabs.Visuals:Section({ Title = "Post-FX" })
+Safe(function() Tabs.Visuals:Section({ Title = "Post-FX" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "Remove Blur/Bloom/DOF",
         Desc  = "Cleaner view",
@@ -1631,7 +1682,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "Remove Color Correction",
         Desc  = "Disables tint filters",
@@ -1640,7 +1691,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "No Particles",
         Desc  = "Kill particles/fire/smoke",
@@ -1649,9 +1700,9 @@ pcall(function()
     })
 end)
 
-Tabs.Visuals:Section({ Title = "Performance" })
+Safe(function() Tabs.Visuals:Section({ Title = "Performance" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Visuals:Toggle({
         Title = "Low Graphics Mode",
         Desc  = "FPS boost",
@@ -1663,9 +1714,9 @@ end)
 --═══════════════════════════════════════════════════════════════
 -- MISC TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Misc:Section({ Title = "Audio" })
+Safe(function() Tabs.Misc:Section({ Title = "Audio" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Toggle({
         Title = "Mute All Sounds",
         Desc  = "Silences game sounds",
@@ -1674,7 +1725,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Toggle({
         Title = "Mute Background Music",
         Desc  = "Silences BackgroundSounds",
@@ -1683,9 +1734,9 @@ pcall(function()
     })
 end)
 
-Tabs.Misc:Section({ Title = "Character" })
+Safe(function() Tabs.Misc:Section({ Title = "Character" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Toggle({
         Title = "Hide Own Name",
         Desc  = "Hides overhead tag",
@@ -1694,9 +1745,9 @@ pcall(function()
     })
 end)
 
-Tabs.Misc:Section({ Title = "Automation" })
+Safe(function() Tabs.Misc:Section({ Title = "Automation" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Toggle({
         Title = "Auto Rejoin on Kick",
         Desc  = "Rejoins on disconnect",
@@ -1705,7 +1756,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Button({
         Title = "Server Hop",
         Desc  = "Joins new server",
@@ -1713,7 +1764,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Misc:Button({
         Title = "Copy JobId",
         Callback = function()
@@ -1730,9 +1781,9 @@ end)
 --═══════════════════════════════════════════════════════════════
 -- SETTINGS TAB CONTENT
 --═══════════════════════════════════════════════════════════════
-Tabs.Settings:Section({ Title = "Anti-AFK" })
+Safe(function() Tabs.Settings:Section({ Title = "Anti-AFK" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Toggle({
         Title = "Anti-AFK",
         Desc  = "Prevents idle kick",
@@ -1741,9 +1792,9 @@ pcall(function()
     })
 end)
 
-Tabs.Settings:Section({ Title = "Theme" })
+Safe(function() Tabs.Settings:Section({ Title = "Theme" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Dropdown({
         Title  = "Theme",
         Values = {"Dark", "Light"},
@@ -1759,9 +1810,9 @@ pcall(function()
     })
 end)
 
-Tabs.Settings:Section({ Title = "Config" })
+Safe(function() Tabs.Settings:Section({ Title = "Config" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Button({
         Title = "Save Config",
         Callback = function()
@@ -1776,7 +1827,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Button({
         Title = "Load Config",
         Callback = function()
@@ -1791,9 +1842,9 @@ pcall(function()
     })
 end)
 
-Tabs.Settings:Section({ Title = "Keybinds" })
+Safe(function() Tabs.Settings:Section({ Title = "Keybinds" }) end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Keybind({
         Title = "Toggle UI",
         Value = "RightShift",
@@ -1801,7 +1852,7 @@ pcall(function()
     })
 end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Keybind({
         Title = "Panic ESP",
         Value = "End",
@@ -1818,14 +1869,16 @@ pcall(function()
     })
 end)
 
-Tabs.Settings:Section({ Title = "Info" })
+Safe(function() Tabs.Settings:Section({ Title = "Info" }) end)
 
-Tabs.Settings:Paragraph({
-    Title = "Credits",
-    Desc  = "Created by " .. HUB.Author .. "\nVersion " .. HUB.Version .. "\nGame: " .. HUB.Game,
-})
+Safe(function()
+    Tabs.Settings:Paragraph({
+        Title = "Credits",
+        Desc  = "Created by " .. HUB.Author .. "\nVersion " .. HUB.Version .. "\nGame: " .. HUB.Game,
+    })
+end)
 
-pcall(function()
+Safe(function()
     Tabs.Settings:Button({
         Title = "Unload Hub",
         Callback = function()
