@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.7.6 - Border RP (Scarface)
--- FIX: Auto-equip tool before sell
+-- X0DEC04T Hub v2.7.7 - Border RP (Scarface)
+-- FIX: Use LIVE seller position + verify distance
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -17,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v276"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v277"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -28,7 +28,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.7.6 starting...")
+Log("BorderRP Hub v2.7.7 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -37,7 +37,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.6", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.7.7", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -104,7 +104,6 @@ local function FindRemote(name)
 end
 
 local DEFAULT_POS = {
-    SellNPC = Vector3.new(209.93, 17.23, -46.54),
     Laundry = Vector3.new(6804.78, 17.43, -34.70),
     Shop    = Vector3.new(6823.57, 17.40, -20.00),
 }
@@ -142,19 +141,14 @@ local State = {
     Smuggler_SellRetries = 5,
     Smuggler_Delay = 1,
     Smuggler_DebugMode = false,
-    Smuggler_ApproachMethod = "WalkFinal",
-    Smuggler_SyncWait = 1.5,
     Smuggler_AutoEquip = true,
     Smuggler_EquipAll = true,
     POS_Shop = DEFAULT_POS.Shop,
-    POS_Sell = DEFAULT_POS.SellNPC,
     POS_Laundry = DEFAULT_POS.Laundry,
 
-    -- Anti-cheat
     AntiTpBypass = true,
     TPStrategy = "Chunked",
     TPChunkSize = 150,
-    TPTweenSpeed = 500,
 
     Police_AutoAim=false, Police_AutoFire=false, Police_AutoArrest=false,
     Police_AimPart="Head", Police_AimFOV=150, Police_AimSmooth=1,
@@ -186,7 +180,6 @@ local function GetWantedLevel(p) return tonumber(p and p:GetAttribute("WantedLev
 local function IsWanted(p) return GetWantedLevel(p) >= (State.Police_MinWantedLevel or 1) end
 local function GetRank(p) return tostring(p and p:GetAttribute("CurrentRankName") or "Unknown") end
 
--- Count items in backpack+character by name
 local function CountItems(toolName)
     local count = 0
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -212,7 +205,6 @@ local AntiTpBypass = {
     hookInstalled = false,
     blockedOut = 0,
     lastTPTime = 0,
-    protectDuration = 3,
 }
 
 function AntiTpBypass.MarkTeleport()
@@ -308,69 +300,11 @@ function SmartTP.Chunked(pos, yOff)
     return true
 end
 
-function SmartTP.Tween(pos, yOff)
-    if not pos then return false end
-    AntiTpBypass.MarkTeleport()
-    local hrp = GetHRP(); if not hrp then return false end
-    local speed = State.TPTweenSpeed or 500
-    local targetPos = pos + Vector3.new(0, yOff or 3, 0)
-    local dist = (targetPos - hrp.Position).Magnitude
-    local duration = math.max(0.1, dist / speed)
-    
-    local tween = TweenService:Create(hrp,
-        TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
-        {CFrame = CFrame.new(targetPos)})
-    tween:Play()
-    tween.Completed:Wait()
-    task.wait(0.3)
-    return true
-end
-
-function SmartTP.Velocity(pos, yOff)
-    if not pos then return false end
-    AntiTpBypass.MarkTeleport()
-    local hrp = GetHRP(); if not hrp then return false end
-    local targetPos = pos + Vector3.new(0, yOff or 3, 0)
-    local dist = (targetPos - hrp.Position).Magnitude
-    
-    local bv = Instance.new("BodyVelocity")
-    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bv.Velocity = (targetPos - hrp.Position).Unit * 300
-    bv.Parent = hrp
-    
-    local duration = math.max(0.2, dist / 300)
-    task.wait(duration)
-    
-    bv:Destroy()
-    hrp.CFrame = CFrame.new(targetPos)
-    task.wait(0.3)
-    return true
-end
-
 function SmartTP.Go(pos, yOff)
     if State.AntiTpBypass then AntiTpBypass.Enable() end
     local strategy = State.TPStrategy or "Chunked"
-    if strategy == "Instant"  then return SmartTP.Instant(pos, yOff)  end
-    if strategy == "Chunked"  then return SmartTP.Chunked(pos, yOff)  end
-    if strategy == "Tween"    then return SmartTP.Tween(pos, yOff)    end
-    if strategy == "Velocity" then return SmartTP.Velocity(pos, yOff) end
+    if strategy == "Instant" then return SmartTP.Instant(pos, yOff) end
     return SmartTP.Chunked(pos, yOff)
-end
-
-function SmartTP.Walk(targetPos, timeout)
-    local hrp = GetHRP()
-    local hum = GetHuman()
-    if not hrp or not hum then return false end
-    
-    timeout = timeout or 5
-    hum:MoveTo(targetPos)
-    
-    local start = tick()
-    while tick() - start < timeout do
-        if (hrp.Position - targetPos).Magnitude < 4 then return true end
-        task.wait(0.1)
-    end
-    return false
 end
 
 --━ ESP
@@ -500,7 +434,7 @@ function Car.TeleportToPlayer(name)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SMUGGLER - WITH AUTO EQUIP
+-- SMUGGLER - LIVE SELLER POSITION FIX
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Smuggler = {}
 
@@ -517,39 +451,28 @@ function Smuggler.FirePrompt(prompt)
     return ok
 end
 
--- Equip a single tool by name
 function Smuggler.EquipTool(toolName)
     local ch = GetChar()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not ch or not backpack then return false end
-    
-    if ch:FindFirstChild(toolName) then
-        if State.Smuggler_DebugMode then Log("[Equip] Already equipped: " .. toolName) end
-        return true
-    end
-    
+    if ch:FindFirstChild(toolName) then return true end
     local tool = backpack:FindFirstChild(toolName)
     if tool then
         local hum = GetHuman()
         if hum then
             local ok = pcall(function() hum:EquipTool(tool) end)
             task.wait(0.3)
-            if State.Smuggler_DebugMode then Log("[Equip] " .. tostring(ok) .. " - " .. toolName) end
             return ok
         end
     end
-    
-    if State.Smuggler_DebugMode then Log("[Equip] Not found in backpack: " .. toolName) end
     return false
 end
 
--- Equip ALL matching tools (for multi-sell)
 function Smuggler.EquipAll(toolName)
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not backpack then return 0 end
     local hum = GetHuman()
     if not hum then return 0 end
-    
     local count = 0
     for _, t in ipairs(backpack:GetChildren()) do
         if t:IsA("Tool") and t.Name == toolName then
@@ -558,7 +481,7 @@ function Smuggler.EquipAll(toolName)
             task.wait(0.15)
         end
     end
-    if State.Smuggler_DebugMode then Log("[EquipAll] Equipped " .. count .. " x " .. toolName) end
+    if State.Smuggler_DebugMode then Log("[EquipAll] Equipped " .. count) end
     return count
 end
 
@@ -624,17 +547,32 @@ function Smuggler.GetSellPrompt(sellerName)
     return hrp:FindFirstChild("SellSmuggledGoodsPrompt"), seller
 end
 
+-- Find NEAREST seller to save distance
+function Smuggler.GetNearestSeller()
+    local myHRP = GetHRP()
+    if not myHRP or not BRP_PATHS.NPC then return nil end
+    local best, bestDist = nil, math.huge
+    for _, npc in ipairs(BRP_PATHS.NPC:GetChildren()) do
+        if npc.Name:lower():find("seller") then
+            local sHRP = npc:FindFirstChild("HumanoidRootPart")
+            if sHRP then
+                local d = (sHRP.Position - myHRP.Position).Magnitude
+                if d < bestDist then best = npc; bestDist = d end
+            end
+        end
+    end
+    return best, bestDist
+end
+
 function Smuggler.SellItems()
-    -- STEP 1: EQUIP THE ITEM FIRST (critical!)
+    -- STEP 1: Verify inventory and equip
     if State.Smuggler_AutoEquip then
         local itemCount = CountItems(State.Smuggler_ItemName)
-        Log("[Smuggler] Items in inventory: " .. itemCount)
-        
+        Log("[Smuggler] Items to sell: " .. itemCount)
         if itemCount == 0 then
-            Log("[Smuggler] No items to sell - skipping")
+            Log("[Smuggler] Nothing to sell")
             return false
         end
-        
         if State.Smuggler_EquipAll then
             Smuggler.EquipAll(State.Smuggler_ItemName)
         else
@@ -643,99 +581,80 @@ function Smuggler.SellItems()
         task.wait(0.4)
     end
     
-    -- STEP 2: MOVE TO SELLER
-    Log("[Smuggler] Moving to seller")
+    -- STEP 2: Get seller LIVE position (not hardcoded!)
     local prompt, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
-    
     if not seller then
-        SmartTP.Go(State.POS_Sell, 3)
-        task.wait(State.Smuggler_SyncWait)
-    else
-        local sHRP = seller:FindFirstChild("HumanoidRootPart")
-        if not sHRP then
-            SmartTP.Go(State.POS_Sell, 3)
-            task.wait(State.Smuggler_SyncWait)
-        else
-            local sellerPos = sHRP.Position
-            
-            if State.Smuggler_ApproachMethod == "WalkFinal" then
-                Log("[Smuggler] TP + walk approach")
-                local myHRP = GetHRP()
-                local direction = myHRP and (myHRP.Position - sellerPos) or Vector3.new(0, 0, 1)
-                if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
-                direction = direction.Unit
-                local nearPos = sellerPos + direction * 15
-                SmartTP.Go(nearPos, 3)
-                task.wait(0.6)
-                
-                local hum = GetHuman()
-                if hum then
-                    local walkTarget = sellerPos + sHRP.CFrame.LookVector * 2
-                    hum:MoveTo(walkTarget)
-                    local walkStart = tick()
-                    while tick() - walkStart < 4 do
-                        local mh = GetHRP()
-                        if mh and (mh.Position - sellerPos).Magnitude < 4 then break end
-                        task.wait(0.1)
-                    end
-                    task.wait(0.5)
-                end
-            elseif State.Smuggler_ApproachMethod == "HighSpeedWalk" then
-                Log("[Smuggler] High-speed walk approach")
-                local hum = GetHuman()
-                local origSpeed = hum and hum.WalkSpeed or 16
-                local myHRP = GetHRP()
-                local direction = myHRP and (myHRP.Position - sellerPos) or Vector3.new(0, 0, 1)
-                if direction.Magnitude < 1 then direction = Vector3.new(0, 0, 1) end
-                direction = direction.Unit
-                local nearPos = sellerPos + direction * 25
-                SmartTP.Go(nearPos, 3)
-                task.wait(0.5)
-                if hum then hum.WalkSpeed = 80 end
-                if hum then
-                    hum:MoveTo(sellerPos + sHRP.CFrame.LookVector * 2)
-                    local walkStart = tick()
-                    while tick() - walkStart < 3 do
-                        local mh = GetHRP()
-                        if mh and (mh.Position - sellerPos).Magnitude < 4 then break end
-                        task.wait(0.1)
-                    end
-                end
-                if hum then hum.WalkSpeed = origSpeed end
-                task.wait(0.5)
-            else
-                Log("[Smuggler] Direct TP approach")
-                local frontPos = sellerPos + sHRP.CFrame.LookVector * 2
-                SmartTP.Go(frontPos, 0)
-                task.wait(State.Smuggler_SyncWait)
-            end
-            
-            local myHRP = GetHRP()
-            if myHRP then
-                if State.Smuggler_DebugMode then
-                    Log("[Smuggler] Final distance: " .. math.floor((myHRP.Position - sellerPos).Magnitude))
-                end
-                myHRP.CFrame = CFrame.lookAt(myHRP.Position, sellerPos)
-                task.wait(0.2)
-            end
+        Log("[Smuggler] Seller not found: " .. State.Smuggler_SellerName)
+        return false
+    end
+    
+    local sHRP = seller:FindFirstChild("HumanoidRootPart")
+    if not sHRP then
+        Log("[Smuggler] Seller HRP missing")
+        return false
+    end
+    
+    local sellerPos = sHRP.Position
+    Log("[Smuggler] Seller " .. seller.Name .. " at " .. tostring(sellerPos))
+    
+    -- STEP 3: TP directly to seller (using LIVE position)
+    local myHRP = GetHRP()
+    if not myHRP then return false end
+    
+    AntiTpBypass.MarkTeleport()
+    local frontPos = sellerPos + sHRP.CFrame.LookVector * 3
+    myHRP.CFrame = CFrame.new(frontPos.X, sellerPos.Y + 3, frontPos.Z)
+    task.wait(0.5)
+    
+    local dist = (myHRP.Position - sellerPos).Magnitude
+    Log("[Smuggler] Distance after TP: " .. math.floor(dist) .. " (max: 12)")
+    
+    -- Force closer if too far
+    if dist > 10 then
+        for i = 1, 3 do
+            AntiTpBypass.MarkTeleport()
+            myHRP.CFrame = CFrame.new(sellerPos + Vector3.new(0, 3, 2))
+            task.wait(0.3)
+            dist = (myHRP.Position - sellerPos).Magnitude
+            Log("[Smuggler] Retry " .. i .. " dist: " .. math.floor(dist))
+            if dist < 10 then break end
         end
     end
     
-    -- STEP 3: RE-EQUIP (in case something changed) AND SELL
+    myHRP.CFrame = CFrame.lookAt(myHRP.Position, sellerPos)
+    task.wait(0.3)
+    
+    -- STEP 4: Re-equip after TP
     if State.Smuggler_AutoEquip then
-        Smuggler.EquipAll(State.Smuggler_ItemName)
+        task.wait(0.2)
+        if State.Smuggler_EquipAll then
+            Smuggler.EquipAll(State.Smuggler_ItemName)
+        else
+            Smuggler.EquipTool(State.Smuggler_ItemName)
+        end
         task.wait(0.3)
     end
     
-    Log("[Smuggler] Firing sell prompt")
+    -- STEP 5: Fire sell repeatedly with position hold
+    Log("[Smuggler] Selling now")
     local retries = State.Smuggler_SellRetries or 5
     for i = 1, retries do
-        -- Re-equip between each attempt in case tool got dropped
-        if State.Smuggler_AutoEquip and i > 1 then
+        local mh = GetHRP()
+        if mh then
+            local d = (mh.Position - sellerPos).Magnitude
+            if d > 10 then
+                AntiTpBypass.MarkTeleport()
+                mh.CFrame = CFrame.new(sellerPos + sHRP.CFrame.LookVector * 3 + Vector3.new(0, 3, 0))
+                mh.CFrame = CFrame.lookAt(mh.Position, sellerPos)
+                task.wait(0.2)
+            end
+        end
+        
+        if State.Smuggler_AutoEquip then
             local ch = GetChar()
             if ch and not ch:FindFirstChild(State.Smuggler_ItemName) then
                 Smuggler.EquipTool(State.Smuggler_ItemName)
-                task.wait(0.2)
+                task.wait(0.15)
             end
         end
         
@@ -760,9 +679,8 @@ end
 
 function Smuggler.LaunderMoney()
     if not State.Smuggler_AutoLaunder then return true end
-    Log("[Smuggler] Moving to laundry")
-    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.6)
     Log("[Smuggler] Laundering")
+    SmartTP.Go(State.POS_Laundry, 3); task.wait(0.6)
     local prompt = Smuggler.GetLaunderPrompt()
     if prompt then 
         for i = 1, 2 do
@@ -812,7 +730,6 @@ function Police.CreateFOV()
         State.Police_FOVCircle.Transparency = 0.7; State.Police_FOVCircle.Color = Color3.fromRGB(255, 50, 50)
     end
 end
-
 function Police.UpdateFOV()
     if State.Police_FOVCircle then
         local vp = Camera.ViewportSize
@@ -821,7 +738,6 @@ function Police.UpdateFOV()
         State.Police_FOVCircle.Visible = State.Police_ShowFOV and (State.Police_AutoAim or State.Police_AutoFire)
     end
 end
-
 function Police.GetTarget()
     local myHRP = GetHRP(); if not myHRP then return nil, nil end
     local vp = Camera.ViewportSize; local center = Vector2.new(vp.X/2, vp.Y/2)
@@ -850,21 +766,18 @@ function Police.GetTarget()
     end
     return bestP, bestPart
 end
-
 function Police.AimAt(part)
     if not part or not part.Parent then return end
     local tp = part.Position
     if State.Police_AimSmooth <= 1 then Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, tp)
     else local cur = Camera.CFrame; Camera.CFrame = cur:Lerp(CFrame.lookAt(cur.Position, tp), math.clamp(1/State.Police_AimSmooth, 0.05, 1)) end
 end
-
 function Police.TryFire()
     pcall(function() mouse1click() end)
     if BRP.BatonSwing and State.Police_CurrentTarget then
         pcall(function() BRP.BatonSwing:FireServer(State.Police_CurrentTarget) end)
     end
 end
-
 function Police.TryArrest()
     local t = State.Police_CurrentTarget
     if not t or not t.Character then return end
@@ -883,7 +796,6 @@ function Police.TryArrest()
     end
     if BRP.Jail then task.wait(0.4); pcall(function() BRP.Jail:InvokeServer(t) end) end
 end
-
 function Police.SetAutoAim(e)
     State.Police_AutoAim = e
     if State.Police_AimConn then pcall(function() State.Police_AimConn:Disconnect() end); State.Police_AimConn=nil end
@@ -897,13 +809,12 @@ function Police.SetAutoAim(e)
                 Police.AimAt(part)
             end
         end)
-        Notify("Aimbot", "Enabled - hold RMB to lock", 3)
+        Notify("Aimbot", "Enabled - hold RMB", 3)
     else
         if State.Police_FOVCircle then pcall(function() State.Police_FOVCircle.Visible = false end) end
         State.Police_CurrentTarget = nil
     end
 end
-
 function Police.SetAutoFire(e)
     State.Police_AutoFire = e
     if State.Police_FireConn then pcall(function() State.Police_FireConn:Disconnect() end); State.Police_FireConn=nil end
@@ -916,7 +827,6 @@ function Police.SetAutoFire(e)
         end)
     end
 end
-
 function Police.SetAutoArrest(e)
     State.Police_AutoArrest = e
     if State.Police_ArrestConn then pcall(function() State.Police_ArrestConn:Disconnect() end); State.Police_ArrestConn=nil end
@@ -1029,12 +939,11 @@ local function Drp(t,c) if t then pcall(function() t:CreateDropdown(c) end) end 
 if Tabs.Main then
     local T = Tabs.Main
     Sec(T, "X0DEC04T Hub v" .. HUB.Version)
-    Lbl(T, "Game: Border RP (Scarface)")
+    Lbl(T, "Game: Border RP")
     Lbl(T, "PlaceId: 136020512003847")
     Sec(T, "System")
-    Lbl(T, "Remotes wired: " .. remoteCount)
-    Lbl(T, "Buyable items: " .. (BRP_PATHS.WorldBuyableItems and #BRP_PATHS.WorldBuyableItems:GetChildren() or 0))
-    Lbl(T, "Sellers found: " .. #GetSellerNames())
+    Lbl(T, "Remotes: " .. remoteCount)
+    Lbl(T, "Sellers: " .. #GetSellerNames())
     Sec(T, "Player")
     Lbl(T, "Team: " .. (LocalPlayer.Team and LocalPlayer.Team.Name or "None"))
     Lbl(T, "Rank: " .. GetRank(LocalPlayer))
@@ -1045,14 +954,14 @@ if Tabs.Car then
     Sec(T, "Speed")
     Sld(T, {Name="Extra Speed", Range={0,500}, Increment=10, CurrentValue=0, Flag="ES",
         Callback=function(v) State.CarSpeed=v; Car.ApplySpeed() end})
-    Sld(T, {Name="SpeedHack Value", Range={100,2000}, Increment=50, CurrentValue=500, Flag="SHV",
+    Sld(T, {Name="SpeedHack", Range={100,2000}, Increment=50, CurrentValue=500, Flag="SHV",
         Callback=function(v) State.SpeedHackValue=v; if State.SpeedHack then Car.SetSpeedHack(true) end end})
     Tog(T, {Name="Speed Hack", CurrentValue=false, Flag="SH",
         Callback=function(v) State.SpeedHack=v; Car.SetSpeedHack(v) end})
     Sec(T, "Actions")
     Btn(T, {Name="Flip Car", Callback=Car.Flip})
-    Btn(T, {Name="Boost Forward", Callback=Car.Boost})
-    Btn(T, {Name="Unstuck Vehicle", Callback=function() if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end end})
+    Btn(T, {Name="Boost", Callback=Car.Boost})
+    Btn(T, {Name="Unstuck", Callback=function() if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end end})
     Sec(T, "Abilities")
     Tog(T, {Name="NoClip", CurrentValue=false, Flag="NC", Callback=function(v) State.NoClip=v; Car.SetNoClip(v) end})
     Tog(T, {Name="Fly", CurrentValue=false, Flag="FL", Callback=function(v) State.FlyActive=v; Car.SetFly(v) end})
@@ -1068,50 +977,61 @@ end
 if Tabs.Smuggler then
     local T = Tabs.Smuggler
     Sec(T, "Auto Smuggler")
-    Lbl(T, "Loop: Buy - Equip - Sell - Launder")
+    Lbl(T, "Uses LIVE seller position")
     
     Sec(T, "Item Selection")
     local buyableNames = GetBuyableItemNames()
     Drp(T, {Name="Item to Buy", Options=buyableNames,
         CurrentOption={"Fake Diamond Ring"}, MultiOption=false, Flag="ItemPick",
         Callback=function(v) State.Smuggler_ItemName = (type(v)=="table" and v[1]) or v end})
-    Sld(T, {Name="Buy Prompt Retries", Range={1,5}, Increment=1, CurrentValue=2, Flag="BR",
+    Sld(T, {Name="Buy Retries", Range={1,5}, Increment=1, CurrentValue=2, Flag="BR",
         Callback=function(v) State.Smuggler_BuyRetries = v end})
     
     Sec(T, "Equip Settings")
     Tog(T, {Name="Auto Equip Before Sell", CurrentValue=true, Flag="AE",
         Callback=function(v) State.Smuggler_AutoEquip = v end})
-    Tog(T, {Name="Equip All Copies (multi-sell)", CurrentValue=true, Flag="EA",
+    Tog(T, {Name="Equip All Copies", CurrentValue=true, Flag="EA",
         Callback=function(v) State.Smuggler_EquipAll = v end})
     
-    Sec(T, "Seller Approach")
+    Sec(T, "Seller Selection")
     local sellerNames = GetSellerNames()
     Drp(T, {Name="Target Seller", Options=sellerNames,
         CurrentOption={State.Smuggler_SellerName}, MultiOption=false, Flag="SN",
         Callback=function(v) State.Smuggler_SellerName = (type(v)=="table" and v[1]) or v end})
-    Drp(T, {Name="Approach Method", Options={"WalkFinal","HighSpeedWalk","DirectTP"},
-        CurrentOption={"WalkFinal"}, MultiOption=false, Flag="AM",
-        Callback=function(v) State.Smuggler_ApproachMethod = (type(v)=="table" and v[1]) or v end})
     Sld(T, {Name="Sell Retries", Range={1,10}, Increment=1, CurrentValue=5, Flag="SR",
         Callback=function(v) State.Smuggler_SellRetries = v end})
-    Sld(T, {Name="Server Sync Wait (0.1s)", Range={5,30}, Increment=1, CurrentValue=15, Flag="SW",
-        Callback=function(v) State.Smuggler_SyncWait = v / 10 end})
+    Btn(T, {Name="Set to Nearest Seller", Callback=function()
+        local best, dist = Smuggler.GetNearestSeller()
+        if best then
+            State.Smuggler_SellerName = best.Name
+            Notify("Seller", best.Name .. " (" .. math.floor(dist) .. "m)", 3)
+        end
+    end})
+    Btn(T, {Name="Show Seller Positions", Callback=function()
+        if not BRP_PATHS.NPC then return end
+        local myHRP = GetHRP()
+        for _, npc in ipairs(BRP_PATHS.NPC:GetChildren()) do
+            if npc.Name:lower():find("seller") then
+                local h = npc:FindFirstChild("HumanoidRootPart")
+                if h then
+                    local d = myHRP and (h.Position - myHRP.Position).Magnitude or 0
+                    Log(string.format("[%s] Pos: %s | Distance: %.1f", npc.Name, tostring(h.Position), d))
+                end
+            end
+        end
+    end})
     
-    Sec(T, "Anti-Cheat Bypass")
-    Tog(T, {Name="AntiTp Rollback Bypass", CurrentValue=true, Flag="ATP",
-        Callback=function(v) 
-            State.AntiTpBypass = v
-            if v then AntiTpBypass.Enable() else AntiTpBypass.Disable() end
-        end})
-    Drp(T, {Name="Teleport Strategy", 
-        Options={"Instant","Chunked","Tween","Velocity"},
+    Sec(T, "Anti-Cheat")
+    Tog(T, {Name="AntiTp Bypass", CurrentValue=true, Flag="ATP",
+        Callback=function(v) State.AntiTpBypass = v; if v then AntiTpBypass.Enable() else AntiTpBypass.Disable() end end})
+    Drp(T, {Name="TP Strategy", Options={"Instant","Chunked"},
         CurrentOption={"Chunked"}, MultiOption=false, Flag="TPS",
         Callback=function(v) State.TPStrategy = (type(v)=="table" and v[1]) or v end})
-    Sld(T, {Name="Chunk Size (studs)", Range={50,500}, Increment=25, CurrentValue=150, Flag="TCS",
+    Sld(T, {Name="Chunk Size", Range={50,500}, Increment=25, CurrentValue=150, Flag="TCS",
         Callback=function(v) State.TPChunkSize = v end})
     
     Sec(T, "Timing")
-    Sld(T, {Name="Cycle Delay (sec)", Range={0,10}, Increment=1, CurrentValue=1, Flag="SD",
+    Sld(T, {Name="Cycle Delay", Range={0,10}, Increment=1, CurrentValue=1, Flag="SD",
         Callback=function(v) State.Smuggler_Delay = v end})
     Tog(T, {Name="Use Remote Backup", CurrentValue=true, Flag="UR",
         Callback=function(v) State.Smuggler_UseRemotes = v end})
@@ -1128,27 +1048,20 @@ if Tabs.Smuggler then
     Btn(T, {Name="1. Buy Item", Callback=function() task.spawn(Smuggler.BuyItem) end})
     Btn(T, {Name="2. Equip Item(s)", Callback=function()
         task.spawn(function()
-            if State.Smuggler_EquipAll then
-                Smuggler.EquipAll(State.Smuggler_ItemName)
-            else
-                Smuggler.EquipTool(State.Smuggler_ItemName)
-            end
+            if State.Smuggler_EquipAll then Smuggler.EquipAll(State.Smuggler_ItemName)
+            else Smuggler.EquipTool(State.Smuggler_ItemName) end
         end)
     end})
     Btn(T, {Name="3. Sell to NPC", Callback=function() task.spawn(Smuggler.SellItems) end})
     Btn(T, {Name="4. Launder Money", Callback=function() task.spawn(Smuggler.LaunderMoney) end})
     
-    Sec(T, "Direct Remote Fire")
+    Sec(T, "Direct Remote")
     Btn(T, {Name="Fire SellSmuggledGoods", Callback=function()
         if BRP.SellSmuggledGoods then pcall(function() BRP.SellSmuggledGoods:FireServer() end); Notify("Sent","",2) end
     end})
-    Btn(T, {Name="Fire LaunderBriefcase", Callback=function()
-        if BRP.LaunderBriefcase then pcall(function() BRP.LaunderBriefcase:FireServer() end); Notify("Sent","",2) end
-    end})
-    Btn(T, {Name="Count Items in Inventory", Callback=function()
+    Btn(T, {Name="Count Items", Callback=function()
         local c = CountItems(State.Smuggler_ItemName)
         Notify("Inventory", c .. " x " .. State.Smuggler_ItemName, 4)
-        Log("Items: " .. c)
     end})
 end
 
@@ -1156,24 +1069,24 @@ if Tabs.Police then
     local T = Tabs.Police
     Sec(T, "Police Aimbot")
     Sec(T, "Targeting")
-    Tog(T, {Name="Target Wanted Only", CurrentValue=true, Flag="TW", Callback=function(v) State.Police_TargetWanted=v end})
-    Tog(T, {Name="Target All Players", CurrentValue=false, Flag="TA", Callback=function(v) State.Police_TargetAll=v end})
-    Sld(T, {Name="Min Wanted Level", Range={1,10}, Increment=1, CurrentValue=1, Flag="MWL",
+    Tog(T, {Name="Wanted Only", CurrentValue=true, Flag="TW", Callback=function(v) State.Police_TargetWanted=v end})
+    Tog(T, {Name="Target All", CurrentValue=false, Flag="TA", Callback=function(v) State.Police_TargetAll=v end})
+    Sld(T, {Name="Min Wanted", Range={1,10}, Increment=1, CurrentValue=1, Flag="MWL",
         Callback=function(v) State.Police_MinWantedLevel=v end})
-    Drp(T, {Name="Aim Part", Options={"Head","HumanoidRootPart","UpperTorso","LowerTorso"},
+    Drp(T, {Name="Aim Part", Options={"Head","HumanoidRootPart","UpperTorso"},
         CurrentOption={"Head"}, MultiOption=false, Flag="AP",
         Callback=function(v) State.Police_AimPart = (type(v)=="table" and v[1]) or v end})
-    Sec(T, "Aim Settings")
-    Sld(T, {Name="FOV Radius", Range={30,500}, Increment=10, CurrentValue=150, Flag="AFOV",
+    Sec(T, "Aim")
+    Sld(T, {Name="FOV", Range={30,500}, Increment=10, CurrentValue=150, Flag="AFOV",
         Callback=function(v) State.Police_AimFOV=v end})
     Sld(T, {Name="Smoothness", Range={1,20}, Increment=1, CurrentValue=1, Flag="ASM",
         Callback=function(v) State.Police_AimSmooth=v end})
     Tog(T, {Name="Show FOV Circle", CurrentValue=true, Flag="SFOV", Callback=function(v) State.Police_ShowFOV=v end})
     Sec(T, "Controls")
-    Tog(T, {Name="Auto-Aim (hold RMB)", CurrentValue=false, Flag="AAim", Callback=function(v) Police.SetAutoAim(v) end})
+    Tog(T, {Name="Auto-Aim (RMB)", CurrentValue=false, Flag="AAim", Callback=function(v) Police.SetAutoAim(v) end})
     Tog(T, {Name="Auto-Fire", CurrentValue=false, Flag="AFire", Callback=function(v) Police.SetAutoFire(v) end})
     Tog(T, {Name="Auto-Arrest", CurrentValue=false, Flag="AArr", Callback=function(v) Police.SetAutoArrest(v) end})
-    Sec(T, "Quick Actions")
+    Sec(T, "Quick")
     Btn(T, {Name="TP to Nearest Wanted", Callback=function()
         local myHRP = GetHRP(); if not myHRP then return end
         local best, bestDist = nil, math.huge
@@ -1186,10 +1099,10 @@ if Tabs.Police then
         if best and best.Character then
             local hrp = best.Character:FindFirstChild("HumanoidRootPart")
             if hrp then SmartTP.Go(hrp.Position + hrp.CFrame.LookVector * -5, 1)
-                Notify("TP", "Moved to " .. best.Name, 3) end
-        else Notify("TP", "No wanted players", 3) end
+                Notify("TP", "-> " .. best.Name, 3) end
+        else Notify("TP", "No wanted", 3) end
     end})
-    Btn(T, {Name="Detain Current Target", Callback=function()
+    Btn(T, {Name="Detain Target", Callback=function()
         if State.Police_CurrentTarget and BRP.Detain then
             pcall(function() BRP.Detain:InvokeServer(State.Police_CurrentTarget) end)
         end
@@ -1209,8 +1122,24 @@ if Tabs.Teleport then
         Callback=function(v) Car.TeleportToPlayer((type(v)=="table" and v[1]) or v) end})
     Sec(T, "Quick Locations")
     Btn(T, {Name="Shop (El Capo)", Callback=function() SmartTP.Go(State.POS_Shop, 3) end})
-    Btn(T, {Name="Sell NPC", Callback=function() SmartTP.Go(State.POS_Sell, 3) end})
+    Btn(T, {Name="Nearest Seller", Callback=function()
+        local best, dist = Smuggler.GetNearestSeller()
+        if best then
+            local h = best:FindFirstChild("HumanoidRootPart")
+            if h then SmartTP.Go(h.Position, 3); Notify("TP", "-> " .. best.Name, 3) end
+        end
+    end})
     Btn(T, {Name="Laundry", Callback=function() SmartTP.Go(State.POS_Laundry, 3) end})
+    Sec(T, "All Sellers")
+    for _, name in ipairs(GetSellerNames()) do
+        Btn(T, {Name="TP to " .. name, Callback=function()
+            local npc = BRP_PATHS.NPC and BRP_PATHS.NPC:FindFirstChild(name)
+            if npc then
+                local h = npc:FindFirstChild("HumanoidRootPart")
+                if h then SmartTP.Go(h.Position, 3) end
+            end
+        end})
+    end
 end
 
 if Tabs.ESP then
@@ -1220,11 +1149,11 @@ if Tabs.ESP then
     Tog(T, {Name="Wanted (Red)", CurrentValue=false, Flag="WE", Callback=function(v) State.ESP_Wanted=v end})
     Tog(T, {Name="Police (Blue)", CurrentValue=false, Flag="POE", Callback=function(v) State.ESP_Police=v end})
     Sec(T, "Display")
-    Tog(T, {Name="Show Names", CurrentValue=true, Flag="EN",
+    Tog(T, {Name="Names", CurrentValue=true, Flag="EN",
         Callback=function(v) State.ESP_ShowName=v; for _,c in pairs(State.ESPCache) do if c.nl then c.nl.Visible=v end end end})
-    Tog(T, {Name="Show Distance", CurrentValue=true, Flag="ED",
+    Tog(T, {Name="Distance", CurrentValue=true, Flag="ED",
         Callback=function(v) State.ESP_ShowDist=v; for _,c in pairs(State.ESPCache) do if c.dl then c.dl.Visible=v end end end})
-    Sld(T, {Name="Max Distance", Range={100,5000}, Increment=100, CurrentValue=800, Flag="EMD",
+    Sld(T, {Name="Max Dist", Range={100,5000}, Increment=100, CurrentValue=800, Flag="EMD",
         Callback=function(v) State.ESP_MaxDist=v; for _,c in pairs(State.ESPCache) do if c.bb then c.bb.MaxDistance=v end end end})
     Btn(T, {Name="Refresh", Callback=function() ESP.ClearAll(); ESP.RefreshAll() end})
     Btn(T, {Name="Clear All", Callback=ESP.ClearAll})
@@ -1254,7 +1183,7 @@ if Tabs.Visuals then
     Sec(T, "Lighting")
     Tog(T, {Name="FullBright", CurrentValue=false, Flag="FB", Callback=function(v) State.FullBright=v; Vis.FullBright(v) end})
     Tog(T, {Name="No Fog", CurrentValue=false, Flag="NF", Callback=function(v) State.NoFog=v; Vis.NoFog(v) end})
-    Sld(T, {Name="Time of Day", Range={0,24}, Increment=1, CurrentValue=14, Flag="TOD", Callback=function(v) Vis.SetClock(v) end})
+    Sld(T, {Name="Time", Range={0,24}, Increment=1, CurrentValue=14, Flag="TOD", Callback=function(v) Vis.SetClock(v) end})
     Sec(T, "Camera")
     Sld(T, {Name="FOV", Range={30,120}, Increment=5, CurrentValue=70, Flag="FOV2", Callback=function(v) State.FOV=v; Vis.SetFOV(v) end})
 end
@@ -1262,23 +1191,19 @@ end
 if Tabs.Misc then
     local T = Tabs.Misc
     Sec(T, "Audio")
-    Tog(T, {Name="Mute All Sounds", CurrentValue=false, Flag="MA", Callback=function(v) Vis.MuteAll(v) end})
+    Tog(T, {Name="Mute All", CurrentValue=false, Flag="MA", Callback=function(v) Vis.MuteAll(v) end})
     Sec(T, "Server")
     Btn(T, {Name="Server Hop", Callback=Vis.ServerHop})
     Btn(T, {Name="Rejoin", Callback=function() pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end) end})
     Sec(T, "Utility")
-    Btn(T, {Name="Copy Current Position", Callback=function()
+    Btn(T, {Name="Copy Position", Callback=function()
         local h = GetHRP()
         if h then
             local p = h.Position
             local s = string.format("Vector3.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
-            Log("Pos: " .. s)
             if setclipboard then setclipboard(s) end
             Notify("Copied", s, 3)
         end
-    end})
-    Btn(T, {Name="Copy JobId", Callback=function()
-        if setclipboard then setclipboard(tostring(game.JobId)); Notify("Copied","JobId",2) end
     end})
 end
 
@@ -1289,19 +1214,15 @@ if Tabs.Settings then
     Sec(T, "Keybinds")
     Kbnd(T, {Name="Toggle UI", CurrentKeybind="RightShift", HoldToInteract=false, Flag="KUI",
         Callback=function() pcall(function() Window:Toggle() end) end})
-    Kbnd(T, {Name="Panic (Disable All)", CurrentKeybind="End", HoldToInteract=false, Flag="KP",
+    Kbnd(T, {Name="Panic", CurrentKeybind="End", HoldToInteract=false, Flag="KP",
         Callback=function()
-            State.ESP_Players=false; State.ESP_Wanted=false; State.ESP_Police=false
             ESP.ClearAll()
             Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
             Smuggler.SetAutoLoop(false)
             Notify("PANIC", "All disabled", 3)
         end})
-    Kbnd(T, {Name="Toggle Aimbot", CurrentKeybind="RightAlt", HoldToInteract=false, Flag="KAim",
-        Callback=function() State.Police_AutoAim = not State.Police_AutoAim; Police.SetAutoAim(State.Police_AutoAim) end})
     Sec(T, "Credits")
     Lbl(T, HUB.Name .. " v" .. HUB.Version)
-    Lbl(T, "by " .. HUB.Author)
     Sec(T, "Unload")
     Btn(T, {Name="Unload Hub", Callback=function()
         Smuggler.SetAutoLoop(false)
@@ -1324,7 +1245,6 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.NoClip then pcall(Car.SetNoClip, true) end
     if State.FlyActive then pcall(Car.SetFly, true) end
     if State.FullBright then pcall(Vis.FullBright, true) end
-    if State.WalkSpeed ~= 16 then local h=GetHuman(); if h then h.WalkSpeed=State.WalkSpeed end end
     if State.AntiTpBypass then AntiTpBypass.Enable() end
 end)
 
@@ -1341,4 +1261,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v" .. HUB.Version .. " loaded", 4)
-Log("v2.7.6 init complete | " .. remoteCount .. " remotes")
+Log("v2.7.7 init | " .. remoteCount .. " remotes | " .. #GetSellerNames() .. " sellers")
