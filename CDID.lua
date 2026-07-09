@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.2.0 - Car Driving Indonesia
+-- X0DEC04T Hub v2.3.0 - Car Driving Indonesia
 --═══════════════════════════════════════════════════════════════
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -22,7 +22,7 @@ local Camera      = Workspace.CurrentCamera
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- DUPLICATE GUARD
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local INSTANCE_KEY = "__X0DEC04T_CDI_v220"
+local INSTANCE_KEY = "__X0DEC04T_CDI_v230"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -41,7 +41,7 @@ local function Err(msg, detail)
     warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock() - _logStart, tostring(msg), tostring(detail or "")))
 end
 
-Log("CDI Hub v2.2.0 starting...")
+Log("CDI Hub v2.3.0 starting...")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- LOAD RAYFIELD
@@ -51,47 +51,22 @@ local RAYFIELD_URLS = {
     "https://sirius.menu/rayfield",
     "https://raw.githubusercontent.com/shlexware/Rayfield/main/source",
 }
-
 for _, url in ipairs(RAYFIELD_URLS) do
-    Log("Trying: " .. url)
-    local ok, result = pcall(function()
-        return loadstring(game:HttpGet(url))()
-    end)
-    if ok and type(result) == "table" then
-        Rayfield = result
-        Log("Rayfield loaded OK")
-        break
-    else
-        Err("Mirror failed: " .. url, tostring(result))
-    end
+    local ok, result = pcall(function() return loadstring(game:HttpGet(url))() end)
+    if ok and type(result) == "table" then Rayfield = result; break end
 end
+if not Rayfield then Err("Rayfield failed"); return end
 
-if not Rayfield then
-    Err("FATAL: Rayfield could not be loaded.")
-    return
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HUB CONFIG
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local HUB = {
-    Name    = "X0DEC04T Hub",
-    Game    = "Car Driving Indonesia",
-    Version = "2.2.0",
-    Author  = "voixera",
-}
+local HUB = { Name="X0DEC04T Hub", Game="Car Driving Indonesia", Version="2.3.0", Author="voixera" }
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- CONNECTION MANAGER
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local CM = { _list = {} }
 function CM:Add(signal, callback, label)
-    if not signal then Err("CM nil", label); return nil end
+    if not signal then return nil end
     local ok, conn = pcall(function() return signal:Connect(callback) end)
-    if ok and conn then
-        table.insert(self._list, conn)
-        return conn
-    end
+    if ok and conn then table.insert(self._list, conn); return conn end
     return nil
 end
 function CM:Cleanup()
@@ -104,12 +79,7 @@ end
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function Notify(title, content, dur)
     pcall(function()
-        Rayfield:Notify({
-            Title    = tostring(title   or ""),
-            Content  = tostring(content or ""),
-            Duration = tonumber(dur)    or 4,
-            Image    = 4483345998,
-        })
+        Rayfield:Notify({Title=tostring(title or ""), Content=tostring(content or ""), Duration=tonumber(dur) or 4, Image=4483345998})
     end)
 end
 
@@ -131,28 +101,20 @@ local function ScanRemotes()
             table.insert(RemoteDBAll, obj)
         end
     end
-    Log("Remotes: " .. #RemoteDBAll)
 end
 ScanRemotes()
 
 local function FindRemote(name)
     local key = name:lower():gsub("%s+","")
     if RemoteDB[key] then return RemoteDB[key] end
-    for k, v in pairs(RemoteDB) do
-        if k:find(key, 1, true) then return v end
-    end
+    for k, v in pairs(RemoteDB) do if k:find(key, 1, true) then return v end end
     return nil
 end
 
 local function DumpRemotes()
-    for _, r in ipairs(RemoteDBAll) do
-        Log("  [" .. r.ClassName .. "] " .. r:GetFullName())
-    end
+    for _, r in ipairs(RemoteDBAll) do Log("  [" .. r.ClassName .. "] " .. r:GetFullName()) end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CDI REFERENCES
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local CDI = {
     Cars        = Workspace:FindFirstChild("Cars") or Workspace:FindFirstChild("Vehicles"),
     SpawnPoints = Workspace:FindFirstChild("SpawnPoints") or Workspace:FindFirstChild("Spawn"),
@@ -173,13 +135,24 @@ local State = {
     FolderName="",
 
     -- Barista
-    Barista_AutoLoop   = false,
-    Barista_CoffeeDelay= 15,
-    Barista_Delay      = 2,
-    Barista_JobsDone   = 0,
-    Barista_Status     = "Idle",
-    Barista_Thread     = nil,
-    Barista_StatusLbl  = nil,
+    Barista_AutoLoop     = false,
+    Barista_CoffeeDelay  = 15,
+    Barista_Delay        = 2,
+    Barista_JobsDone     = 0,
+    Barista_Status       = "Idle",
+    Barista_StartTime    = 0,
+    Barista_Earnings     = 0,
+    Barista_PerDelivery  = 5000,
+    Barista_StatusLbl    = nil,
+    Barista_MoneyBefore  = 0,
+
+    -- Overlay
+    Overlay_Gui          = nil,
+    Overlay_StatusLbl    = nil,
+    Overlay_TimeLbl      = nil,
+    Overlay_EarnLbl      = nil,
+    Overlay_JobsLbl      = nil,
+    Overlay_UpdateConn   = nil,
 
     FullBright=false, NoFog=false, NoShadows=false, FOV=70, ClockTime=14,
     RemoveBlur=false, LowGraphics=false, NoParticles=false,
@@ -198,29 +171,69 @@ local function GuiParent()
     pcall(function() if gethui then p = gethui() end end)
     return p
 end
-
 local function GetPlayerCar()
     local ch = GetCharacter()
     if not ch or not CDI.Cars then return nil end
     for _, car in ipairs(CDI.Cars:GetChildren()) do
         for _, seat in ipairs(car:GetDescendants()) do
-            if (seat:IsA("VehicleSeat") or seat:IsA("Seat"))
-            and seat.Occupant and seat.Occupant.Parent == ch then
+            if (seat:IsA("VehicleSeat") or seat:IsA("Seat")) and seat.Occupant and seat.Occupant.Parent == ch then
                 return car
             end
         end
     end
     return nil
 end
-
 local function GetVehicleSeat()
     local car = GetPlayerCar()
     return car and (car:FindFirstChildOfClass("VehicleSeat") or car:FindFirstChildWhichIsA("VehicleSeat", true))
 end
-
 local function GetCarRoot()
     local car = GetPlayerCar()
     return car and (car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart"))
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- FORMAT HELPERS
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local function FormatTime(sec)
+    sec = math.max(0, math.floor(sec))
+    local h = math.floor(sec / 3600)
+    local m = math.floor((sec % 3600) / 60)
+    local s = sec % 60
+    if h > 0 then
+        return string.format("%02d:%02d:%02d", h, m, s)
+    else
+        return string.format("%02d:%02d", m, s)
+    end
+end
+
+local function FormatMoney(n)
+    n = tonumber(n) or 0
+    local formatted = tostring(math.floor(n))
+    while true do
+        local k
+        formatted, k = formatted:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+        if k == 0 then break end
+    end
+    return "RP. " .. formatted
+end
+
+-- Try to read player money from leaderstats or common patterns
+local function GetPlayerMoney()
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if ls then
+        for _, v in ipairs(ls:GetChildren()) do
+            local n = v.Name:lower()
+            if n:find("money") or n:find("rp") or n:find("cash") or n:find("balance") then
+                return tonumber(v.Value) or 0
+            end
+        end
+    end
+    for _, key in ipairs({"Money","Cash","Balance","RP"}) do
+        local v = LocalPlayer:GetAttribute(key)
+        if v then return tonumber(v) or 0 end
+    end
+    return 0
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -231,9 +244,7 @@ function ESP.Clear(obj)
     local c = State.ESPCache[obj]
     if not c then return end
     for _, inst in pairs(c) do
-        if typeof(inst) == "Instance" and inst.Parent then
-            pcall(function() inst:Destroy() end)
-        end
+        if typeof(inst) == "Instance" and inst.Parent then pcall(function() inst:Destroy() end) end
     end
     State.ESPCache[obj] = nil
 end
@@ -241,67 +252,40 @@ function ESP.ClearAll()
     for obj in pairs(State.ESPCache) do ESP.Clear(obj) end
     State.ESPCache = {}
 end
-
 local function MakeBB(adornee, label, color, showName, showDist, maxDist)
     local bb = Instance.new("BillboardGui")
-    bb.Adornee = adornee
-    bb.Size = UDim2.new(0, 220, 0, 55)
-    bb.StudsOffset = Vector3.new(0, 4, 0)
-    bb.AlwaysOnTop = true
-    bb.LightInfluence = 0
-    bb.MaxDistance = maxDist or 500
-    bb.Parent = GuiParent()
+    bb.Adornee=adornee; bb.Size=UDim2.new(0,220,0,55); bb.StudsOffset=Vector3.new(0,4,0)
+    bb.AlwaysOnTop=true; bb.LightInfluence=0; bb.MaxDistance=maxDist or 500
+    bb.Parent=GuiParent()
     local nl = Instance.new("TextLabel", bb)
-    nl.Size = UDim2.new(1, 0, 0.6, 0)
-    nl.BackgroundTransparency = 1
-    nl.Text = tostring(label or "")
-    nl.TextColor3 = color
-    nl.TextStrokeTransparency = 0
-    nl.Font = Enum.Font.GothamBold
-    nl.TextSize = 14
-    nl.Visible = showName
+    nl.Size=UDim2.new(1,0,0.6,0); nl.BackgroundTransparency=1; nl.Text=tostring(label or "")
+    nl.TextColor3=color; nl.TextStrokeTransparency=0; nl.Font=Enum.Font.GothamBold; nl.TextSize=14; nl.Visible=showName
     local dl = Instance.new("TextLabel", bb)
-    dl.Size = UDim2.new(1, 0, 0.4, 0)
-    dl.Position = UDim2.new(0, 0, 0.6, 0)
-    dl.BackgroundTransparency = 1
-    dl.Text = "0m"
-    dl.TextColor3 = Color3.fromRGB(220, 220, 220)
-    dl.TextStrokeTransparency = 0
-    dl.Font = Enum.Font.Gotham
-    dl.TextSize = 12
-    dl.Visible = showDist
+    dl.Size=UDim2.new(1,0,0.4,0); dl.Position=UDim2.new(0,0,0.6,0); dl.BackgroundTransparency=1; dl.Text="0m"
+    dl.TextColor3=Color3.fromRGB(220,220,220); dl.TextStrokeTransparency=0; dl.Font=Enum.Font.Gotham; dl.TextSize=12; dl.Visible=showDist
     return bb, nl, dl
 end
-
 function ESP.AddTarget(adornee, model, label, color)
     if State.ESPCache[adornee] then ESP.Clear(adornee) end
     local hl = Instance.new("Highlight")
-    hl.Adornee = model or adornee
-    hl.FillColor = color
-    hl.OutlineColor = Color3.new(1, 1, 1)
-    hl.FillTransparency = 0.5
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = GuiParent()
+    hl.Adornee=model or adornee; hl.FillColor=color; hl.OutlineColor=Color3.new(1,1,1)
+    hl.FillTransparency=0.5; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=GuiParent()
     local bb, nl, dl = MakeBB(adornee, label, color, State.ESP_ShowName, State.ESP_ShowDist, State.ESP_MaxDist)
     State.ESPCache[adornee] = { hl=hl, bb=bb, nl=nl, dl=dl, hrp=adornee }
 end
-
 function ESP.UpdateDistances()
-    local hrp = GetHRP()
-    if not hrp then return end
+    local hrp = GetHRP(); if not hrp then return end
     for _, c in pairs(State.ESPCache) do
         if c.dl and c.hrp and c.hrp.Parent then
             c.dl.Text = math.floor((c.hrp.Position - hrp.Position).Magnitude) .. "m"
         end
     end
 end
-
 function ESP.Validate()
     for obj in pairs(State.ESPCache) do
         if not obj or not obj.Parent then ESP.Clear(obj) end
     end
 end
-
 function ESP.ScanPlayers()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -309,14 +293,11 @@ function ESP.ScanPlayers()
             if hrp then
                 if State.ESP_Players and not State.ESPCache[hrp] then
                     ESP.AddTarget(hrp, p.Character, p.Name, State.Color_Player)
-                elseif not State.ESP_Players then
-                    ESP.Clear(hrp)
-                end
+                elseif not State.ESP_Players then ESP.Clear(hrp) end
             end
         end
     end
 end
-
 function ESP.ScanCars()
     if not CDI.Cars then return end
     for _, car in ipairs(CDI.Cars:GetChildren()) do
@@ -324,17 +305,11 @@ function ESP.ScanCars()
         if root then
             if State.ESP_Cars and not State.ESPCache[root] then
                 ESP.AddTarget(root, car, car.Name, State.Color_Car)
-            elseif not State.ESP_Cars then
-                ESP.Clear(root)
-            end
+            elseif not State.ESP_Cars then ESP.Clear(root) end
         end
     end
 end
-
-function ESP.RefreshAll()
-    ESP.Validate(); ESP.ScanPlayers(); ESP.ScanCars()
-end
-
+function ESP.RefreshAll() ESP.Validate(); ESP.ScanPlayers(); ESP.ScanCars() end
 task.spawn(function() while task.wait(2) do pcall(ESP.RefreshAll) end end)
 CM:Add(RunService.Heartbeat, function() pcall(ESP.UpdateDistances) end, "ESP")
 
@@ -344,17 +319,12 @@ CM:Add(RunService.Heartbeat, function() pcall(ESP.UpdateDistances) end, "ESP")
 local Car = {}
 function Car.ApplySpeed()
     local seat = GetVehicleSeat()
-    if seat then
-        seat.MaxSpeed = 100 + (tonumber(State.CarSpeed) or 0)
-        Notify("Speed","MaxSpeed = " .. seat.MaxSpeed, 2)
+    if seat then seat.MaxSpeed = 100 + (tonumber(State.CarSpeed) or 0); Notify("Speed","MaxSpeed = "..seat.MaxSpeed, 2)
     else Notify("Speed","Get in a car first.",3) end
 end
-function Car.ResetSpeed()
-    local seat = GetVehicleSeat()
-    if seat then seat.MaxSpeed = 100 end
-end
+function Car.ResetSpeed() local seat = GetVehicleSeat(); if seat then seat.MaxSpeed = 100 end end
 function Car.SetSpeedHack(e)
-    if State.SpeedHackConn then pcall(function() State.SpeedHackConn:Disconnect() end); State.SpeedHackConn = nil end
+    if State.SpeedHackConn then pcall(function() State.SpeedHackConn:Disconnect() end); State.SpeedHackConn=nil end
     if e then
         State.SpeedHackConn = RunService.Heartbeat:Connect(function()
             local seat = GetVehicleSeat()
@@ -363,35 +333,27 @@ function Car.SetSpeedHack(e)
     end
 end
 function Car.Flip()
-    local car = GetPlayerCar()
-    if not car then Notify("Flip","Get in a car.",3); return end
+    local car = GetPlayerCar(); if not car then Notify("Flip","Get in a car.",3); return end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if root then root.CFrame = CFrame.new(root.Position) end
 end
 function Car.Launch()
-    local root = GetCarRoot()
-    if not root then Notify("Launch","Get in a car.",3); return end
+    local root = GetCarRoot(); if not root then Notify("Launch","Get in a car.",3); return end
     local bv = Instance.new("BodyVelocity")
-    bv.Velocity = Vector3.new(0,200,0)
-    bv.MaxForce = Vector3.new(0, math.huge, 0)
-    bv.Parent = root
+    bv.Velocity = Vector3.new(0,200,0); bv.MaxForce = Vector3.new(0, math.huge, 0); bv.Parent = root
     game:GetService("Debris"):AddItem(bv, 0.2)
 end
 function Car.Boost()
-    local root = GetCarRoot()
-    if not root then return end
+    local root = GetCarRoot(); if not root then return end
     local bv = Instance.new("BodyVelocity")
-    bv.Velocity = root.CFrame.LookVector * 400
-    bv.MaxForce = Vector3.new(math.huge, 0, math.huge)
-    bv.Parent = root
+    bv.Velocity = root.CFrame.LookVector * 400; bv.MaxForce = Vector3.new(math.huge, 0, math.huge); bv.Parent = root
     game:GetService("Debris"):AddItem(bv, 0.3)
 end
 function Car.SetRainbow(e)
     if State.RainbowConn then pcall(function() State.RainbowConn:Disconnect() end); State.RainbowConn=nil end
     if e then
         State.RainbowConn = RunService.Heartbeat:Connect(function()
-            local car = GetPlayerCar()
-            if not car then return end
+            local car = GetPlayerCar(); if not car then return end
             local color = Color3.fromHSV((tick()*0.3)%1, 1, 1)
             for _, p in ipairs(car:GetDescendants()) do
                 if p:IsA("BasePart") and not p.Name:lower():find("wheel") then p.Color = color end
@@ -401,20 +363,15 @@ function Car.SetRainbow(e)
 end
 function Car.TeleportToPlayer(name)
     if not name or name == "" then return end
-    local target = Players:FindFirstChild(name)
-    if not target or not target.Character then return end
-    local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-    if not tHRP then return end
+    local target = Players:FindFirstChild(name); if not target or not target.Character then return end
+    local tHRP = target.Character:FindFirstChild("HumanoidRootPart"); if not tHRP then return end
     local root = GetCarRoot()
     if root then root.CFrame = tHRP.CFrame + Vector3.new(0,5,6)
-    else
-        local hrp = GetHRP(); if hrp then hrp.CFrame = tHRP.CFrame + Vector3.new(0,0,4) end
-    end
+    else local hrp = GetHRP(); if hrp then hrp.CFrame = tHRP.CFrame + Vector3.new(0,0,4) end end
 end
 function Car.TeleportToSpawn(i)
     if not CDI.SpawnPoints then return end
-    local sp = CDI.SpawnPoints:GetChildren()[tonumber(i) or 1]
-    if not sp then return end
+    local sp = CDI.SpawnPoints:GetChildren()[tonumber(i) or 1]; if not sp then return end
     local pos = sp:IsA("BasePart") and sp.CFrame or (sp.PrimaryPart and sp:GetPrimaryPartCFrame())
     if not pos then return end
     local root = GetCarRoot()
@@ -491,15 +448,231 @@ function Car.DeleteAllCars()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- BARISTA AUTOMATION (JANJI JAWA)
+-- BARISTA OVERLAY (Black fullscreen with stats)
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local Overlay = {}
+
+function Overlay.Build()
+    if State.Overlay_Gui and State.Overlay_Gui.Parent then return end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "__BaristaOverlay"
+    gui.IgnoreGuiInset = true
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 999
+    gui.Parent = GuiParent()
+
+    -- Black background covering the whole screen
+    local bg = Instance.new("Frame", gui)
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.Position = UDim2.new(0, 0, 0, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BorderSizePixel = 0
+    bg.BackgroundTransparency = 0
+    bg.ZIndex = 1
+
+    -- Center container
+    local container = Instance.new("Frame", bg)
+    container.Size = UDim2.new(0, 420, 0, 340)
+    container.Position = UDim2.new(0.5, -210, 0.5, -170)
+    container.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    container.BorderSizePixel = 0
+    container.ZIndex = 2
+
+    local containerCorner = Instance.new("UICorner", container)
+    containerCorner.CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(60, 60, 70)
+    stroke.Thickness = 1
+
+    -- Title bar
+    local titleBar = Instance.new("Frame", container)
+    titleBar.Size = UDim2.new(1, 0, 0, 50)
+    titleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    titleBar.BorderSizePixel = 0
+    titleBar.ZIndex = 3
+    local tbCorner = Instance.new("UICorner", titleBar)
+    tbCorner.CornerRadius = UDim.new(0, 12)
+
+    local title = Instance.new("TextLabel", titleBar)
+    title.Size = UDim2.new(1, -20, 1, 0)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Barista Auto - Running"
+    title.TextColor3 = Color3.fromRGB(230, 230, 235)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 18
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 4
+
+    -- Status line
+    local statusFrame = Instance.new("Frame", container)
+    statusFrame.Size = UDim2.new(1, -30, 0, 60)
+    statusFrame.Position = UDim2.new(0, 15, 0, 65)
+    statusFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    statusFrame.BorderSizePixel = 0
+    statusFrame.ZIndex = 3
+    Instance.new("UICorner", statusFrame).CornerRadius = UDim.new(0, 8)
+
+    local statusTitle = Instance.new("TextLabel", statusFrame)
+    statusTitle.Size = UDim2.new(1, -20, 0, 20)
+    statusTitle.Position = UDim2.new(0, 10, 0, 6)
+    statusTitle.BackgroundTransparency = 1
+    statusTitle.Text = "STATUS"
+    statusTitle.TextColor3 = Color3.fromRGB(120, 120, 130)
+    statusTitle.Font = Enum.Font.Gotham
+    statusTitle.TextSize = 11
+    statusTitle.TextXAlignment = Enum.TextXAlignment.Left
+    statusTitle.ZIndex = 4
+
+    local statusLbl = Instance.new("TextLabel", statusFrame)
+    statusLbl.Size = UDim2.new(1, -20, 0, 28)
+    statusLbl.Position = UDim2.new(0, 10, 0, 26)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Text = "Idle"
+    statusLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statusLbl.Font = Enum.Font.GothamBold
+    statusLbl.TextSize = 18
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    statusLbl.ZIndex = 4
+
+    -- Runtime line
+    local timeFrame = Instance.new("Frame", container)
+    timeFrame.Size = UDim2.new(1, -30, 0, 60)
+    timeFrame.Position = UDim2.new(0, 15, 0, 135)
+    timeFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    timeFrame.BorderSizePixel = 0
+    timeFrame.ZIndex = 3
+    Instance.new("UICorner", timeFrame).CornerRadius = UDim.new(0, 8)
+
+    local timeTitle = Instance.new("TextLabel", timeFrame)
+    timeTitle.Size = UDim2.new(1, -20, 0, 20)
+    timeTitle.Position = UDim2.new(0, 10, 0, 6)
+    timeTitle.BackgroundTransparency = 1
+    timeTitle.Text = "RUNTIME"
+    timeTitle.TextColor3 = Color3.fromRGB(120, 120, 130)
+    timeTitle.Font = Enum.Font.Gotham
+    timeTitle.TextSize = 11
+    timeTitle.TextXAlignment = Enum.TextXAlignment.Left
+    timeTitle.ZIndex = 4
+
+    local timeLbl = Instance.new("TextLabel", timeFrame)
+    timeLbl.Size = UDim2.new(1, -20, 0, 28)
+    timeLbl.Position = UDim2.new(0, 10, 0, 26)
+    timeLbl.BackgroundTransparency = 1
+    timeLbl.Text = "00:00"
+    timeLbl.TextColor3 = Color3.fromRGB(90, 200, 250)
+    timeLbl.Font = Enum.Font.GothamBold
+    timeLbl.TextSize = 20
+    timeLbl.TextXAlignment = Enum.TextXAlignment.Left
+    timeLbl.ZIndex = 4
+
+    -- Earnings line
+    local earnFrame = Instance.new("Frame", container)
+    earnFrame.Size = UDim2.new(1, -30, 0, 60)
+    earnFrame.Position = UDim2.new(0, 15, 0, 205)
+    earnFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    earnFrame.BorderSizePixel = 0
+    earnFrame.ZIndex = 3
+    Instance.new("UICorner", earnFrame).CornerRadius = UDim.new(0, 8)
+
+    local earnTitle = Instance.new("TextLabel", earnFrame)
+    earnTitle.Size = UDim2.new(1, -20, 0, 20)
+    earnTitle.Position = UDim2.new(0, 10, 0, 6)
+    earnTitle.BackgroundTransparency = 1
+    earnTitle.Text = "EARNINGS"
+    earnTitle.TextColor3 = Color3.fromRGB(120, 120, 130)
+    earnTitle.Font = Enum.Font.Gotham
+    earnTitle.TextSize = 11
+    earnTitle.TextXAlignment = Enum.TextXAlignment.Left
+    earnTitle.ZIndex = 4
+
+    local earnLbl = Instance.new("TextLabel", earnFrame)
+    earnLbl.Size = UDim2.new(1, -20, 0, 28)
+    earnLbl.Position = UDim2.new(0, 10, 0, 26)
+    earnLbl.BackgroundTransparency = 1
+    earnLbl.Text = "RP. 0"
+    earnLbl.TextColor3 = Color3.fromRGB(120, 240, 140)
+    earnLbl.Font = Enum.Font.GothamBold
+    earnLbl.TextSize = 20
+    earnLbl.TextXAlignment = Enum.TextXAlignment.Left
+    earnLbl.ZIndex = 4
+
+    -- Jobs count (bottom line)
+    local jobsLbl = Instance.new("TextLabel", container)
+    jobsLbl.Size = UDim2.new(1, -30, 0, 26)
+    jobsLbl.Position = UDim2.new(0, 15, 0, 280)
+    jobsLbl.BackgroundTransparency = 1
+    jobsLbl.Text = "Deliveries: 0"
+    jobsLbl.TextColor3 = Color3.fromRGB(180, 180, 190)
+    jobsLbl.Font = Enum.Font.Gotham
+    jobsLbl.TextSize = 14
+    jobsLbl.TextXAlignment = Enum.TextXAlignment.Left
+    jobsLbl.ZIndex = 4
+
+    -- Footer hint
+    local hint = Instance.new("TextLabel", bg)
+    hint.Size = UDim2.new(1, 0, 0, 20)
+    hint.Position = UDim2.new(0, 0, 1, -30)
+    hint.BackgroundTransparency = 1
+    hint.Text = "Turn off Auto Barista in the hub to close"
+    hint.TextColor3 = Color3.fromRGB(80, 80, 90)
+    hint.Font = Enum.Font.Gotham
+    hint.TextSize = 12
+    hint.ZIndex = 2
+
+    State.Overlay_Gui       = gui
+    State.Overlay_StatusLbl = statusLbl
+    State.Overlay_TimeLbl   = timeLbl
+    State.Overlay_EarnLbl   = earnLbl
+    State.Overlay_JobsLbl   = jobsLbl
+end
+
+function Overlay.Show()
+    Overlay.Build()
+    if State.Overlay_Gui then State.Overlay_Gui.Enabled = true end
+
+    -- Live updater
+    if State.Overlay_UpdateConn then
+        pcall(function() State.Overlay_UpdateConn:Disconnect() end)
+    end
+    State.Overlay_UpdateConn = RunService.Heartbeat:Connect(function()
+        if not State.Overlay_TimeLbl then return end
+        local elapsed = tick() - State.Barista_StartTime
+        pcall(function()
+            State.Overlay_TimeLbl.Text   = FormatTime(elapsed)
+            State.Overlay_EarnLbl.Text   = FormatMoney(State.Barista_Earnings)
+            State.Overlay_JobsLbl.Text   = "Deliveries: " .. State.Barista_JobsDone
+            State.Overlay_StatusLbl.Text = State.Barista_Status
+        end)
+    end)
+end
+
+function Overlay.Hide()
+    if State.Overlay_UpdateConn then
+        pcall(function() State.Overlay_UpdateConn:Disconnect() end)
+        State.Overlay_UpdateConn = nil
+    end
+    if State.Overlay_Gui then
+        pcall(function() State.Overlay_Gui:Destroy() end)
+        State.Overlay_Gui       = nil
+        State.Overlay_StatusLbl = nil
+        State.Overlay_TimeLbl   = nil
+        State.Overlay_EarnLbl   = nil
+        State.Overlay_JobsLbl   = nil
+    end
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- BARISTA AUTOMATION
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Barista = {}
 
--- Known static positions (from spy)
 local BARISTA_POS = {
     JobSelection = Vector3.new(-2707.53, 5.71, 945.41),
-    CoffeeMaker  = Vector3.new(383.72,  7.15, 1334.33),  -- Starter.Part (Make Coffee)
-    Standby      = Vector3.new(387.46,  6.60, 1334.43),  -- End (near counter)
+    CoffeeMaker  = Vector3.new(383.72,  7.15, 1334.33),
+    Standby      = Vector3.new(387.46,  6.60, 1334.43),
 }
 
 function Barista.SetStatus(txt)
@@ -513,8 +686,7 @@ function Barista.SetStatus(txt)
 end
 
 function Barista.TeleportTo(pos, yOffset)
-    local hrp = GetHRP()
-    if not hrp then return false end
+    local hrp = GetHRP(); if not hrp then return false end
     yOffset = yOffset or 3
     hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOffset, 0))
     return true
@@ -523,9 +695,7 @@ end
 function Barista.FirePrompt(prompt)
     if not prompt or not prompt.Enabled then return false end
     local ok = pcall(function()
-        if fireproximityprompt then
-            fireproximityprompt(prompt)
-        end
+        if fireproximityprompt then fireproximityprompt(prompt) end
     end)
     return ok
 end
@@ -547,9 +717,7 @@ end
 
 function Barista.GetJobSelectionPrompt()
     local sel = Workspace.Etc.Job:FindFirstChild("Selection")
-    if sel then
-        return sel:FindFirstChildWhichIsA("ProximityPrompt", true)
-    end
+    if sel then return sel:FindFirstChildWhichIsA("ProximityPrompt", true) end
     return nil
 end
 
@@ -586,14 +754,8 @@ function Barista.SelectJob()
     Barista.SetStatus("Opening job selection")
     Barista.TeleportTo(BARISTA_POS.JobSelection, 3)
     task.wait(0.7)
-
     local prompt = Barista.GetJobSelectionPrompt()
-    if prompt then
-        Barista.FirePrompt(prompt)
-        Log("Fired Job Selection prompt")
-    else
-        Log("No JobSelection prompt found")
-    end
+    if prompt then Barista.FirePrompt(prompt) end
     task.wait(1.5)
     Barista.SetStatus("Job selector opened")
     return true
@@ -609,14 +771,8 @@ end
 function Barista.MakeCoffee()
     Barista.SetStatus("Making coffee")
     local prompt = Barista.GetCoffeePrompt()
-    if not prompt then
-        Barista.SetStatus("No coffee prompt")
-        return false
-    end
-
+    if not prompt then Barista.SetStatus("No coffee prompt"); return false end
     Barista.FirePrompt(prompt)
-    Log("Fired coffee prompt")
-
     local delay = tonumber(State.Barista_CoffeeDelay) or 15
     local elapsed = 0
     while elapsed < delay and State.Barista_AutoLoop do
@@ -629,7 +785,6 @@ end
 
 function Barista.Deliver()
     Barista.SetStatus("Finding customer")
-
     local start = tick()
     local prompt, npc
     while tick() - start < 8 do
@@ -637,26 +792,29 @@ function Barista.Deliver()
         if prompt then break end
         task.wait(0.3)
     end
+    if not prompt or not npc then Barista.SetStatus("No customer found"); return false end
 
-    if not prompt or not npc then
-        Barista.SetStatus("No customer found")
-        return false
-    end
-
-    local hrpNPC = npc:FindFirstChild("HumanoidRootPart")
-              or npc:FindFirstChildWhichIsA("BasePart")
+    local hrpNPC = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
     if hrpNPC then
         local hrp = GetHRP()
-        if hrp then
-            hrp.CFrame = hrpNPC.CFrame + Vector3.new(0, 0, 3)
-            task.wait(0.5)
-        end
+        if hrp then hrp.CFrame = hrpNPC.CFrame + Vector3.new(0, 0, 3); task.wait(0.5) end
     end
 
+    local moneyBefore = GetPlayerMoney()
     Barista.FirePrompt(prompt)
-    task.wait(0.5)
+    task.wait(0.8)
+    local moneyAfter = GetPlayerMoney()
 
     State.Barista_JobsDone = State.Barista_JobsDone + 1
+
+    -- Prefer real money delta if leaderstats gave a positive number
+    local delta = moneyAfter - moneyBefore
+    if delta > 0 then
+        State.Barista_Earnings = State.Barista_Earnings + delta
+    else
+        State.Barista_Earnings = State.Barista_Earnings + (tonumber(State.Barista_PerDelivery) or 5000)
+    end
+
     Barista.SetStatus("Delivered #" .. State.Barista_JobsDone)
     return true
 end
@@ -665,20 +823,24 @@ function Barista.SetAutoLoop(enable)
     State.Barista_AutoLoop = enable
     if not enable then
         Barista.SetStatus("Loop stopped")
+        Overlay.Hide()
         return
     end
 
+    -- Reset session stats
+    State.Barista_StartTime  = tick()
+    State.Barista_Earnings   = 0
+    State.Barista_JobsDone   = 0
     Barista.SetStatus("Loop starting")
 
+    Overlay.Show()
+
     task.spawn(function()
-        Notify("Barista", "First: select Janji Jawa Barista in the UI that pops up", 6)
         Barista.SelectJob()
-        task.wait(4)
+        task.wait(4)  -- give user a moment to click Janji Jawa Barista
 
         while State.Barista_AutoLoop do
-            Barista.GoToCoffeeMaker()
-            task.wait(0.5)
-
+            Barista.GoToCoffeeMaker(); task.wait(0.5)
             if not State.Barista_AutoLoop then break end
 
             Barista.MakeCoffee()
@@ -690,6 +852,7 @@ function Barista.SetAutoLoop(enable)
             task.wait(State.Barista_Delay)
         end
         Barista.SetStatus("Loop ended")
+        Overlay.Hide()
     end)
 end
 
@@ -941,74 +1104,55 @@ if Tabs.Barista then
     Sec(T, "How to use")
     Lbl(T, "1. Toggle Auto Loop ON")
     Lbl(T, "2. Job UI opens - click Janji Jawa Barista")
-    Lbl(T, "3. Auto TP to shop, make coffee, deliver, repeat")
+    Lbl(T, "3. Black overlay appears with stats")
+    Lbl(T, "4. Toggle OFF to close overlay")
 
     Sec(T, "Timing")
     Sld(T, {
         Name = "Coffee Brew Delay (seconds)",
-        Range = {5, 30},
-        Increment = 1,
-        CurrentValue = 15,
-        Flag = "BaristaCoffeeDelay",
+        Range = {5, 30}, Increment = 1, CurrentValue = 15, Flag = "BaristaCoffeeDelay",
         Callback = function(v) State.Barista_CoffeeDelay = tonumber(v) or 15 end,
     })
     Sld(T, {
         Name = "Cycle Delay (seconds)",
-        Range = {1, 10},
-        Increment = 1,
-        CurrentValue = 2,
-        Flag = "BaristaDelay",
+        Range = {1, 10}, Increment = 1, CurrentValue = 2, Flag = "BaristaDelay",
         Callback = function(v) State.Barista_Delay = tonumber(v) or 2 end,
+    })
+    Sld(T, {
+        Name = "Est. Earnings per Delivery (RP)",
+        Range = {1000, 50000}, Increment = 500, CurrentValue = 5000, Flag = "BaristaPer",
+        Callback = function(v) State.Barista_PerDelivery = tonumber(v) or 5000 end,
     })
 
     Sec(T, "Automation")
     Tog(T, {
         Name = "Auto Barista (Full Loop)",
-        CurrentValue = false,
-        Flag = "BaristaAuto",
+        CurrentValue = false, Flag = "BaristaAuto",
         Callback = function(v) Barista.SetAutoLoop(v) end,
     })
 
     Sec(T, "Manual Steps")
-    Btn(T, {
-        Name = "1. Open Job Selection",
-        Callback = function() Barista.SelectJob() end,
-    })
-    Btn(T, {
-        Name = "2. TP to Coffee Maker",
-        Callback = function() Barista.GoToCoffeeMaker() end,
-    })
-    Btn(T, {
-        Name = "3. Make Coffee",
-        Callback = function()
-            local p = Barista.GetCoffeePrompt()
-            if p then Barista.FirePrompt(p); Notify("Barista","Coffee prompt fired",2)
-            else Notify("Barista","No coffee prompt",3) end
-        end,
-    })
-    Btn(T, {
-        Name = "4. Deliver to Customer",
-        Callback = function() Barista.Deliver() end,
-    })
+    Btn(T, {Name="1. Open Job Selection", Callback=function() Barista.SelectJob() end})
+    Btn(T, {Name="2. TP to Coffee Maker", Callback=function() Barista.GoToCoffeeMaker() end})
+    Btn(T, {Name="3. Make Coffee", Callback=function()
+        local p = Barista.GetCoffeePrompt()
+        if p then Barista.FirePrompt(p); Notify("Barista","Coffee prompt fired",2)
+        else Notify("Barista","No coffee prompt",3) end
+    end})
+    Btn(T, {Name="4. Deliver to Customer", Callback=function() Barista.Deliver() end})
 
     Sec(T, "Debug")
-    Btn(T, {
-        Name = "Find Customer",
-        Callback = function()
-            local p, npc = Barista.GetDeliveryPrompt()
-            if p then
-                Notify("Customer", npc.Name .. " found", 4)
-                Log("Customer: " .. npc:GetFullName())
-            else Notify("Customer", "No active customer.", 3) end
-        end,
-    })
-    Btn(T, {
-        Name = "Reset Counter",
-        Callback = function()
-            State.Barista_JobsDone = 0
-            Barista.SetStatus("Reset")
-        end,
-    })
+    Btn(T, {Name="Find Customer", Callback=function()
+        local p, npc = Barista.GetDeliveryPrompt()
+        if p then Notify("Customer", npc.Name .. " found", 4); Log("Customer: " .. npc:GetFullName())
+        else Notify("Customer", "No active customer.", 3) end
+    end})
+    Btn(T, {Name="Reset Counter", Callback=function()
+        State.Barista_JobsDone = 0
+        State.Barista_Earnings = 0
+        State.Barista_StartTime = tick()
+        Barista.SetStatus("Reset")
+    end})
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1019,7 +1163,6 @@ if Tabs.Teleport then
     Sec(T,"Player TP")
     Inp(T, {Name="Player Name", PlaceholderText="Case-sensitive", RemoveTextAfterFocusLost=false, Callback=function(v) State.TP_Target=v end})
     Btn(T, {Name="TP to Player", Callback=function() Car.TeleportToPlayer(State.TP_Target) end})
-
     Sec(T,"Spawns")
     if CDI.SpawnPoints then
         for i, sp in ipairs(CDI.SpawnPoints:GetChildren()) do
@@ -1027,7 +1170,6 @@ if Tabs.Teleport then
             Btn(T, {Name="Spawn "..i.." - "..sp.Name, Callback=function() Car.TeleportToSpawn(i) end})
         end
     else Lbl(T,"No spawn points found") end
-
     Sec(T,"Saved Positions")
     local sp = ""
     Inp(T, {Name="Label", PlaceholderText="e.g. Garage", RemoveTextAfterFocusLost=false, Callback=function(v) sp=v end})
@@ -1057,8 +1199,7 @@ end
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if Tabs.Remote then
     local T = Tabs.Remote
-    Sec(T,"Info")
-    Lbl(T,"Total: " .. #RemoteDBAll)
+    Sec(T,"Info"); Lbl(T,"Total: " .. #RemoteDBAll)
     Sec(T,"Fire")
     Inp(T, {Name="Name", PlaceholderText="Remote name", RemoveTextAfterFocusLost=false, Callback=function(v) State.RemoteName=v end})
     Inp(T, {Name="Arg", PlaceholderText="Argument", RemoveTextAfterFocusLost=false, Callback=function(v) State.RemoteArg=v end})
@@ -1132,6 +1273,7 @@ if Tabs.Settings then
     Sec(T,"Unload")
     Btn(T, {Name="Unload Hub", Callback=function()
         State.Barista_AutoLoop = false
+        Overlay.Hide()
         if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.FlyConn then pcall(function() State.FlyConn:Disconnect() end) end
         if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end) end
@@ -1146,9 +1288,6 @@ if Tabs.Settings then
     end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CHARACTER RESPAWN
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CM:Add(LocalPlayer.CharacterAdded, function()
     task.wait(1)
     if State.GodMode then pcall(Car.SetGodMode, true) end
@@ -1161,11 +1300,12 @@ _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
         State.Barista_AutoLoop = false
+        Overlay.Hide()
         CM:Cleanup()
         ESP.ClearAll()
         pcall(function() Window:Destroy() end)
     end,
 }
 
-Notify(HUB.Name, "v" .. HUB.Version .. " - Barista Auto Ready", 5)
+Notify(HUB.Name, "v" .. HUB.Version .. " - Barista Overlay Ready", 5)
 Log("Init complete v" .. HUB.Version)
