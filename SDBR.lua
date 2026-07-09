@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v2.9.0 - Border RP (Scarface)
+-- X0DEC04T Hub v2.9.1 - Border RP (Scarface)
 -- Full auto flow: Buy > Spawn Car > Sit > Remove Tires > TP Car > Sell > TP Laundry > Loop
 --═══════════════════════════════════════════════════════════════
 
@@ -17,7 +17,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v290"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v291"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -28,7 +28,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 local function Err(m,d) warn(string.format("[X0DEC04T] ERR: %s | %s", tostring(m), tostring(d or ""))) end
-Log("BorderRP Hub v2.9.0 starting...")
+Log("BorderRP Hub v2.9.1 starting...")
 
 local Rayfield
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -37,7 +37,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.9.0", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Border RP", Version="2.9.1", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb)
@@ -111,6 +111,7 @@ end
 local DEFAULT_POS = {
     Laundry = Vector3.new(6804.78, 17.43, -34.70),
     Shop    = Vector3.new(6823.57, 17.40, -20.00),
+    CarSpawner = Vector3.new(6840, 17, -30),  -- Approximate spawner location
 }
 
 local function GetBuyableItemNames()
@@ -124,7 +125,6 @@ local function GetBuyableItemNames()
     return names
 end
 
--- Get list of vehicle names from Vehicles folder
 local function GetVehicleNames()
     local names = {}
     if BRP_PATHS.Vehicles then
@@ -132,9 +132,8 @@ local function GetVehicleNames()
             table.insert(names, v.Name)
         end
     end
-    -- Common defaults
     if #names == 0 then
-        names = {"m135i4", "Sedan", "Truck", "Coupe"}
+        names = {"Camry6", "BorderPatrolCrownVic", "2020Rs3Done", "jzs171 touring", "TAPVSWAT"}
     end
     return names
 end
@@ -157,7 +156,7 @@ local State = {
     Smuggler_UseRemotes=true, Smuggler_AutoLaunder=true,
     Smuggler_ItemName = "Fake Diamond Ring",
     Smuggler_SellerName = "Seller4",
-    Smuggler_VehicleName = "",  -- Auto-detect first vehicle
+    Smuggler_VehicleName = "Camry6",  -- Default to Toyota Camry
     Smuggler_BuyRetries = 2,
     Smuggler_SellRetries = 8,
     Smuggler_Delay = 1,
@@ -169,6 +168,7 @@ local State = {
     Smuggler_CurrentCar = nil,
     POS_Shop = DEFAULT_POS.Shop,
     POS_Laundry = DEFAULT_POS.Laundry,
+    POS_CarSpawner = DEFAULT_POS.CarSpawner,
 
     AntiTpBypass = true,
     TPStrategy = "Chunked",
@@ -563,19 +563,24 @@ function Smuggler.BuyItem()
     return true
 end
 
---━ STEP 2: SPAWN CAR
+--━ STEP 2: SPAWN CAR (FIXED)
 function Smuggler.SpawnCar()
-    Log("[Step 2] Spawning car")
+    local vehicleName = State.Smuggler_VehicleName
+    if vehicleName == "" or not vehicleName then
+        vehicleName = "Camry6"
+    end
+    Log("[Step 2] Spawning car: " .. vehicleName)
+    
+    -- Snapshot existing vehicles BEFORE spawn
+    local existingCars = {}
+    if BRP_PATHS.Vehicles then
+        for _, v in ipairs(BRP_PATHS.Vehicles:GetChildren()) do
+            existingCars[v] = true
+        end
+    end
     
     -- Fire the spawn remote
     if BRP.SpawnVehicleFromSpawner then
-        local vehicleName = State.Smuggler_VehicleName
-        if vehicleName == "" or not vehicleName then
-            -- Try first vehicle name available
-            local names = GetVehicleNames()
-            vehicleName = names[1] or "Sedan"
-        end
-        
         pcall(function()
             if BRP.SpawnVehicleFromSpawner:IsA("RemoteEvent") then
                 BRP.SpawnVehicleFromSpawner:FireServer(vehicleName)
@@ -583,22 +588,52 @@ function Smuggler.SpawnCar()
                 BRP.SpawnVehicleFromSpawner:InvokeServer(vehicleName)
             end
         end)
-        task.wait(1)
     end
     
-    -- Find the newly spawned car (last one added to Vehicles)
-    task.wait(0.5)
+    -- Wait for new car to appear via ChildAdded listener
     local newCar = nil
+    local startTime = tick()
+    local addedConn
+    
     if BRP_PATHS.Vehicles then
-        -- Find car nearest to us that we don't own yet
+        addedConn = BRP_PATHS.Vehicles.ChildAdded:Connect(function(child)
+            if not existingCars[child] then
+                newCar = child
+                Log("[Step 2] [NEW VEHICLE SPAWNED] " .. child.Name)
+                Log("[Step 2]   Path: " .. child:GetFullName())
+            end
+        end)
+    end
+    
+    -- Wait for spawn with 5s timeout
+    while tick() - startTime < 5 do
+        if newCar then break end
+        task.wait(0.1)
+    end
+    
+    if addedConn then addedConn:Disconnect() end
+    
+    -- Fallback: scan for any new car
+    if not newCar and BRP_PATHS.Vehicles then
+        for _, v in ipairs(BRP_PATHS.Vehicles:GetChildren()) do
+            if not existingCars[v] then
+                newCar = v
+                Log("[Step 2] Found new car (fallback): " .. v.Name)
+                break
+            end
+        end
+    end
+    
+    -- Last resort: nearest car
+    if not newCar then
         local myHRP = GetHRP()
-        if myHRP then
+        if myHRP and BRP_PATHS.Vehicles then
             local bestDist = math.huge
             for _, v in ipairs(BRP_PATHS.Vehicles:GetChildren()) do
                 local root = v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart")
                 if root then
                     local d = (root.Position - myHRP.Position).Magnitude
-                    if d < bestDist and d < 100 then
+                    if d < bestDist and d < 80 then
                         bestDist = d
                         newCar = v
                     end
@@ -608,73 +643,79 @@ function Smuggler.SpawnCar()
     end
     
     if newCar then
+        -- Wait for car to fully load
+        local loadStart = tick()
+        while tick() - loadStart < 3 do
+            local root = newCar.PrimaryPart or newCar:FindFirstChildWhichIsA("BasePart")
+            if root then break end
+            task.wait(0.1)
+        end
+        
         State.Smuggler_CurrentCar = newCar
-        Log("[Step 2] Spawned: " .. newCar.Name)
+        Log("[Step 2] Ready: " .. newCar.Name)
         return newCar
     else
-        Log("[Step 2] No car found nearby after spawn")
+        Log("[Step 2] FAILED - no car detected")
+        Notify("Spawn Car", "Failed - stand at spawner and press E", 4)
         return nil
     end
 end
 
---━ STEP 3: SIT IN CAR
+--━ STEP 3: SIT IN CAR (IMPROVED)
 function Smuggler.SitInCar(car)
     Log("[Step 3] Sitting in car")
-    if not car then return false end
+    if not car or not car.Parent then 
+        Log("[Step 3] Car invalid")
+        return false 
+    end
     
-    -- Already in this car?
     local currentCar = GetPlayerCar()
     if currentCar == car then
         Log("[Step 3] Already sitting")
         return true
     end
     
-    -- Find driver seat
+    -- Find driver seat (with retries)
     local driverSeat = nil
-    for _, obj in ipairs(car:GetDescendants()) do
-        if obj:IsA("VehicleSeat") then
-            driverSeat = obj
-            break
+    for attempt = 1, 10 do
+        for _, obj in ipairs(car:GetDescendants()) do
+            if obj:IsA("VehicleSeat") and not obj.Occupant then
+                driverSeat = obj
+                break
+            end
         end
+        if driverSeat then break end
+        task.wait(0.2)
     end
     
     if not driverSeat then
-        Log("[Step 3] No VehicleSeat found")
+        Log("[Step 3] No available VehicleSeat")
         return false
     end
     
-    -- TP to seat and sit
+    Log("[Step 3] Found seat: " .. driverSeat:GetFullName())
+    
     local hum = GetHuman()
     local hrp = GetHRP()
     if not hum or not hrp then return false end
     
-    -- Method 1: Force sit via Seat.Sit
-    pcall(function()
-        AntiTpBypass.MarkTeleport()
-        hrp.CFrame = driverSeat.CFrame + Vector3.new(0, 1, 0)
-        task.wait(0.3)
-        driverSeat:Sit(hum)
-    end)
-    task.wait(0.5)
-    
-    -- Verify
-    local currentCar2 = GetPlayerCar()
-    if currentCar2 then
-        Log("[Step 3] Seated OK in: " .. currentCar2.Name)
-        return true
+    for attempt = 1, 3 do
+        pcall(function()
+            AntiTpBypass.MarkTeleport()
+            hrp.CFrame = driverSeat.CFrame * CFrame.new(0, 2, 0)
+            task.wait(0.2)
+            driverSeat:Sit(hum)
+        end)
+        task.wait(0.6)
+        
+        if GetPlayerCar() == car then
+            Log("[Step 3] Seated OK (attempt " .. attempt .. ")")
+            return true
+        end
     end
     
-    -- Method 2: Retry
-    task.wait(0.3)
-    pcall(function()
-        AntiTpBypass.MarkTeleport()
-        hrp.CFrame = driverSeat.CFrame + Vector3.new(0, 1, 0)
-        task.wait(0.3)
-        driverSeat:Sit(hum)
-    end)
-    task.wait(0.5)
-    
-    return GetPlayerCar() ~= nil
+    Log("[Step 3] Failed to sit after 3 attempts")
+    return false
 end
 
 --━ STEP 4: REMOVE TIRES
@@ -692,7 +733,6 @@ function Smuggler.RemoveTires(car)
             end
         end
     end
-    -- Also check for hinge constraints/wheel welds that may be named differently
     for _, obj in ipairs(car:GetDescendants()) do
         if obj:IsA("Model") and (obj.Name:lower():find("wheel") or obj.Name:lower():find("tire")) then
             pcall(function() obj:Destroy() end)
@@ -703,7 +743,7 @@ function Smuggler.RemoveTires(car)
     Log("[Step 4] Removed " .. removed .. " wheel parts")
 end
 
---━ STEP 5: TP CAR TO SELLER (with player inside)
+--━ STEP 5: TP CAR TO SELLER
 function Smuggler.TeleportCarToSeller(car)
     Log("[Step 5] Teleporting car to seller")
     if not car then return false end
@@ -716,7 +756,6 @@ function Smuggler.TeleportCarToSeller(car)
     local sellerPos = sHRP.Position
     Log("[Step 5] Seller " .. seller.Name .. " at " .. tostring(sellerPos))
     
-    -- Position car 5 studs from seller
     local carRoot = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
     if not carRoot then return false end
     
@@ -728,7 +767,6 @@ function Smuggler.TeleportCarToSeller(car)
     SmartTP.TeleportVehicle(car, targetPos, carCFrame)
     task.wait(0.8)
     
-    -- Verify player is close to seller
     local myHRP = GetHRP()
     if myHRP then
         local d = (myHRP.Position - sellerPos).Magnitude
@@ -742,7 +780,6 @@ end
 function Smuggler.FireSell()
     Log("[Step 6] Selling")
     
-    -- Equip items first
     if State.Smuggler_AutoEquip then
         if State.Smuggler_EquipAll then
             Smuggler.EquipAll(State.Smuggler_ItemName)
@@ -765,7 +802,7 @@ function Smuggler.FireSell()
     return true
 end
 
---━ STEP 7: TP TO LAUNDRY (with car)
+--━ STEP 7: TP TO LAUNDRY
 function Smuggler.TeleportCarToLaundry(car)
     Log("[Step 7] Teleporting car to laundry")
     if not car then
@@ -802,7 +839,7 @@ function Smuggler.RunCycle()
     if not State.Smuggler_AutoLoop then return end
     task.wait(0.4)
     
-    -- STEP 2: Spawn car (if enabled and no current car)
+    -- STEP 2: Spawn car
     local car = State.Smuggler_CurrentCar
     if State.Smuggler_SpawnCar and (not car or not car.Parent) then
         car = Smuggler.SpawnCar()
@@ -810,16 +847,15 @@ function Smuggler.RunCycle()
         task.wait(0.5)
     end
     
-    -- Use existing car if we have one
     if not car then car = GetPlayerCar() end
     
     if car then
-        -- STEP 3: Sit in car
+        -- STEP 3: Sit
         Smuggler.SitInCar(car)
         if not State.Smuggler_AutoLoop then return end
         task.wait(0.3)
         
-        -- STEP 4: Remove tires (only once per car)
+        -- STEP 4: Remove tires
         if State.Smuggler_RemoveTires and not car:GetAttribute("__TiresRemoved") then
             Smuggler.RemoveTires(car)
             car:SetAttribute("__TiresRemoved", true)
@@ -837,12 +873,12 @@ function Smuggler.RunCycle()
         if not State.Smuggler_AutoLoop then return end
         task.wait(0.5)
         
-        -- STEP 7: TP car back to laundry
+        -- STEP 7: TP car to laundry
         Smuggler.TeleportCarToLaundry(car)
         if not State.Smuggler_AutoLoop then return end
         task.wait(0.4)
     else
-        -- Fallback: no car - use foot method
+        -- Foot fallback
         Log("[Cycle] No car available, foot fallback")
         local _, seller = Smuggler.GetSellPrompt(State.Smuggler_SellerName)
         if seller then
@@ -1161,8 +1197,13 @@ if Tabs.Smuggler then
         Callback=function(v) State.Smuggler_SpawnCar = v end})
     Tog(T, {Name="Remove Tires", CurrentValue=true, Flag="RT",
         Callback=function(v) State.Smuggler_RemoveTires = v end})
-    Inp(T, {Name="Vehicle Name (empty = default)", PlaceholderText="e.g. Sedan", RemoveTextAfterFocusLost=false,
-        Callback=function(v) State.Smuggler_VehicleName = v end})
+    
+    local knownVehicles = {"Camry6", "BorderPatrolCrownVic", "2020Rs3Done", "jzs171 touring", "TAPVSWAT"}
+    Drp(T, {Name="Vehicle to Spawn", Options=knownVehicles,
+        CurrentOption={"Camry6"}, MultiOption=false, Flag="VNPick",
+        Callback=function(v) State.Smuggler_VehicleName = (type(v)=="table" and v[1]) or v end})
+    Inp(T, {Name="Custom Vehicle Name (overrides)", PlaceholderText="e.g. Camry6", RemoveTextAfterFocusLost=false,
+        Callback=function(v) if v ~= "" then State.Smuggler_VehicleName = v end end})
     
     Sec(T, "Equip Settings")
     Tog(T, {Name="Auto Equip Before Sell", CurrentValue=true, Flag="AE",
@@ -1419,4 +1460,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v" .. HUB.Version .. " loaded", 4)
-Log("v2.9.0 init | " .. remoteCount .. " remotes")
+Log("v2.9.1 init | " .. remoteCount .. " remotes")
