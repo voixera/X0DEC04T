@@ -114,11 +114,12 @@ loadRemotes()
 
 local function tryFire(remote, ...)
     if not remote then return false, "no remote" end
+    local args = table.pack(...)
     local ok, err
     if remote:IsA("RemoteEvent") then
-        ok, err = pcall(function() remote:FireServer(...) end)
+        ok, err = pcall(function() remote:FireServer(table.unpack(args, 1, args.n)) end)
     elseif remote:IsA("RemoteFunction") then
-        ok, err = pcall(function() return remote:InvokeServer(...) end)
+        ok, err = pcall(function() return remote:InvokeServer(table.unpack(args, 1, args.n)) end)
     end
     return ok, err
 end
