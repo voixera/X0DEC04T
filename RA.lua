@@ -1,5 +1,8 @@
 --═══════════════════════════════════════════════════════════════
 -- X0DEC04T REST AREA TROLL HUB v1.0
+-- PlaceId: 90226220017920
+-- FEATURES: HD Admin abuse, gift spam, radio hijack, coin farm,
+--           force chat, seat lock, fake alerts, confession spam
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -23,17 +26,57 @@ local function Log(m) print("[TROLL] "..tostring(m)) end
 Log("Loading Rest Area Troll Hub v1.0...")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 🛡️ ANTI-CHEAT KILL (must run FIRST)
+-- 🛡️ ANTI-CHEAT KILL (safe version, checks executor caps)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 task.spawn(function()
-    -- Disable the client kick script
+    -- 1. Disable client kick script
     local kickScript = PS:FindFirstChild("kick")
-    if kickScript and kickScript:IsA("LocalScript") then
+    if kickScript then
         pcall(function() kickScript.Disabled = true end)
         pcall(function() kickScript:Destroy() end)
         Log("✓ Disabled PlayerScripts.kick")
     end
     
+    -- 2. Hook Kick namecall (only if executor supports it)
+    local hasHook = (typeof(getrawmetatable) == "function") 
+                and (typeof(setreadonly) == "function") 
+                and (typeof(newcclosure) == "function" or typeof(hookmetamethod) == "function")
+    
+    if hasHook then
+        local ok, err = pcall(function()
+            if typeof(hookmetamethod) == "function" then
+                -- Modern executor path (Synapse, Solara, etc.)
+                local oldNamecall
+                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                    local method = getnamecallmethod and getnamecallmethod() or ""
+                    if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
+                        Log("✋ Blocked Kick on "..self.Name)
+                        return
+                    end
+                    return oldNamecall(self, ...)
+                end)
+            else
+                -- Legacy path
+                local mt = getrawmetatable(game)
+                setreadonly(mt, false)
+                local oldNamecall = mt.__namecall
+                mt.__namecall = newcclosure(function(self, ...)
+                    local method = getnamecallmethod and getnamecallmethod() or ""
+                    if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
+                        Log("✋ Blocked Kick on "..self.Name)
+                        return
+                    end
+                    return oldNamecall(self, ...)
+                end)
+                setreadonly(mt, true)
+            end
+        end)
+        if ok then Log("✓ Kick namecall blocked")
+        else Log("⚠ Hook failed: "..tostring(err)) end
+    else
+        Log("⚠ Executor doesn't support namecall hook — Kick not blocked")
+    end
+end)
     -- Block Kick calls
     local mt = getrawmetatable(game)
     pcall(function() setreadonly(mt, false) end)
