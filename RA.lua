@@ -1,8 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T REST AREA TROLL HUB v1.0
+-- X0DEC04T REST AREA TROLL HUB v1.1
 -- PlaceId: 90226220017920
--- FEATURES: HD Admin abuse, gift spam, radio hijack, coin farm,
---           force chat, seat lock, fake alerts, confession spam
+-- FIXED: vararg pcall + safer namecall hook + Real executor compat
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -19,14 +18,25 @@ local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui")
 local PS = LP:WaitForChild("PlayerScripts")
 
-local INSTANCE_KEY = "__X0DEC04T_REST_TROLL_v1"
+-- Executor compatibility shims
+local genv = (getgenv and getgenv()) or _G
+local fireproximityprompt = fireproximityprompt or genv.fireproximityprompt
+local getconnections      = getconnections      or genv.getconnections
+local hookmetamethod      = hookmetamethod      or genv.hookmetamethod
+local getrawmetatable     = getrawmetatable     or genv.getrawmetatable
+local setreadonly         = setreadonly         or genv.setreadonly
+local newcclosure         = newcclosure         or genv.newcclosure
+local getnamecallmethod   = getnamecallmethod   or genv.getnamecallmethod
+local gethui              = gethui              or genv.gethui
+
+local INSTANCE_KEY = "__X0DEC04T_REST_TROLL_v11"
 if _G[INSTANCE_KEY] then pcall(function() _G[INSTANCE_KEY].destroy() end); _G[INSTANCE_KEY]=nil; task.wait(0.2) end
 
 local function Log(m) print("[TROLL] "..tostring(m)) end
-Log("Loading Rest Area Troll Hub v1.0...")
+Log("Loading Rest Area Troll Hub v1.1...")
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 🛡️ ANTI-CHEAT KILL (safe version, checks executor caps)
+-- 🛡️ ANTI-CHEAT KILL (safe version)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 task.spawn(function()
     -- 1. Disable client kick script
@@ -37,71 +47,54 @@ task.spawn(function()
         Log("✓ Disabled PlayerScripts.kick")
     end
     
-    -- 2. Hook Kick namecall (only if executor supports it)
-    local hasHook = (typeof(getrawmetatable) == "function") 
-                and (typeof(setreadonly) == "function") 
-                and (typeof(newcclosure) == "function" or typeof(hookmetamethod) == "function")
-    
-    if hasHook then
+    -- 2. Hook Kick namecall via hookmetamethod (safer)
+    if typeof(hookmetamethod) == "function" then
         local ok, err = pcall(function()
-            if typeof(hookmetamethod) == "function" then
-                -- Modern executor path (Synapse, Solara, etc.)
-                local oldNamecall
-                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                    local method = getnamecallmethod and getnamecallmethod() or ""
-                    if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
-                        Log("✋ Blocked Kick on "..self.Name)
-                        return
-                    end
-                    return oldNamecall(self, ...)
-                end)
-            else
-                -- Legacy path
-                local mt = getrawmetatable(game)
-                setreadonly(mt, false)
-                local oldNamecall = mt.__namecall
-                mt.__namecall = newcclosure(function(self, ...)
-                    local method = getnamecallmethod and getnamecallmethod() or ""
-                    if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
-                        Log("✋ Blocked Kick on "..self.Name)
-                        return
-                    end
-                    return oldNamecall(self, ...)
-                end)
-                setreadonly(mt, true)
-            end
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod and getnamecallmethod() or ""
+                if method == "Kick" and typeof(self) == "Instance" and self:IsA("Player") then
+                    Log("✋ Blocked Kick on "..tostring(self.Name))
+                    return
+                end
+                return oldNamecall(self, ...)
+            end)
         end)
-        if ok then Log("✓ Kick namecall blocked")
-        else Log("⚠ Hook failed: "..tostring(err)) end
+        if ok then Log("✓ Kick namecall hooked")
+        else Log("⚠ hookmetamethod failed: "..tostring(err)) end
     else
-        Log("⚠ Executor doesn't support namecall hook — Kick not blocked")
+        Log("⚠ No hookmetamethod support")
     end
 end)
-    -- Block Kick calls
-    local mt = getrawmetatable(game)
-    pcall(function() setreadonly(mt, false) end)
-    local oldNamecall = mt.__namecall
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if method == "Kick" and self:IsA("Player") then
-            Log("✋ Blocked Kick call on "..self.Name)
-            return
-        end
-        return oldNamecall(self, ...)
-    end)
-    pcall(function() setreadonly(mt, true) end)
-    Log("✓ Kick namecall blocked")
+
+local function safeCB(fn)
+    if not fn then return function() end end
+    return function(...)
+        local a = table.pack(...)
+        task.defer(function()
+            local ok, err = pcall(function() fn(table.unpack(a, 1, a.n)) end)
+            if not ok then Log("CB err: "..tostring(err)) end
+        end)
+    end
+end
+
+local WindUI
+local wOk = pcall(function()
+    WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 end)
+if not wOk or not WindUI then warn("[TROLL] WindUI failed"); return end
 
-local function safeCB(fn) if not fn then return function() end end; return function(...) local a=table.pack(...); task.defer(function() local ok,err=pcall(function() fn(table.unpack(a,1,a.n)) end); if not ok then Log("CB err: "..tostring(err)) end end) end end
-
-local WindUI; local ok = pcall(function() WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))() end)
-if not ok or not WindUI then warn("[TROLL] WindUI failed"); return end
-
-local HUB = {Name="REST AREA TROLL", Version="1.0"}
+local HUB = {Name="REST AREA TROLL", Version="1.1"}
 local CM = {_list={}}
-function CM:Add(sig,cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list,c); return c end end
-function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Disconnect() end) end; self._list={} end
+function CM:Add(sig, cb)
+    if not sig then return end
+    local ok, c = pcall(function() return sig:Connect(cb) end)
+    if ok and c then table.insert(self._list, c); return c end
+end
+function CM:Cleanup()
+    for _, c in ipairs(self._list) do pcall(function() c:Disconnect() end) end
+    self._list = {}
+end
 
 local function GuiParent() local p=CoreGui; pcall(function() if gethui then p=gethui() end end); return p end
 local function GetChar() return LP.Character end
@@ -113,24 +106,35 @@ local function GetHum() local c=GetChar(); return c and c:FindFirstChildOfClass(
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Remotes = {}
 local function loadRemotes()
-    Remotes.SendGift        = RS:FindFirstChild("GiftCoinRemotes") and RS.GiftCoinRemotes:FindFirstChild("SendGift")
-    Remotes.GiftNotify      = RS:FindFirstChild("GiftCoinRemotes") and RS.GiftCoinRemotes:FindFirstChild("GiftNotify")
-    Remotes.OpenGiftUI      = RS:FindFirstChild("GiftCoinRemotes") and RS.GiftCoinRemotes:FindFirstChild("OpenGiftUI")
-    Remotes.ModifyCoins     = RS:FindFirstChild("AdminRemotes") and RS.AdminRemotes:FindFirstChild("ModifyCoins")
-    Remotes.GetCoins        = RS:FindFirstChild("AdminRemotes") and RS.AdminRemotes:FindFirstChild("GetCoins")
+    local giftFolder = RS:FindFirstChild("GiftCoinRemotes")
+    Remotes.SendGift        = giftFolder and giftFolder:FindFirstChild("SendGift")
+    Remotes.GiftNotify      = giftFolder and giftFolder:FindFirstChild("GiftNotify")
+    Remotes.OpenGiftUI      = giftFolder and giftFolder:FindFirstChild("OpenGiftUI")
+
+    local adminFolder = RS:FindFirstChild("AdminRemotes")
+    Remotes.ModifyCoins     = adminFolder and adminFolder:FindFirstChild("ModifyCoins")
+    Remotes.GetCoins        = adminFolder and adminFolder:FindFirstChild("GetCoins")
+
     Remotes.Radio           = RS:FindFirstChild("radi0")
     Remotes.Piano           = WS:FindFirstChild("GlobalPianoConnector")
     Remotes.GlobalAnnounce  = RS:FindFirstChild("GlobalAnnouncementEvent")
     Remotes.Confession      = RS:FindFirstChild("ConfessionEvent")
     Remotes.ConfessionLike  = RS:FindFirstChild("ConfessionLikeEvent")
     Remotes.KirimLaporan    = RS:FindFirstChild("KirimLaporan")
-    Remotes.SellFish        = RS:FindFirstChild("FishingSystem") and RS.FishingSystem:FindFirstChild("SellFish")
-    Remotes.SellAllFish     = RS:FindFirstChild("FishingSystem") and RS.FishingSystem:FindFirstChild("InventoryEvents") and RS.FishingSystem.InventoryEvents:FindFirstChild("Inventory_SellAll")
-    Remotes.FishGiver       = RS:FindFirstChild("FishingSystem") and RS.FishingSystem:FindFirstChild("FishGiver")
-    Remotes.FishCaught      = RS:FindFirstChild("FishingSystem") and RS.FishingSystem:FindFirstChild("FishCaught")
-    Remotes.PurchaseLuck    = RS:FindFirstChild("PurchaseLuckBoost")
-    -- HD Admin
-    local hdSigs = RS:FindFirstChild("HDAdminHDClient") and RS.HDAdminHDClient:FindFirstChild("Signals")
+
+    local fs = RS:FindFirstChild("FishingSystem")
+    Remotes.SellFish   = fs and fs:FindFirstChild("SellFish")
+    Remotes.FishGiver  = fs and fs:FindFirstChild("FishGiver")
+    Remotes.FishCaught = fs and fs:FindFirstChild("FishCaught")
+    if fs then
+        local invE = fs:FindFirstChild("InventoryEvents")
+        Remotes.SellAllFish = invE and invE:FindFirstChild("Inventory_SellAll")
+    end
+    Remotes.PurchaseLuck = RS:FindFirstChild("PurchaseLuckBoost")
+
+    -- HD Admin Signals
+    local hdClient = RS:FindFirstChild("HDAdminHDClient")
+    local hdSigs = hdClient and hdClient:FindFirstChild("Signals")
     if hdSigs then
         Remotes.RequestCommand       = hdSigs:FindFirstChild("RequestCommand")
         Remotes.RequestCommandSilent = hdSigs:FindFirstChild("RequestCommandSilent")
@@ -155,6 +159,7 @@ local function loadRemotes()
 end
 loadRemotes()
 
+-- FIXED tryFire using table.pack
 local function tryFire(remote, ...)
     if not remote then return false, "no remote" end
     local args = table.pack(...)
@@ -179,7 +184,9 @@ local function GetPlayerList()
     return list
 end
 local function SetTarget(name)
-    if name == "[ALL PLAYERS]" then Target.Player = "ALL"; Target.Name = "ALL"; return end
+    if name == "[ALL PLAYERS]" then
+        Target.Player = "ALL"; Target.Name = "ALL"; return
+    end
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Name == name then Target.Player = p; Target.Name = name; return end
     end
@@ -196,20 +203,16 @@ end
 -- 🎭 TROLL ACTIONS
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- 1. GIFT SPAM (opens gift UI on target constantly)
+-- 1. GIFT SPAM
 local giftSpam = false
 local function GiftSpamLoop()
     task.spawn(function()
         while giftSpam do
             ForEachTarget(function(p)
-                if Remotes.SendGift then
-                    tryFire(Remotes.SendGift, p, 1, "coin")
-                    tryFire(Remotes.SendGift, p.UserId, 1)
-                    tryFire(Remotes.SendGift, p.Name, 1)
-                end
-                if Remotes.OpenGiftUI then
-                    tryFire(Remotes.OpenGiftUI, p)
-                end
+                tryFire(Remotes.SendGift, p, 1, "coin")
+                tryFire(Remotes.SendGift, p.UserId, 1)
+                tryFire(Remotes.SendGift, p.Name, 1)
+                tryFire(Remotes.OpenGiftUI, p)
             end)
             task.wait(0.3)
         end
@@ -285,19 +288,21 @@ local function ConfessionSpamLoop()
     end)
 end
 
--- 7. COIN FARM (self)
+-- 7. COIN FARM
 local function GrindCoins(amount)
     amount = amount or 999999
     if not Remotes.ModifyCoins then Log("no ModifyCoins"); return end
     local ok, res = tryFire(Remotes.ModifyCoins, LP, amount)
-    Log("ModifyCoins →"..tostring(ok).." "..tostring(res))
+    Log("ModifyCoins(player,amt) → "..tostring(ok).." "..tostring(res))
     local ok2, res2 = tryFire(Remotes.ModifyCoins, LP.UserId, amount)
-    Log("ModifyCoins UserId →"..tostring(ok2).." "..tostring(res2))
+    Log("ModifyCoins(userId,amt) → "..tostring(ok2).." "..tostring(res2))
     local ok3, res3 = tryFire(Remotes.ModifyCoins, amount)
-    Log("ModifyCoins int →"..tostring(ok3).." "..tostring(res3))
+    Log("ModifyCoins(amt) → "..tostring(ok3).." "..tostring(res3))
+    local ok4, res4 = tryFire(Remotes.ModifyCoins, LP.Name, amount)
+    Log("ModifyCoins(name,amt) → "..tostring(ok4).." "..tostring(res4))
 end
 
--- 8. SEAT LOCK (force target into a seat, they can't leave)
+-- 8. SEAT LOCK
 local seatLockLoop = false
 local function SeatLockLoop()
     task.spawn(function()
@@ -306,13 +311,10 @@ local function SeatLockLoop()
                 local ch = p.Character
                 local hum = ch and ch:FindFirstChildOfClass("Humanoid")
                 if hum then
-                    -- Find any seat
                     for _, s in ipairs(WS:GetDescendants()) do
-                        if s:IsA("Seat") or s:IsA("VehicleSeat") then
-                            if not s.Occupant then
-                                pcall(function() s:Sit(hum) end)
-                                break
-                            end
+                        if (s:IsA("Seat") or s:IsA("VehicleSeat")) and not s.Occupant then
+                            pcall(function() s:Sit(hum) end)
+                            break
                         end
                     end
                 end
@@ -322,7 +324,7 @@ local function SeatLockLoop()
     end)
 end
 
--- 9. PIANO SPAM (loud note server-wide)
+-- 9. PIANO SPAM
 local pianoSpam = false
 local function PianoSpamLoop()
     task.spawn(function()
@@ -353,7 +355,7 @@ local function IceFreeze(state)
     end)
 end
 
--- 12. LAPORAN SPAM (report system)
+-- 12. LAPORAN SPAM
 local laporSpam = false
 local function LaporSpamLoop()
     task.spawn(function()
@@ -369,7 +371,7 @@ end
 
 -- 13. HD ADMIN COMMAND
 local function RunHDCommand(cmdText)
-    if not Remotes.RequestCommand then return end
+    if not Remotes.RequestCommand then Log("no RequestCommand"); return end
     local ok, res = tryFire(Remotes.RequestCommand, cmdText)
     Log("HD cmd '"..cmdText.."' → "..tostring(ok).." "..tostring(res))
 end
@@ -401,12 +403,20 @@ end
 
 local flyBv, flyBg, flyConn
 local function Fly(on)
-    if flyBv then flyBv:Destroy() end; if flyBg then flyBg:Destroy() end
-    if flyConn then flyConn:Disconnect() end
+    if flyBv then flyBv:Destroy(); flyBv=nil end
+    if flyBg then flyBg:Destroy(); flyBg=nil end
+    if flyConn then flyConn:Disconnect(); flyConn=nil end
     local hrp = GetHRP(); if not hrp then return end
     if on then
-        flyBv = Instance.new("BodyVelocity"); flyBv.MaxForce = Vector3.new(1,1,1)*1e5; flyBv.Velocity = Vector3.zero; flyBv.Parent = hrp
-        flyBg = Instance.new("BodyGyro"); flyBg.MaxTorque = Vector3.new(1,1,1)*1e5; flyBg.P = 1e4; flyBg.CFrame = hrp.CFrame; flyBg.Parent = hrp
+        flyBv = Instance.new("BodyVelocity")
+        flyBv.MaxForce = Vector3.new(1,1,1)*1e5
+        flyBv.Velocity = Vector3.zero
+        flyBv.Parent = hrp
+        flyBg = Instance.new("BodyGyro")
+        flyBg.MaxTorque = Vector3.new(1,1,1)*1e5
+        flyBg.P = 1e4
+        flyBg.CFrame = hrp.CFrame
+        flyBg.Parent = hrp
         flyConn = RunService.RenderStepped:Connect(function()
             if not flyBv or not flyBv.Parent then return end
             local cam = WS.CurrentCamera
@@ -449,7 +459,11 @@ end)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- 🖥️ UI
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local Window = WindUI:CreateWindow({Title=HUB.Name, Icon="skull", Author="v"..HUB.Version, Folder="X0DEC04T_TROLL", Size=UDim2.fromOffset(600,480), Transparent=true, Theme="Dark", SideBarWidth=170, HasOutline=true})
+local Window = WindUI:CreateWindow({
+    Title=HUB.Name, Icon="skull", Author="v"..HUB.Version,
+    Folder="X0DEC04T_TROLL", Size=UDim2.fromOffset(600,480),
+    Transparent=true, Theme="Dark", SideBarWidth=170, HasOutline=true
+})
 pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." loaded 😈", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t,Content=c,Duration=d or 4,Icon="info"}) end) end
 
@@ -457,14 +471,18 @@ local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t,Content=c,D
 local logoGui, logoActive = nil, false
 local function CreateLogo()
     if logoGui and logoGui.Parent then return end
-    logoGui = Instance.new("ScreenGui"); logoGui.Name="TrollLogo"; logoGui.ResetOnSpawn=false; logoGui.IgnoreGuiInset=true
+    logoGui = Instance.new("ScreenGui")
+    logoGui.Name="TrollLogo"; logoGui.ResetOnSpawn=false; logoGui.IgnoreGuiInset=true
     pcall(function() logoGui.Parent = GuiParent() end)
     local btn = Instance.new("ImageButton")
-    btn.Size=UDim2.new(0,60,0,60); btn.Position=UDim2.new(0,20,0.5,-30); btn.BackgroundTransparency=1
-    btn.AutoButtonColor=false; btn.Image="rbxassetid://"..tostring(LOGO_ASSET_ID); btn.ScaleType=Enum.ScaleType.Fit
+    btn.Size=UDim2.new(0,60,0,60); btn.Position=UDim2.new(0,20,0.5,-30)
+    btn.BackgroundTransparency=1; btn.AutoButtonColor=false
+    btn.Image="rbxassetid://"..tostring(LOGO_ASSET_ID); btn.ScaleType=Enum.ScaleType.Fit
     btn.Active=true; btn.Draggable=true; btn.Parent=logoGui
     btn.MouseButton1Click:Connect(function()
-        if logoGui then logoGui.Enabled=false end; logoActive=false; pcall(function() Window:Open() end)
+        if logoGui then logoGui.Enabled=false end
+        logoActive=false
+        pcall(function() Window:Open() end)
     end)
 end
 CreateLogo(); if logoGui then logoGui.Enabled=false end
@@ -473,8 +491,15 @@ CM:Add(UserInputService.InputBegan, function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
         task.wait(0.1)
-        if logoActive then if logoGui then logoGui.Enabled=false end; logoActive=false; pcall(function() Window:Open() end)
-        else if logoGui then logoGui.Enabled=true end; logoActive=true; pcall(function() Window:Close() end) end
+        if logoActive then
+            if logoGui then logoGui.Enabled=false end
+            logoActive=false
+            pcall(function() Window:Open() end)
+        else
+            if logoGui then logoGui.Enabled=true end
+            logoActive=true
+            pcall(function() Window:Close() end)
+        end
     end
 end)
 
@@ -491,24 +516,36 @@ Window:SelectTab(1)
 
 -- TARGET TAB
 Tabs.Target:Section({Title="Select Target"})
-local plrDropdown = Tabs.Target:Dropdown({Title="Player", Values=GetPlayerList(), Value="[ALL PLAYERS]", Callback=safeCB(SetTarget)})
+local plrDropdown = Tabs.Target:Dropdown({
+    Title="Player", Values=GetPlayerList(), Value="[ALL PLAYERS]",
+    Callback=safeCB(SetTarget)
+})
 Tabs.Target:Button({Title="🔄 Refresh Player List", Callback=safeCB(function()
     pcall(function() plrDropdown:Refresh(GetPlayerList()) end)
     Notify("Target", "List refreshed", 2)
 end)})
 SetTarget("[ALL PLAYERS]")
 
-Players.PlayerAdded:Connect(function() task.wait(1); pcall(function() plrDropdown:Refresh(GetPlayerList()) end) end)
-Players.PlayerRemoving:Connect(function() task.wait(1); pcall(function() plrDropdown:Refresh(GetPlayerList()) end) end)
+Players.PlayerAdded:Connect(function()
+    task.wait(1); pcall(function() plrDropdown:Refresh(GetPlayerList()) end)
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(1); pcall(function() plrDropdown:Refresh(GetPlayerList()) end)
+end)
 
-Tabs.Target:Paragraph({Title="Current Target", Desc="Selected: "..Target.Name.."\n\n[ALL PLAYERS] = affects everyone in server\nSpecific player = affects only them"})
+Tabs.Target:Paragraph({
+    Title="Current Target",
+    Desc="[ALL PLAYERS] = affects everyone\nSpecific player = affects only them\n\nRefresh if you don't see a player."
+})
 
 -- TROLL TAB
 Tabs.Troll:Section({Title="🎁 Gift & Alert Spam"})
 Tabs.Troll:Toggle({Title="Gift Spam (open UI + send gifts)", Default=false, Callback=safeCB(function(v) giftSpam=v; if v then GiftSpamLoop() end end)})
 Tabs.Troll:Input({Title="Alert Text", Value="You have been reported!", Callback=safeCB(function(v) alertText=v end)})
 Tabs.Troll:Toggle({Title="Alert Spam", Default=false, Callback=safeCB(function(v) alertSpam=v; if v then AlertSpamLoop() end end)})
-Tabs.Troll:Button({Title="⚠️ Send FAKE BAN Screen", Callback=safeCB(function() FakeBan("Banned for exploiting - X0DEC04T"); Notify("Fake Ban", "Sent to "..Target.Name, 3) end)})
+Tabs.Troll:Button({Title="⚠️ Send FAKE BAN Screen", Callback=safeCB(function()
+    FakeBan("Banned for exploiting - X0DEC04T"); Notify("Fake Ban", "Sent to "..Target.Name, 3)
+end)})
 
 Tabs.Troll:Section({Title="🪑 Seat & Freeze"})
 Tabs.Troll:Toggle({Title="Force Seat Lock (spam sit)", Default=false, Callback=safeCB(function(v) seatLockLoop=v; if v then SeatLockLoop() end end)})
@@ -521,10 +558,12 @@ Tabs.Troll:Input({Title="Confession Text", Value="spammed by X0DEC04T", Callback
 Tabs.Troll:Toggle({Title="Confession Spam", Default=false, Callback=safeCB(function(v) confSpam=v; if v then ConfessionSpamLoop() end end)})
 
 -- CHAT/MSG TAB
-Tabs.Chat:Section({Title="💬 Force Chat (make target say things)"})
+Tabs.Chat:Section({Title="💬 Force Chat"})
 local forceChatText = "I love X0DEC04T"
 Tabs.Chat:Input({Title="Text to force", Value="I love X0DEC04T", Callback=safeCB(function(v) forceChatText=v end)})
-Tabs.Chat:Button({Title="Force Target to Say It (Chat)", Callback=safeCB(function() ForceChatTarget(forceChatText); Notify("ForceChat","sent",3) end)})
+Tabs.Chat:Button({Title="Force Target to Say It", Callback=safeCB(function()
+    ForceChatTarget(forceChatText); Notify("ForceChat","sent",3)
+end)})
 Tabs.Chat:Button({Title="Force Target Bubble Chat", Callback=safeCB(function()
     ForEachTarget(function(p)
         tryFire(Remotes.ForceBubbleChat, p, forceChatText)
@@ -534,18 +573,20 @@ end)})
 
 Tabs.Chat:Section({Title="📣 Global Announcement"})
 Tabs.Chat:Input({Title="Announce Text", Value="X0DEC04T WAS HERE 😈", Callback=safeCB(function(v) announceText=v end)})
-Tabs.Chat:Button({Title="📣 Send ONE Global Announcement", Callback=safeCB(function()
+Tabs.Chat:Button({Title="📣 Send ONE Global Announce", Callback=safeCB(function()
     tryFire(Remotes.GlobalAnnounce, announceText)
     tryFire(Remotes.SystemMessage, announceText)
-    Notify("Announce","sent globally",3)
+    Notify("Announce","sent",3)
 end)})
 Tabs.Chat:Toggle({Title="Announce SPAM (loop)", Default=false, Callback=safeCB(function(v) announceSpam=v; if v then AnnounceSpamLoop() end end)})
 
 -- SOUND TAB
 Tabs.Sound:Section({Title="🎵 Radio Hijack"})
 local radioId = "142376088"
-Tabs.Sound:Input({Title="Sound ID (Roblox asset ID)", Value="142376088", Callback=safeCB(function(v) radioId=v end)})
-Tabs.Sound:Button({Title="▶ Play on Radio (server-wide)", Callback=safeCB(function() RadioPlay(radioId); Notify("Radio","playing "..radioId,3) end)})
+Tabs.Sound:Input({Title="Sound ID", Value="142376088", Callback=safeCB(function(v) radioId=v end)})
+Tabs.Sound:Button({Title="▶ Play on Radio (server-wide)", Callback=safeCB(function()
+    RadioPlay(radioId); Notify("Radio","playing "..radioId,3)
+end)})
 Tabs.Sound:Button({Title="⏹ Stop Radio", Callback=safeCB(RadioStop)})
 
 Tabs.Sound:Section({Title="🎹 Piano Spam"})
@@ -562,22 +603,22 @@ Tabs.Self:Section({Title="Protection"})
 Tabs.Self:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(v) State.GodMode=v end)})
 Tabs.Self:Toggle({Title="Anti-AFK", Default=true, Callback=safeCB(function(v) State.AntiAFK=v end)})
 
-Tabs.Self:Section({Title="💰 Coin & Fish Exploits"})
-Tabs.Self:Button({Title="💰 Give 999,999 Coins (via ModifyCoins)", Callback=safeCB(function() GrindCoins(999999) end)})
+Tabs.Self:Section({Title="💰 Coin & Fish"})
+Tabs.Self:Button({Title="💰 Give 999,999 Coins", Callback=safeCB(function() GrindCoins(999999) end)})
 Tabs.Self:Button({Title="💰 Give 1,000,000,000 Coins", Callback=safeCB(function() GrindCoins(1000000000) end)})
-Tabs.Self:Button({Title="🎣 Sell All Fish (instant)", Callback=safeCB(SellAllFish)})
+Tabs.Self:Button({Title="🎣 Sell All Fish", Callback=safeCB(SellAllFish)})
 Tabs.Self:Button({Title="📊 Check My Coins", Callback=safeCB(function()
     local ok, c = tryFire(Remotes.GetCoins, LP)
     Notify("Coins", tostring(c), 4)
 end)})
 
 -- HD ADMIN COMMANDS TAB
-Tabs.HDAdmin:Section({Title="Try HD Admin Commands (may need rank)"})
-local hdCmdInput = ";kick "
-Tabs.HDAdmin:Input({Title="Command (with ; prefix)", Value=";kick playername", Callback=safeCB(function(v) hdCmdInput=v end)})
+Tabs.HDAdmin:Section({Title="Custom Command (needs rank)"})
+local hdCmdInput = ";kick playername"
+Tabs.HDAdmin:Input({Title="Command", Value=";kick playername", Callback=safeCB(function(v) hdCmdInput=v end)})
 Tabs.HDAdmin:Button({Title="▶ Execute", Callback=safeCB(function() RunHDCommand(hdCmdInput) end)})
 
-Tabs.HDAdmin:Section({Title="Quick Commands (targets selected player)"})
+Tabs.HDAdmin:Section({Title="Quick Commands on Target"})
 local hdActions = {
     {"Kick", ";kick"}, {"Ban", ";ban"}, {"Fling", ";fling"}, {"Kill", ";kill"},
     {"Freeze", ";freeze"}, {"Thaw", ";thaw"}, {"Invisible", ";invisible"},
@@ -595,7 +636,8 @@ end
 -- SETTINGS
 Tabs.Settings:Button({Title="Minimize (RightShift)", Callback=safeCB(function()
     pcall(function() Window:Close() end); task.wait(0.2)
-    if logoGui then logoGui.Enabled=true end; logoActive=true
+    if logoGui then logoGui.Enabled=true end
+    logoActive=true
 end)})
 Tabs.Settings:Button({Title="🛑 PANIC (stop all spams)", Callback=safeCB(function()
     giftSpam=false; alertSpam=false; announceSpam=false; confSpam=false
@@ -603,7 +645,9 @@ Tabs.Settings:Button({Title="🛑 PANIC (stop all spams)", Callback=safeCB(funct
     RadioStop()
     Notify("PANIC","All spams stopped",4)
 end)})
-Tabs.Settings:Button({Title="🔄 Reload Remotes", Callback=safeCB(function() loadRemotes(); Notify("Reloaded","remotes",2) end)})
+Tabs.Settings:Button({Title="🔄 Reload Remotes", Callback=safeCB(function()
+    loadRemotes(); Notify("Reloaded","remotes",2)
+end)})
 Tabs.Settings:Button({Title="❌ Unload Hub", Callback=safeCB(function()
     giftSpam=false; alertSpam=false; announceSpam=false; confSpam=false
     seatLockLoop=false; pianoSpam=false; laporSpam=false
@@ -618,7 +662,8 @@ _G[INSTANCE_KEY] = {version=HUB.Version, destroy=function()
     seatLockLoop=false; pianoSpam=false; laporSpam=false
     Noclip(false); Fly(false)
     if logoGui then pcall(function() logoGui:Destroy() end) end
-    CM:Cleanup(); pcall(function() Window:Destroy() end)
+    CM:Cleanup()
+    pcall(function() Window:Destroy() end)
 end}
 
-Log("Rest Area Troll Hub v1.0 READY 😈")
+Log("Rest Area Troll Hub v1.1 READY 😈")
