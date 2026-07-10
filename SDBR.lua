@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v4.1.2 - Verify + Retry loop for Buy/Sell/Launder
+-- X0DEC04T Hub v4.1.3 - Sell freeze + aggressive AC block
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -20,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v412"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v413"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -28,7 +28,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v4.1.2...")
+Log("Starting v4.1.3...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -47,14 +47,17 @@ local ok, err = pcall(function()
 end)
 if not ok or not WindUI then warn("[X0DEC04T] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Version="4.1.2" }
+local HUB = { Name="X0DEC04T Hub", Version="4.1.3" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
 function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Disconnect() end) end; self._list={} end
 
---━ ANTI-CHEAT
-local ACNeutral = { hooked=false, rollbackConn=nil }
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AGGRESSIVE AC NEUTRAL (with lockdown mode for critical actions)
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local ACNeutral = { hooked=false, rollbackConn=nil, lockdown=false, lockdownConn=nil }
+
 local function HookRollback()
     local rf = ReplicatedStorage:FindFirstChild("__remotes")
     if not rf then return end
@@ -89,6 +92,7 @@ local function HookRollback()
         end)
     end
 end
+
 local function KillClientAC()
     local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
     if scripts then
@@ -102,10 +106,31 @@ local function KillClientAC()
         end
     end
 end
+
 function ACNeutral.Enable() HookRollback(); KillClientAC() end
 function ACNeutral.Disable()
     if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end); ACNeutral.rollbackConn = nil end
+    ACNeutral.LockdownStop()
 end
+
+-- Lockdown = ultra aggressive rehooking every frame (during sell action)
+function ACNeutral.LockdownStart()
+    if ACNeutral.lockdown then return end
+    ACNeutral.lockdown = true
+    Log("[AC] LOCKDOWN start")
+    ACNeutral.lockdownConn = RunService.Heartbeat:Connect(function()
+        if not ACNeutral.lockdown then return end
+        -- Re-hook rollback every frame in case game re-registers listener
+        pcall(HookRollback)
+    end)
+end
+function ACNeutral.LockdownStop()
+    if not ACNeutral.lockdown then return end
+    ACNeutral.lockdown = false
+    if ACNeutral.lockdownConn then pcall(function() ACNeutral.lockdownConn:Disconnect() end); ACNeutral.lockdownConn = nil end
+    Log("[AC] LOCKDOWN end")
+end
+
 task.spawn(function()
     while true do
         task.wait(3)
@@ -150,9 +175,13 @@ local State = {
     Smuggler_UseRemotes=true, Smuggler_AutoLaunder=true,
     Smuggler_ItemName="Fake Diamond Ring", Smuggler_SellerName="Seller",
     Smuggler_VehicleName="Tayora Cambria", 
-    Smuggler_BuyRetries=8, Smuggler_SellRetries=10, Smuggler_LaunderRetries=6,
-    Smuggler_MaxAttempts=5, -- how many times to retry full action if verify fails
-    Smuggler_VerifyTimeout=3, -- seconds to wait for verification
+    Smuggler_BuyRetries=8,
+    Smuggler_SellFireCount=1,     -- fire ONCE per attempt (avoid spam)
+    Smuggler_SellFireDelay=1.5,   -- delay between fires
+    Smuggler_LaunderRetries=6,
+    Smuggler_MaxAttempts=5,
+    Smuggler_VerifyTimeout=4,
+    Smuggler_SellFreezeDur=2.5,   -- how long to stay frozen before firing
     Smuggler_Delay=1, Smuggler_DebugMode=true,
     Smuggler_AutoEquip=true, Smuggler_EquipAll=true,
     Smuggler_RemoveTires=false, Smuggler_SpawnCar=true, Smuggler_CurrentCar=nil,
@@ -210,6 +239,62 @@ local function IsSeatedIn(car)
         if (o:IsA("VehicleSeat") or o:IsA("Seat")) and o.Occupant == hum then return true end
     end
     return false
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CAR FREEZE (for stationary actions like selling)
+-- Anchors ALL car parts + character to prevent any movement
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local CarFreeze = { active=false, savedAnchor={}, conn=nil }
+
+function CarFreeze.Start(car)
+    if CarFreeze.active then CarFreeze.Stop() end
+    if not car or not car.Parent then return end
+    CarFreeze.active = true
+    -- Anchor all car parts
+    for _, p in ipairs(car:GetDescendants()) do
+        if p:IsA("BasePart") then
+            if CarFreeze.savedAnchor[p] == nil then
+                CarFreeze.savedAnchor[p] = p.Anchored
+            end
+            pcall(function()
+                p.Anchored = true
+                p.AssemblyLinearVelocity = Vector3.zero
+                p.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+    end
+    -- Anchor character HRP too
+    local hrp = GetHRP()
+    if hrp then
+        CarFreeze.savedAnchor[hrp] = hrp.Anchored
+        pcall(function() hrp.Anchored = true end)
+    end
+    -- Enforce anchors every frame (in case something unlocks them)
+    CarFreeze.conn = RunService.Heartbeat:Connect(function()
+        if not CarFreeze.active then return end
+        for p, _ in pairs(CarFreeze.savedAnchor) do
+            if p and p.Parent then
+                pcall(function()
+                    p.Anchored = true
+                    p.AssemblyLinearVelocity = Vector3.zero
+                    p.AssemblyAngularVelocity = Vector3.zero
+                end)
+            end
+        end
+    end)
+    Log("[Freeze] Car+char anchored")
+end
+
+function CarFreeze.Stop()
+    if not CarFreeze.active then return end
+    CarFreeze.active = false
+    if CarFreeze.conn then pcall(function() CarFreeze.conn:Disconnect() end); CarFreeze.conn = nil end
+    for p, orig in pairs(CarFreeze.savedAnchor) do
+        if p and p.Parent then pcall(function() p.Anchored = orig end) end
+    end
+    CarFreeze.savedAnchor = {}
+    Log("[Freeze] Released")
 end
 
 --━ CAMERA
@@ -639,7 +724,7 @@ local function GetBuyableItemNames()
     return names
 end
 
---━ SMUGGLER + VERIFICATION
+--━ SMUGGLER
 local Smuggler = {}
 function Smuggler.FirePrompt(prompt)
     if not prompt then return end
@@ -655,12 +740,6 @@ function Smuggler.EquipTool(tn)
     if ch:FindFirstChild(tn) then return end
     local t=bp:FindFirstChild(tn); if t then local h=GetHuman(); if h then pcall(function() h:EquipTool(t) end); task.wait(0.3) end end
 end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HELPERS for verification
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
--- Count items across backpack + character
 function Smuggler.CountInventory(itemName)
     local count = 0
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -669,8 +748,6 @@ function Smuggler.CountInventory(itemName)
     if ch then for _,t in ipairs(ch:GetChildren()) do if t:IsA("Tool") and t.Name == itemName then count = count + 1 end end end
     return count
 end
-
--- Detect briefcase (produced by selling)
 function Smuggler.HasBriefcase()
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local ch = GetChar()
@@ -686,8 +763,6 @@ function Smuggler.HasBriefcase()
     end
     return check(bp) or check(ch)
 end
-
--- Get current money (best-effort from leaderstats)
 function Smuggler.GetMoney()
     local ls = LocalPlayer:FindFirstChild("leaderstats")
     if not ls then return nil end
@@ -699,7 +774,6 @@ function Smuggler.GetMoney()
     end
     return nil
 end
-
 function Smuggler.GetBuyPrompt()
     if not BRP_PATHS.WorldBuyableItems then return end
     local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(State.Smuggler_ItemName); if not item then return end
@@ -873,29 +947,15 @@ function Smuggler.RemoveTires(car)
     Log("[Tires] Removed " .. removed)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ATTEMPT WRAPPER: runs action, verifies success, retries if failed
--- action = function(car) -> triggers the buy/sell/launder
--- verify = function() -> returns true if action succeeded
--- name = string for logging
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Smuggler.RunWithVerify(name, car, targetPos, actionFn, verifyFn, maxAttempts)
     maxAttempts = maxAttempts or State.Smuggler_MaxAttempts or 5
     for attempt = 1, maxAttempts do
         Log(string.format("[%s] Attempt %d/%d", name, attempt, maxAttempts))
-        
-        -- Pre-check: if already succeeded, skip
         if verifyFn() then
-            Log(string.format("[%s] Already satisfied (pre-check)", name))
+            Log(string.format("[%s] Already satisfied", name))
             return true
         end
-        
-        -- Ensure seated
-        if not IsSeatedIn(car) then
-            Smuggler.SitInCar(car)
-        end
-        
-        -- Drive to target
+        if not IsSeatedIn(car) then Smuggler.SitInCar(car) end
         local drove = SmartTP.CarTweenTo(car, targetPos)
         if not drove then
             Log(string.format("[%s] Drive failed, retry", name))
@@ -903,31 +963,25 @@ function Smuggler.RunWithVerify(name, car, targetPos, actionFn, verifyFn, maxAtt
         else
             task.wait(0.3)
         end
-        
-        -- Run the action (fires prompt + remote)
         actionFn(car)
-        
-        -- Verify with timeout
         local vT = tick()
         local ok = false
-        while tick() - vT < (State.Smuggler_VerifyTimeout or 3) do
+        while tick() - vT < (State.Smuggler_VerifyTimeout or 4) do
             if verifyFn() then ok = true; break end
             task.wait(0.2)
         end
-        
         if ok then
-            Log(string.format("[%s] ✓ SUCCESS on attempt %d", name, attempt))
+            Log(string.format("[%s] ✓ SUCCESS attempt %d", name, attempt))
             return true
         else
-            Log(string.format("[%s] ✗ Failed attempt %d, retrying...", name, attempt))
+            Log(string.format("[%s] ✗ Failed attempt %d", name, attempt))
             task.wait(0.5)
         end
     end
-    Log(string.format("[%s] ✗✗ GAVE UP after %d attempts", name, maxAttempts))
+    Log(string.format("[%s] ✗✗ GAVE UP", name))
     return false
 end
 
---━━━ BUY (verify = inventory count went up) ━━━
 function Smuggler.DriveAndBuy(car)
     Log("[3] Drive→Buy " .. State.Smuggler_ItemName)
     local prompt, item = Smuggler.GetBuyPrompt()
@@ -938,20 +992,15 @@ function Smuggler.DriveAndBuy(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[3] can't sit"); return false end
     end
-    
     local startCount = Smuggler.CountInventory(State.Smuggler_ItemName)
-    Log("[3] Start inv: "..startCount.."/"..State.Smuggler_MaxInventory)
+    Log("[3] Start inv: "..startCount)
     if startCount >= State.Smuggler_MaxInventory then
         Log("[3] Full, skip")
         return true
     end
-    
-    -- Each attempt tries to buy at least 1 more; loop until we hit max or run out of attempts
     local targetCount = State.Smuggler_MaxInventory
-    
     return Smuggler.RunWithVerify("BUY", car, pos,
         function(c)
-            -- Action: fire prompt + remote several times
             for i=1, State.Smuggler_BuyRetries do
                 if prompt then Smuggler.FirePrompt(prompt) end
                 if BRP.PurchaseWorldItem then
@@ -966,16 +1015,16 @@ function Smuggler.DriveAndBuy(car)
             end
         end,
         function()
-            -- Verify: inventory has increased AND reached max (or increased at least by 1)
             local now = Smuggler.CountInventory(State.Smuggler_ItemName)
-            Log("[3][verify] inv now: "..now)
             return now >= targetCount or now > startCount
         end,
         State.Smuggler_MaxAttempts
     )
 end
 
---━━━ SELL (verify = inventory decreased OR briefcase appeared OR money increased) ━━━
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- DRIVE AND SELL - FREEZES CAR, LOCKDOWN AC, SLOW FIRE
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function Smuggler.DriveAndSell(car)
     Log("[4] Drive→Sell " .. State.Smuggler_SellerName)
     local prompt, seller = Smuggler.GetSellPrompt()
@@ -986,47 +1035,99 @@ function Smuggler.DriveAndSell(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[4] can't sit"); return false end
     end
-    
     local startCount = Smuggler.CountInventory(State.Smuggler_ItemName)
     local startMoney = Smuggler.GetMoney()
     local startHadBriefcase = Smuggler.HasBriefcase()
     Log("[4] Start: inv="..startCount..", money="..tostring(startMoney)..", brief="..tostring(startHadBriefcase))
-    
     if startCount == 0 then
-        Log("[4] Nothing to sell, skip")
+        Log("[4] Nothing to sell")
         return true
     end
     
-    return Smuggler.RunWithVerify("SELL", car, sellerPos,
-        function(c)
-            if State.Smuggler_AutoEquip then
-                if State.Smuggler_EquipAll then Smuggler.EquipAll(State.Smuggler_ItemName)
-                else Smuggler.EquipTool(State.Smuggler_ItemName) end
-                task.wait(0.3)
+    for attempt = 1, State.Smuggler_MaxAttempts do
+        Log(string.format("[SELL] Attempt %d/%d", attempt, State.Smuggler_MaxAttempts))
+        
+        -- Verify pre-check
+        local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
+        local nowMoney = Smuggler.GetMoney()
+        local nowBriefcase = Smuggler.HasBriefcase()
+        if nowCount < startCount or (startMoney and nowMoney and nowMoney > startMoney) or (not startHadBriefcase and nowBriefcase) then
+            Log("[SELL] Already sold ✓")
+            return true
+        end
+        
+        -- Ensure seated
+        if not IsSeatedIn(car) then Smuggler.SitInCar(car) end
+        
+        -- Drive to seller
+        local drove = SmartTP.CarTweenTo(car, sellerPos)
+        if not drove then
+            Log("[SELL] Drive failed, retry")
+            task.wait(0.5)
+        end
+        
+        -- CRITICAL: Freeze car completely before selling
+        Log("[SELL] Freezing car for stationary sell...")
+        CarFreeze.Start(car)
+        
+        -- Wait for server to "settle" and see us stationary
+        task.wait(State.Smuggler_SellFreezeDur or 2.5)
+        
+        -- Start AC lockdown (aggressive rehooking)
+        ACNeutral.LockdownStart()
+        
+        -- Equip items
+        if State.Smuggler_AutoEquip then
+            if State.Smuggler_EquipAll then Smuggler.EquipAll(State.Smuggler_ItemName)
+            else Smuggler.EquipTool(State.Smuggler_ItemName) end
+            task.wait(0.4)
+        end
+        
+        -- Fire sell SLOWLY - once per SellFireDelay seconds
+        local fireCount = State.Smuggler_SellFireCount or 1
+        for i = 1, fireCount do
+            Log(string.format("[SELL] Fire %d/%d", i, fireCount))
+            if prompt then Smuggler.FirePrompt(prompt) end
+            task.wait(0.2)
+            if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
+                pcall(function() BRP.SellSmuggledGoods:FireServer() end)
             end
-            for i=1, State.Smuggler_SellRetries do
-                if prompt then Smuggler.FirePrompt(prompt) end
-                if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
-                    pcall(function() BRP.SellSmuggledGoods:FireServer() end)
-                end
-                task.wait(0.35)
+            -- Wait between fires (server rate-limit friendly)
+            task.wait(State.Smuggler_SellFireDelay or 1.5)
+            -- Check if sold
+            local c = Smuggler.CountInventory(State.Smuggler_ItemName)
+            if c < startCount then Log("[SELL] Detected sold mid-fire ✓"); break end
+        end
+        
+        -- Verify with timeout
+        local vT = tick()
+        local ok = false
+        while tick() - vT < (State.Smuggler_VerifyTimeout or 4) do
+            local c = Smuggler.CountInventory(State.Smuggler_ItemName)
+            local m = Smuggler.GetMoney()
+            local b = Smuggler.HasBriefcase()
+            if c < startCount or (startMoney and m and m > startMoney) or (not startHadBriefcase and b) then
+                ok = true; break
             end
-        end,
-        function()
-            local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
-            local nowMoney = Smuggler.GetMoney()
-            local nowBriefcase = Smuggler.HasBriefcase()
-            local invDropped = nowCount < startCount
-            local moneyUp = (startMoney and nowMoney and nowMoney > startMoney)
-            local briefcaseAppeared = (not startHadBriefcase and nowBriefcase)
-            Log(string.format("[4][verify] inv=%d/%d $%s→%s brief=%s→%s", nowCount, startCount, tostring(startMoney), tostring(nowMoney), tostring(startHadBriefcase), tostring(nowBriefcase)))
-            return invDropped or moneyUp or briefcaseAppeared
-        end,
-        State.Smuggler_MaxAttempts
-    )
+            task.wait(0.2)
+        end
+        
+        -- Release lockdown + freeze
+        ACNeutral.LockdownStop()
+        CarFreeze.Stop()
+        
+        if ok then
+            Log(string.format("[SELL] ✓ SUCCESS attempt %d", attempt))
+            return true
+        else
+            Log(string.format("[SELL] ✗ Failed attempt %d", attempt))
+            task.wait(0.5)
+        end
+    end
+    Log("[SELL] ✗✗ GAVE UP")
+    return false
 end
 
---━━━ LAUNDER (verify = briefcase gone OR money went up significantly) ━━━
 function Smuggler.DriveAndLaunder(car)
     if not State.Smuggler_AutoLaunder then return true end
     Log("[5] Drive→Launder")
@@ -1035,18 +1136,13 @@ function Smuggler.DriveAndLaunder(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[5] can't sit"); return false end
     end
-    
     local startBriefcase = Smuggler.HasBriefcase()
     local startMoney = Smuggler.GetMoney()
-    Log("[5] Start: brief="..tostring(startBriefcase)..", money="..tostring(startMoney))
-    
     if not startBriefcase then
         Log("[5] No briefcase, skip")
         return true
     end
-    
     local prompt = Smuggler.GetLaunderPrompt()
-    
     return Smuggler.RunWithVerify("LAUNDER", car, pos,
         function(c)
             for i=1, State.Smuggler_LaunderRetries do
@@ -1058,12 +1154,9 @@ function Smuggler.DriveAndLaunder(car)
             end
         end,
         function()
-            local nowBriefcase = Smuggler.HasBriefcase()
-            local nowMoney = Smuggler.GetMoney()
-            local briefcaseGone = (startBriefcase and not nowBriefcase)
-            local bigMoneyGain = (startMoney and nowMoney and (nowMoney - startMoney) > 1000)
-            Log(string.format("[5][verify] brief=%s→%s $%s→%s", tostring(startBriefcase), tostring(nowBriefcase), tostring(startMoney), tostring(nowMoney)))
-            return briefcaseGone or bigMoneyGain
+            local nowB = Smuggler.HasBriefcase()
+            local nowM = Smuggler.GetMoney()
+            return (startBriefcase and not nowB) or (startMoney and nowM and (nowM - startMoney) > 1000)
         end,
         State.Smuggler_MaxAttempts
     )
@@ -1101,7 +1194,7 @@ end
 
 function Smuggler.SetAutoLoop(e)
     State.Smuggler_AutoLoop = e
-    if not e then Log("Loop OFF"); StopCarTween(); return end
+    if not e then Log("Loop OFF"); StopCarTween(); CarFreeze.Stop(); ACNeutral.LockdownStop(); return end
     Log("Loop ON")
     task.spawn(function()
         while State.Smuggler_AutoLoop do
@@ -1187,7 +1280,7 @@ local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="gamepad-2", Author="v"..HUB.Version, Folder="X0DEC04T",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
 })
-pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." verify+retry", Duration=4, Icon="check"}) end)
+pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." sell freeze", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t, Content=c, Duration=d or 4, Icon="info"}) end) end
 
 local logoGui, logoActive = nil, false
@@ -1253,7 +1346,8 @@ local Tabs = {
 Window:SelectTab(1)
 
 Tabs.Main:Section({Title="X0DEC04T Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="Verify + Retry", Desc="Each action (buy/sell/launder) now verifies:\n\n• BUY = inventory count went up\n• SELL = inventory dropped OR money up OR briefcase appeared\n• LAUNDER = briefcase gone OR big money gain\n\nIf verification fails → auto-retries full action (drive + fire) up to Max Attempts"})
+Tabs.Main:Paragraph({Title="Sell freeze + AC lockdown", Desc="During sell:\n• Car is fully anchored (no rollback trigger)\n• AC rehook every frame\n• Slow fire (1-2 fires with delay)\n• Auto releases when done"})
+Tabs.Main:Button({Title="Force Release Freeze+Camera", Callback=safeCB(function() CarFreeze.Stop(); ACNeutral.LockdownStop(); CameraStab.Stop() end)})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
 Tabs.Vehicle:Section({Title="Speed"})
@@ -1271,15 +1365,19 @@ Tabs.Vehicle:Section({Title="Character"})
 Tabs.Vehicle:Slider({Title="WalkSpeed", Value={Min=16,Max=200,Default=16}, Step=4, Callback=safeCB(function(v) local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end)})
 Tabs.Vehicle:Toggle({Title="Infinite Jump", Default=false, Callback=safeCB(function(v) State.InfiniteJump=v end)})
 
-Tabs.Smuggler:Section({Title="Camera (during tween)"})
+Tabs.Smuggler:Section({Title="Camera"})
 Tabs.Smuggler:Dropdown({Title="Camera Mode", Values={"Chase","TopDown","Locked","Off"}, Value="Chase", Callback=safeCB(function(v) State.Smuggler_CameraMode=v end)})
 Tabs.Smuggler:Slider({Title="Camera Distance", Value={Min=10,Max=60,Default=25}, Step=1, Callback=safeCB(function(v) State.Smuggler_CameraDistance=v end)})
 Tabs.Smuggler:Slider({Title="Camera Height", Value={Min=2,Max=40,Default=12}, Step=1, Callback=safeCB(function(v) State.Smuggler_CameraHeight=v end)})
-Tabs.Smuggler:Button({Title="Force Restore Camera", Callback=safeCB(CameraStab.Stop)})
 
 Tabs.Smuggler:Section({Title="Verify + Retry"})
-Tabs.Smuggler:Slider({Title="Max Attempts per Action", Value={Min=1,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_MaxAttempts=v end)})
-Tabs.Smuggler:Slider({Title="Verify Timeout (sec)", Value={Min=1,Max=10,Default=3}, Step=1, Callback=safeCB(function(v) State.Smuggler_VerifyTimeout=v end)})
+Tabs.Smuggler:Slider({Title="Max Attempts", Value={Min=1,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_MaxAttempts=v end)})
+Tabs.Smuggler:Slider({Title="Verify Timeout (sec)", Value={Min=1,Max=10,Default=4}, Step=1, Callback=safeCB(function(v) State.Smuggler_VerifyTimeout=v end)})
+
+Tabs.Smuggler:Section({Title="SELL Anti-Rollback"})
+Tabs.Smuggler:Slider({Title="Freeze Duration Before Sell (sec)", Value={Min=1,Max=10,Default=3}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellFreezeDur=v end)})
+Tabs.Smuggler:Slider({Title="Sell Fire Count (low=safer)", Value={Min=1,Max=5,Default=1}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellFireCount=v end)})
+Tabs.Smuggler:Slider({Title="Sell Fire Delay x10 (sec)", Value={Min=5,Max=50,Default=15}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellFireDelay=v/10 end)})
 
 Tabs.Smuggler:Section({Title="Anti-Cheat"})
 Tabs.Smuggler:Toggle({Title="AC Neutralization", Default=true, Callback=safeCB(function(v) State.ACNeutralEnabled=v; if v then ACNeutral.Enable() else ACNeutral.Disable() end end)})
@@ -1300,11 +1398,10 @@ Tabs.Smuggler:Input({Title="Custom Vehicle", Placeholder="overrides", Callback=s
 Tabs.Smuggler:Section({Title="TWEEN"})
 Tabs.Smuggler:Toggle({Title="Car NoClip during Tween", Default=true, Callback=safeCB(function(v) State.Smuggler_CarNoClip=v end)})
 Tabs.Smuggler:Slider({Title="Car Speed (studs/s)", Value={Min=30,Max=400,Default=80}, Step=10, Callback=safeCB(function(v) State.Smuggler_TweenSpeed=v end)})
-Tabs.Smuggler:Slider({Title="Y Offset above target", Value={Min=0,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_YOffset=v end)})
+Tabs.Smuggler:Slider({Title="Y Offset", Value={Min=0,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_YOffset=v end)})
 
 Tabs.Smuggler:Section({Title="Seller"})
 Tabs.Smuggler:Dropdown({Title="Seller", Values=GetSellerNames(), Value=State.Smuggler_SellerName, Callback=safeCB(function(v) State.Smuggler_SellerName=v end)})
-Tabs.Smuggler:Slider({Title="Sell Fires per Attempt", Value={Min=1,Max=20,Default=10}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellRetries=v end)})
 Tabs.Smuggler:Toggle({Title="Auto Equip", Default=true, Callback=safeCB(function(v) State.Smuggler_AutoEquip=v end)})
 Tabs.Smuggler:Toggle({Title="Equip All", Default=true, Callback=safeCB(function(v) State.Smuggler_EquipAll=v end)})
 
@@ -1321,11 +1418,10 @@ Tabs.Smuggler:Toggle({Title="Auto Loop", Default=false, Callback=safeCB(function
 Tabs.Smuggler:Section({Title="Manual"})
 Tabs.Smuggler:Button({Title="1. Spawn Car", Callback=safeCB(Smuggler.SpawnCar)})
 Tabs.Smuggler:Button({Title="2. Sit In Car", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.SitInCar(c) end end)})
-Tabs.Smuggler:Button({Title="   Remove Tires", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.RemoveTires(c) end end)})
-Tabs.Smuggler:Button({Title="3. BUY (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
-Tabs.Smuggler:Button({Title="4. SELL (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
-Tabs.Smuggler:Button({Title="5. LAUNDER (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
-Tabs.Smuggler:Button({Title="STOP CAR TWEEN", Callback=safeCB(StopCarTween)})
+Tabs.Smuggler:Button({Title="3. BUY", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
+Tabs.Smuggler:Button({Title="4. SELL (freeze+lockdown)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
+Tabs.Smuggler:Button({Title="5. LAUNDER", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
+Tabs.Smuggler:Button({Title="STOP + Release", Callback=safeCB(function() StopCarTween(); CarFreeze.Stop(); ACNeutral.LockdownStop() end)})
 
 Tabs.Police:Toggle({Title="Wanted Only", Default=true, Callback=safeCB(function(v) State.Police_TargetWanted=v end)})
 Tabs.Police:Toggle({Title="Target All", Default=false, Callback=safeCB(function(v) State.Police_TargetAll=v end)})
@@ -1360,9 +1456,9 @@ Tabs.Visuals:Slider({Title="FOV", Value={Min=30,Max=120,Default=70}, Step=5, Cal
 
 Tabs.Settings:Toggle({Title="Anti-AFK", Default=true, Callback=safeCB(function(v) State.AntiAFK=v end)})
 Tabs.Settings:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
-Tabs.Settings:Button({Title="PANIC", Callback=safeCB(function() Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false); Notify("PANIC","Off",3) end)})
+Tabs.Settings:Button({Title="PANIC", Callback=safeCB(function() Smuggler.SetAutoLoop(false); StopCarTween(); CarFreeze.Stop(); ACNeutral.LockdownStop(); CameraStab.Stop(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false); Notify("PANIC","Off",3) end)})
 Tabs.Settings:Button({Title="Unload", Callback=safeCB(function()
-    Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop()
+    Smuggler.SetAutoLoop(false); StopCarTween(); CarFreeze.Stop(); ACNeutral.LockdownStop(); CameraStab.Stop()
     Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
     FallGuard.Disable(); ACNeutral.Disable()
     if logoGui then pcall(function() logoGui:Destroy() end) end
@@ -1386,7 +1482,7 @@ end)
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
-        Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop()
+        Smuggler.SetAutoLoop(false); StopCarTween(); CarFreeze.Stop(); ACNeutral.LockdownStop(); CameraStab.Stop()
         Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
         FallGuard.Disable(); ACNeutral.Disable()
         if logoGui then pcall(function() logoGui:Destroy() end) end
@@ -1395,4 +1491,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("v4.1.2 ready - verify+retry system")
+Log("v4.1.3 ready - sell freeze mode")
