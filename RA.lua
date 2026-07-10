@@ -1,5 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T REST AREA TROLL HUB v1.2
+-- X0DEC04T REST AREA TROLL HUB v1.3
+-- PlaceId: 90226220017920
+-- FIXED: Gift args | ADDED: Carry, Dance, Umbrella, Sign, TP, Fireworks, Hacker HUD, Flowers, Clothing
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -15,21 +17,18 @@ local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui")
 local PS = LP:WaitForChild("PlayerScripts")
 
--- Executor shims
 local genv = (getgenv and getgenv()) or _G
 local fireproximityprompt = fireproximityprompt or genv.fireproximityprompt
-local getconnections      = getconnections      or genv.getconnections
 local hookmetamethod      = hookmetamethod      or genv.hookmetamethod
 local getnamecallmethod   = getnamecallmethod   or genv.getnamecallmethod
 local gethui              = gethui              or genv.gethui
 
-local INSTANCE_KEY = "__X0DEC04T_REST_TROLL_v12"
+local INSTANCE_KEY = "__X0DEC04T_REST_TROLL_v13"
 if _G[INSTANCE_KEY] then pcall(function() _G[INSTANCE_KEY].destroy() end); _G[INSTANCE_KEY]=nil; task.wait(0.2) end
 
 local function Log(m) print("[TROLL] "..tostring(m)) end
-Log("Loading Rest Area Troll Hub v1.2...")
+Log("Loading Rest Area Troll Hub v1.3...")
 
--- Known coordinates from your inspection
 local COORDS = {
     GiftStation   = Vector3.new(107.379, 20.685, -191.165),
     LaporStation  = Vector3.new(-26.263, 20.893, -156.398),
@@ -51,7 +50,7 @@ task.spawn(function()
         Log("Disabled PlayerScripts.kick")
     end
     if typeof(hookmetamethod) == "function" then
-        local ok = pcall(function()
+        pcall(function()
             local oldNamecall
             oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
                 local method = getnamecallmethod and getnamecallmethod() or ""
@@ -61,8 +60,8 @@ task.spawn(function()
                 end
                 return oldNamecall(self, ...)
             end)
+            Log("Kick namecall hooked")
         end)
-        if ok then Log("Kick namecall hooked") end
     end
 end)
 
@@ -83,7 +82,7 @@ local wOk = pcall(function()
 end)
 if not wOk or not WindUI then warn("[TROLL] WindUI failed"); return end
 
-local HUB = {Name="REST AREA TROLL", Version="1.2"}
+local HUB = {Name="REST AREA TROLL", Version="1.3"}
 local CM = {_list={}}
 function CM:Add(sig, cb)
     if not sig then return end
@@ -106,61 +105,114 @@ local function TPTo(pos)
     return true
 end
 
-local function TPBackAfter(savedCF, seconds)
-    task.delay(seconds or 0.5, function()
-        local hrp = GetHRP()
-        if hrp and savedCF then pcall(function() hrp.CFrame = savedCF end) end
-    end)
-end
-
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REMOTE CACHE
+-- REMOTE CACHE (expanded from your test)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Remotes = {}
+local function findRemote(root, path)
+    local cur = root
+    for _, seg in ipairs(path) do
+        if not cur then return nil end
+        cur = cur:FindFirstChild(seg)
+    end
+    return cur
+end
+
 local function loadRemotes()
+    -- Gift
     local gr = RS:FindFirstChild("GiftCoinRemotes")
-    Remotes.SendGift        = gr and gr:FindFirstChild("SendGift")
-    Remotes.GiftNotify      = gr and gr:FindFirstChild("GiftNotify")
-    Remotes.OpenGiftUI      = gr and gr:FindFirstChild("OpenGiftUI")
-    Remotes.GetOnlinePlayers = gr and gr:FindFirstChild("GetOnlinePlayers")
+    Remotes.SendGift    = gr and gr:FindFirstChild("SendGift")
+    Remotes.OpenGiftUI  = gr and gr:FindFirstChild("OpenGiftUI")
 
+    -- Admin/economy
     local am = RS:FindFirstChild("AdminRemotes")
-    Remotes.ModifyCoins   = am and am:FindFirstChild("ModifyCoins")
     Remotes.GetCoins      = am and am:FindFirstChild("GetCoins")
-    Remotes.GetPlayerList = am and am:FindFirstChild("GetPlayerList")
 
+    -- Radio / global / confession / laporan
     Remotes.Radio          = RS:FindFirstChild("radi0")
     Remotes.Piano          = WS:FindFirstChild("GlobalPianoConnector")
     Remotes.GlobalAnnounce = RS:FindFirstChild("GlobalAnnouncementEvent")
     Remotes.Confession     = RS:FindFirstChild("ConfessionEvent")
-    Remotes.ConfessionLike = RS:FindFirstChild("ConfessionLikeEvent")
     Remotes.KirimLaporan   = RS:FindFirstChild("KirimLaporan")
-    Remotes.KickEvent      = RS:FindFirstChild("KickEvent")
 
+    -- Fish
     local fs = RS:FindFirstChild("FishingSystem")
     Remotes.FishGiver = fs and fs:FindFirstChild("FishGiver")
-    Remotes.SellFish  = fs and fs:FindFirstChild("SellFish")
     if fs then
         local ie = fs:FindFirstChild("InventoryEvents")
-        Remotes.SellAllFish = ie and ie:FindFirstChild("Inventory_SellAll")
-        Remotes.InventoryGetData = ie and ie:FindFirstChild("Inventory_GetData")
+        Remotes.SellAllFish       = ie and ie:FindFirstChild("Inventory_SellAll")
+        Remotes.InventoryGetData  = ie and ie:FindFirstChild("Inventory_GetData")
     end
 
+    -- HD Admin
     local hd = RS:FindFirstChild("HDAdminHDClient")
     local hdSigs = hd and hd:FindFirstChild("Signals")
     if hdSigs then
         Remotes.RequestCommand        = hdSigs:FindFirstChild("RequestCommand")
         Remotes.RequestCommandSilent  = hdSigs:FindFirstChild("RequestCommandSilent")
-        Remotes.ExecuteBroadcast      = hdSigs:FindFirstChild("ExecuteBroadcast")
-        Remotes.ExecuteAlert          = hdSigs:FindFirstChild("ExecuteAlert")
         Remotes.ForceChat             = hdSigs:FindFirstChild("ForceChat")
         Remotes.ForceBubbleChat       = hdSigs:FindFirstChild("ForceBubbleChat")
         Remotes.SystemMessage         = hdSigs:FindFirstChild("SystemMessage")
-        Remotes.CreateAlert           = hdSigs:FindFirstChild("CreateAlert")
         Remotes.CreateBanMenu         = hdSigs:FindFirstChild("CreateBanMenu")
-        Remotes.UpdateIceBlock        = hdSigs:FindFirstChild("UpdateIceBlock")
-        Remotes.BecomeControlled      = hdSigs:FindFirstChild("BecomeControlled")
     end
+
+    -- CARRY SYSTEM (confirmed working)
+    local cr = RS:FindFirstChild("CarryRemotes")
+    if cr then
+        Remotes.CarryRequest  = cr:FindFirstChild("CarryRequest")
+        Remotes.CarryResponse = cr:FindFirstChild("CarryResponse")
+        Remotes.CarryEnd      = cr:FindFirstChild("CarryEnd")
+    end
+
+    -- DANCE SYSTEM
+    local dr = RS:FindFirstChild("DanceRemotes") or RS:FindFirstChild("Dance")
+    if dr then
+        Remotes.DanceShowCountdown = dr:FindFirstChild("ShowCountdown")
+        Remotes.DanceExit          = dr:FindFirstChild("ExitDance")
+        Remotes.DanceShowExit      = dr:FindFirstChild("ShowExitButton")
+        Remotes.DancePlayMusic     = dr:FindFirstChild("PlayMusic")
+        Remotes.DanceStopMusic     = dr:FindFirstChild("StopMusic")
+        Remotes.DanceResetCamera   = dr:FindFirstChild("ResetCamera")
+    end
+    -- try scanning root for dance remotes if not in folder
+    if not Remotes.DancePlayMusic then
+        for _, obj in ipairs(RS:GetChildren()) do
+            if obj:IsA("RemoteEvent") and (obj.Name == "PlayMusic" or obj.Name == "ShowCountdown") then
+                if obj.Name == "PlayMusic" then Remotes.DancePlayMusic = obj end
+                if obj.Name == "StopMusic" then Remotes.DanceStopMusic = obj end
+                if obj.Name == "ShowCountdown" then Remotes.DanceShowCountdown = obj end
+                if obj.Name == "ExitDance" then Remotes.DanceExit = obj end
+            end
+        end
+    end
+
+    -- UMBRELLA / SKY
+    Remotes.SetSky        = RS:FindFirstChild("SetSky")
+    Remotes.ApplySkyClient= RS:FindFirstChild("ApplySkyClient")
+
+    -- SIGN TOOL
+    Remotes.UpdateSignEvent = RS:FindFirstChild("UpdateSignEvent")
+
+    -- TELEPORT
+    Remotes.TeleportRequest = RS:FindFirstChild("TeleportRequest")
+    Remotes.TeleportResult  = RS:FindFirstChild("TeleportResult")
+
+    -- FIREWORKS
+    Remotes.FireworksToggle = RS:FindFirstChild("FireworksToggle")
+
+    -- HACKER HUD
+    Remotes.ShowEventHackerHUD = RS:FindFirstChild("ShowEventHackerHUD")
+
+    -- FLOWER GIFTS
+    Remotes.RoseGiftEvents       = RS:FindFirstChild("RoseGiftEvents")
+    Remotes.SunflowerGiftEvents  = RS:FindFirstChild("SunflowerGiftEvents")
+    Remotes.WhiteroseGiftEvents  = RS:FindFirstChild("WhiteroseGiftEvents")
+    Remotes.BungaGiftEvents      = RS:FindFirstChild("BungaGiftEvents")
+    Remotes.BonekaGiftEvents     = RS:FindFirstChild("BonekaGiftEvents")
+
+    -- PAKAIAN (clothing)
+    Remotes.PakaianFolder = WS:FindFirstChild("PAKAIAN")
+
     Log("Remotes cached")
 end
 loadRemotes()
@@ -208,14 +260,13 @@ local function TargetName()
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HD ADMIN - try multiple prefixes (you're OWNER so must work)
+-- HD ADMIN
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local HD_PREFIX = ";"  -- will be auto-detected
+local HD_PREFIX = ";"
 local HD_PREFIXES = {";", ":", "!", "/", "-", "."}
 
 local function RunHDCommand(cmdBody)
     if not Remotes.RequestCommand then Log("no RequestCommand"); return end
-    -- Try current prefix first
     local ok, res = tryFire(Remotes.RequestCommand, HD_PREFIX..cmdBody)
     Log("HD '"..HD_PREFIX..cmdBody.."' -> "..tostring(ok).." "..tostring(res))
     return ok, res
@@ -226,37 +277,22 @@ local function DetectHDPrefix()
         Log("Detecting HD prefix...")
         for _, pfx in ipairs(HD_PREFIXES) do
             local ok, res = tryFire(Remotes.RequestCommand, pfx.."jump me")
-            Log(" try '"..pfx.."' -> "..tostring(ok).." "..tostring(res))
             if res == true or res == "ok" or (type(res) == "table" and (res.success or res.ok)) then
                 HD_PREFIX = pfx
                 Log("Detected HD prefix: "..pfx)
                 return
             end
-            task.wait(0.3)
-        end
-        -- Also try RequestCommandSilent
-        if Remotes.RequestCommandSilent then
-            for _, pfx in ipairs(HD_PREFIXES) do
-                local ok, res = tryFire(Remotes.RequestCommandSilent, pfx.."jump me")
-                Log(" silent '"..pfx.."' -> "..tostring(ok).." "..tostring(res))
-                if res == true or res == "ok" then
-                    HD_PREFIX = pfx
-                    Remotes.RequestCommand = Remotes.RequestCommandSilent
-                    Log("Detected via silent, prefix: "..pfx)
-                    return
-                end
-                task.wait(0.3)
-            end
+            task.wait(0.2)
         end
     end)
 end
 DetectHDPrefix()
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- TROLL ACTIONS
+-- CONFIRMED WORKING FEATURES (from your test)
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
--- GIFT SPAM (auto-TP to gift station!)
+-- === GIFT (fixed: uses player instance, amount 1) ===
 local giftSpam = false
 local giftDelay = 1.0
 local function GiftSpamLoop()
@@ -264,115 +300,179 @@ local function GiftSpamLoop()
         local hrp = GetHRP()
         if not hrp then return end
         local savedCF = hrp.CFrame
-        -- TP to gift station once
         TPTo(COORDS.GiftStation)
         task.wait(0.5)
-        
         while giftSpam do
             ForEachTarget(function(p)
                 tryFire(Remotes.SendGift, p, 1)
-                tryFire(Remotes.SendGift, p.UserId, 1)
             end)
-            task.wait(giftDelay) -- rate-limit safe
+            task.wait(giftDelay)
         end
-        
-        -- TP back
         local hrp2 = GetHRP()
         if hrp2 then pcall(function() hrp2.CFrame = savedCF end) end
     end)
 end
 
--- OPEN GIFT UI ON TARGET (no rate limit? no distance check)
-local giftUISpam = false
-local function GiftUISpamLoop()
+-- === CARRY (confirmed CarryRequest, CarryResponse, CarryEnd) ===
+local carrySpam = false
+local function CarrySpamLoop()
     task.spawn(function()
-        while giftUISpam do
+        while carrySpam do
             ForEachTarget(function(p)
-                tryFire(Remotes.OpenGiftUI, p)
-                tryFire(Remotes.OpenGiftUI, p.Name)
-                tryFire(Remotes.OpenGiftUI, p.UserId)
+                tryFire(Remotes.CarryRequest, p)
+                task.wait(0.1)
+                tryFire(Remotes.CarryResponse, p, true)
             end)
+            task.wait(0.5)
+        end
+    end)
+end
+local function EndCarry()
+    ForEachTarget(function(p) tryFire(Remotes.CarryEnd, p) end)
+end
+
+-- === DANCE (force target into dance) ===
+local danceSpam = false
+local function DanceForce()
+    ForEachTarget(function(p)
+        tryFire(Remotes.DanceShowCountdown, p)
+        tryFire(Remotes.DancePlayMusic, p)
+    end)
+end
+local function DanceStopAll()
+    ForEachTarget(function(p)
+        tryFire(Remotes.DanceStopMusic, p)
+        tryFire(Remotes.DanceExit, p)
+    end)
+end
+local function DanceSpamLoop()
+    task.spawn(function()
+        while danceSpam do
+            DanceForce()
             task.wait(0.4)
         end
     end)
 end
 
--- ALERT SPAM (HD Admin)
-local alertSpam = false
-local alertText = "You have been reported"
-local function AlertSpamLoop()
-    task.spawn(function()
-        while alertSpam do
-            local t = TargetName()
-            if t then
-                RunHDCommand("notif "..t.." "..alertText)
-                RunHDCommand("hint "..alertText)
-                RunHDCommand("m "..alertText)
-            end
-            task.wait(0.5)
-        end
-    end)
-end
-
--- FORCE CHAT (HD Admin)
-local function ForceChat(text)
-    local t = TargetName()
-    if t then
-        RunHDCommand("forcechat "..t.." "..text)
-        RunHDCommand("bubble "..t.." "..text)
-        RunHDCommand("say "..t.." "..text)
-    end
-    -- Also try direct signals
+-- === UMBRELLA / SKY ===
+local skySpam = false
+local currentSky = "Night"
+local function SetSkyOnTarget()
     ForEachTarget(function(p)
-        tryFire(Remotes.ForceChat, p, text)
-        tryFire(Remotes.ForceBubbleChat, p, text)
+        tryFire(Remotes.SetSky, p, currentSky)
+        tryFire(Remotes.ApplySkyClient, p, currentSky)
     end)
+    -- Also global
+    tryFire(Remotes.SetSky, currentSky)
+    tryFire(Remotes.ApplySkyClient, currentSky)
 end
-
--- GLOBAL ANNOUNCE
-local announceSpam = false
-local announceText = "X0DEC04T WAS HERE"
-local function AnnounceOnce()
-    tryFire(Remotes.GlobalAnnounce, announceText)
-    tryFire(Remotes.GlobalAnnounce, {Message=announceText})
-    tryFire(Remotes.SystemMessage, announceText)
-    RunHDCommand("m "..announceText)
-end
-local function AnnounceSpamLoop()
+local function SkySpamLoop()
     task.spawn(function()
-        while announceSpam do
-            AnnounceOnce()
-            task.wait(0.5)
-        end
-    end)
-end
-
--- RADIO
-local function RadioPlay(soundId)
-    local id = tonumber(soundId) or soundId
-    tryFire(Remotes.Radio, id)
-    tryFire(Remotes.Radio, "play", id)
-    tryFire(Remotes.Radio, {Action="play", Id=id})
-end
-local function RadioStop()
-    tryFire(Remotes.Radio, "stop")
-    tryFire(Remotes.Radio, 0)
-end
-
--- CONFESSION SPAM
-local confSpam = false
-local confText = "spammed"
-local function ConfessionSpamLoop()
-    task.spawn(function()
-        while confSpam do
-            tryFire(Remotes.Confession, confText)
-            tryFire(Remotes.Confession, {Text=confText, Anonymous=true})
+        local skies = {"Night","Day","Sunset","Storm","Rain","Blood","Void"}
+        local i = 1
+        while skySpam do
+            currentSky = skies[i]
+            SetSkyOnTarget()
+            i = i + 1; if i > #skies then i = 1 end
             task.wait(0.6)
         end
     end)
 end
 
--- SEAT LOCK
+-- === SIGN TOOL ===
+local function UpdateSign(text)
+    tryFire(Remotes.UpdateSignEvent, text)
+    tryFire(Remotes.UpdateSignEvent, LP, text)
+end
+
+-- === TELEPORT TARGET TO YOU (via TeleportRequest) ===
+local function TPTargetToMe()
+    local hrp = GetHRP(); if not hrp then return end
+    ForEachTarget(function(p)
+        tryFire(Remotes.TeleportRequest, p, hrp.Position)
+        tryFire(Remotes.TeleportRequest, p, hrp.CFrame)
+    end)
+end
+local function TPMeToTarget()
+    if Target.Player == "ALL" or not Target.Player then return end
+    local ch = Target.Player.Character
+    local thrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    if thrp then TPTo(thrp.Position) end
+end
+
+-- === FIREWORKS SPAM ===
+local fwSpam = false
+local function FireworksSpamLoop()
+    task.spawn(function()
+        while fwSpam do
+            tryFire(Remotes.FireworksToggle, true)
+            task.wait(0.3)
+            tryFire(Remotes.FireworksToggle, false)
+            task.wait(0.3)
+        end
+    end)
+end
+
+-- === HACKER HUD (Event) ===
+local hackerHUDSpam = false
+local function HackerHUDForce()
+    ForEachTarget(function(p)
+        tryFire(Remotes.ShowEventHackerHUD, p)
+        tryFire(Remotes.ShowEventHackerHUD, p, true)
+    end)
+    tryFire(Remotes.ShowEventHackerHUD)
+end
+local function HackerHUDSpamLoop()
+    task.spawn(function()
+        while hackerHUDSpam do
+            HackerHUDForce()
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- === FLOWER GIFTS ===
+local flowerSpam = false
+local flowerType = "Rose"
+local function SendFlower(kind)
+    local map = {
+        Rose      = Remotes.RoseGiftEvents,
+        Sunflower = Remotes.SunflowerGiftEvents,
+        Whiterose = Remotes.WhiteroseGiftEvents,
+        Bunga     = Remotes.BungaGiftEvents,
+        Boneka    = Remotes.BonekaGiftEvents,
+    }
+    local rem = map[kind]
+    if not rem then return end
+    ForEachTarget(function(p)
+        tryFire(rem, p)
+        tryFire(rem, p, 1)
+    end)
+end
+local function FlowerSpamLoop()
+    task.spawn(function()
+        while flowerSpam do
+            SendFlower(flowerType)
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- === PAKAIAN (clothing prompts) ===
+local function TryAllClothing()
+    if not Remotes.PakaianFolder then return end
+    task.spawn(function()
+        for _, obj in ipairs(Remotes.PakaianFolder:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                pcall(function() fireproximityprompt(obj) end)
+                task.wait(0.05)
+            end
+        end
+        Log("Fired all clothing prompts")
+    end)
+end
+
+-- === SEAT LOCK (sit others - confirmed) ===
 local seatLockLoop = false
 local function SeatLockLoop()
     task.spawn(function()
@@ -394,41 +494,53 @@ local function SeatLockLoop()
     end)
 end
 
--- PIANO SPAM
-local pianoSpam = false
-local function PianoSpamLoop()
+-- === RADIO ===
+local function RadioPlay(soundId)
+    local id = tonumber(soundId) or soundId
+    tryFire(Remotes.Radio, id)
+end
+local function RadioStop() tryFire(Remotes.Radio, 0) end
+
+-- === CONFESSION SPAM ===
+local confSpam = false
+local confText = "spammed"
+local function ConfessionSpamLoop()
     task.spawn(function()
-        while pianoSpam do
-            for i = 1, 25 do
-                tryFire(Remotes.Piano, i, true)
-            end
-            task.wait(0.15)
+        while confSpam do
+            tryFire(Remotes.Confession, confText)
+            task.wait(0.6)
         end
     end)
 end
 
--- FAKE BAN
-local function FakeBan(reason)
-    local t = TargetName()
-    if t then RunHDCommand("banmenu "..t.." "..reason) end
-    ForEachTarget(function(p)
-        tryFire(Remotes.CreateBanMenu, p, {Reason=reason, Duration="Permanent", Moderator="System"})
+-- === GLOBAL ANNOUNCE ===
+local announceSpam = false
+local announceText = "X0DEC04T WAS HERE"
+local function AnnounceOnce()
+    tryFire(Remotes.GlobalAnnounce, announceText)
+    tryFire(Remotes.SystemMessage, announceText)
+    RunHDCommand("m "..announceText)
+end
+local function AnnounceSpamLoop()
+    task.spawn(function()
+        while announceSpam do
+            AnnounceOnce()
+            task.wait(0.5)
+        end
     end)
 end
 
--- FREEZE (HD Admin)
-local function Freeze()
-    local t = TargetName(); if not t then return end
-    RunHDCommand("freeze "..t)
-    RunHDCommand("ice "..t)
-end
-local function Thaw()
-    local t = TargetName(); if not t then return end
-    RunHDCommand("thaw "..t)
-    RunHDCommand("unfreeze "..t)
+-- === FORCE CHAT ===
+local function ForceChat(text)
+    local t = TargetName()
+    if t then RunHDCommand("forcechat "..t.." "..text) end
+    ForEachTarget(function(p)
+        tryFire(Remotes.ForceChat, p, text)
+        tryFire(Remotes.ForceBubbleChat, p, text)
+    end)
 end
 
--- LAPORAN SPAM (with TP)
+-- === LAPORAN SPAM ===
 local laporSpam = false
 local function LaporSpamLoop()
     task.spawn(function()
@@ -438,8 +550,6 @@ local function LaporSpamLoop()
         while laporSpam do
             ForEachTarget(function(p)
                 tryFire(Remotes.KirimLaporan, p, "spam", "Exploiting")
-                tryFire(Remotes.KirimLaporan, {Target=p, Reason="troll"})
-                tryFire(Remotes.KirimLaporan, p.Name, "spam")
             end)
             task.wait(0.8)
         end
@@ -447,19 +557,25 @@ local function LaporSpamLoop()
     end)
 end
 
--- FISH GIVER (self)
+-- === FISH ===
 local function GiveFish(fishName, amount)
     amount = amount or 10
     for i = 1, amount do
         tryFire(Remotes.FishGiver, fishName)
-        tryFire(Remotes.FishGiver, fishName, 1)
-        tryFire(Remotes.FishGiver, {Name=fishName, Amount=1})
     end
 end
-
 local function SellAllFish()
     local ok, res = tryFire(Remotes.SellAllFish)
     Log("SellAll -> "..tostring(ok).." "..tostring(res))
+end
+
+-- === FAKE BAN ===
+local function FakeBan(reason)
+    local t = TargetName()
+    if t then RunHDCommand("banmenu "..t.." "..reason) end
+    ForEachTarget(function(p)
+        tryFire(Remotes.CreateBanMenu, p, {Reason=reason, Duration="Permanent", Moderator="System"})
+    end)
 end
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -536,11 +652,11 @@ CM:Add(LP.CharacterAdded, function()
 end)
 
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- UI (no emoji anywhere)
+-- UI
 --━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="skull", Author="v"..HUB.Version,
-    Folder="X0DEC04T_TROLL", Size=UDim2.fromOffset(620,490),
+    Folder="X0DEC04T_TROLL", Size=UDim2.fromOffset(640,510),
     Transparent=true, Theme="Dark", SideBarWidth=170, HasOutline=true
 })
 pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." loaded", Duration=4, Icon="check"}) end)
@@ -583,7 +699,9 @@ end)
 
 local Tabs = {
     Target   = Window:Tab({Title="Target",       Icon="target"}),
-    Troll    = Window:Tab({Title="Troll",        Icon="skull"}),
+    Troll    = Window:Tab({Title="Troll Core",   Icon="skull"}),
+    Carry    = Window:Tab({Title="Carry/Dance",  Icon="users"}),
+    Sky      = Window:Tab({Title="Sky/FX",       Icon="cloud"}),
     Chat     = Window:Tab({Title="Chat",         Icon="message-circle"}),
     Sound    = Window:Tab({Title="Sound",        Icon="music"}),
     Self     = Window:Tab({Title="Self",         Icon="user"}),
@@ -593,7 +711,7 @@ local Tabs = {
 }
 Window:SelectTab(1)
 
--- TARGET TAB
+-- === TARGET TAB ===
 Tabs.Target:Section({Title="Select Target"})
 local plrDropdown = Tabs.Target:Dropdown({
     Title="Player", Values=GetPlayerList(), Value="[ALL PLAYERS]",
@@ -614,54 +732,111 @@ end)
 
 Tabs.Target:Paragraph({
     Title="Info",
-    Desc="[ALL PLAYERS] affects everyone in server.\nSpecific player affects only them.\nYou are HD Admin OWNER = full command access."
+    Desc="[ALL PLAYERS] = everyone in server.\nSpecific = only them.\nHD Owner = full command access."
 })
 
--- TROLL TAB
-Tabs.Troll:Section({Title="Gift Spam (auto-TP to station)"})
-Tabs.Troll:Slider({Title="Gift Delay (seconds)", Value={Min=0.5,Max=3,Default=1}, Step=0.1, Callback=safeCB(function(v) giftDelay=v end)})
+-- === TROLL CORE ===
+Tabs.Troll:Section({Title="Gift Spam (auto-TP)"})
+Tabs.Troll:Slider({Title="Gift Delay (sec)", Value={Min=0.5,Max=3,Default=1}, Step=0.1, Callback=safeCB(function(v) giftDelay=v end)})
 Tabs.Troll:Toggle({Title="Gift Spam Coins", Default=false, Callback=safeCB(function(v) giftSpam=v; if v then GiftSpamLoop() end end)})
-Tabs.Troll:Toggle({Title="Open Gift UI Spam (no TP needed)", Default=false, Callback=safeCB(function(v) giftUISpam=v; if v then GiftUISpamLoop() end end)})
-
-Tabs.Troll:Section({Title="Alert / Ban Screen"})
-Tabs.Troll:Input({Title="Alert Text", Value="You have been reported", Callback=safeCB(function(v) alertText=v end)})
-Tabs.Troll:Toggle({Title="Alert Spam", Default=false, Callback=safeCB(function(v) alertSpam=v; if v then AlertSpamLoop() end end)})
-Tabs.Troll:Button({Title="Send Fake Ban Screen", Callback=safeCB(function()
-    FakeBan("Banned for exploiting"); Notify("Fake Ban","Sent to "..Target.Name,3)
-end)})
 
 Tabs.Troll:Section({Title="Seat Lock / Freeze"})
 Tabs.Troll:Toggle({Title="Force Seat Lock", Default=false, Callback=safeCB(function(v) seatLockLoop=v; if v then SeatLockLoop() end end)})
-Tabs.Troll:Button({Title="Freeze Target", Callback=safeCB(function() Freeze(); Notify("Freeze","froze "..Target.Name,3) end)})
-Tabs.Troll:Button({Title="Thaw Target", Callback=safeCB(function() Thaw(); Notify("Thaw","thawed",3) end)})
+Tabs.Troll:Button({Title="Freeze Target (HD)", Callback=safeCB(function() local t=TargetName(); if t then RunHDCommand("freeze "..t) end end)})
+Tabs.Troll:Button({Title="Thaw Target (HD)", Callback=safeCB(function() local t=TargetName(); if t then RunHDCommand("thaw "..t) end end)})
 
-Tabs.Troll:Section({Title="Report / Confession"})
+Tabs.Troll:Section({Title="Report / Ban"})
 Tabs.Troll:Toggle({Title="Laporan Spam (auto-TP)", Default=false, Callback=safeCB(function(v) laporSpam=v; if v then LaporSpamLoop() end end)})
+Tabs.Troll:Button({Title="Send Fake Ban Screen", Callback=safeCB(function() FakeBan("Banned for exploiting"); Notify("Fake Ban","Sent",3) end)})
+
+Tabs.Troll:Section({Title="Confession Board"})
 Tabs.Troll:Input({Title="Confession Text", Value="spammed", Callback=safeCB(function(v) confText=v end)})
 Tabs.Troll:Toggle({Title="Confession Spam", Default=false, Callback=safeCB(function(v) confSpam=v; if v then ConfessionSpamLoop() end end)})
 
--- CHAT TAB
+Tabs.Troll:Section({Title="Teleport Target"})
+Tabs.Troll:Button({Title="TP Target To Me", Callback=safeCB(function() TPTargetToMe(); Notify("TP","tried",3) end)})
+Tabs.Troll:Button({Title="TP Me To Target", Callback=safeCB(function() TPMeToTarget(); Notify("TP","tp'd",3) end)})
+
+-- === CARRY / DANCE ===
+Tabs.Carry:Section({Title="Carry System (server RemoteEvents confirmed)"})
+Tabs.Carry:Button({Title="Force Carry Target Once", Callback=safeCB(function()
+    ForEachTarget(function(p)
+        tryFire(Remotes.CarryRequest, p)
+        tryFire(Remotes.CarryResponse, p, true)
+    end)
+    Notify("Carry","request sent",3)
+end)})
+Tabs.Carry:Toggle({Title="Carry Spam Loop", Default=false, Callback=safeCB(function(v) carrySpam=v; if v then CarrySpamLoop() end end)})
+Tabs.Carry:Button({Title="End Carry", Callback=safeCB(EndCarry)})
+
+Tabs.Carry:Section({Title="Force Dance (server-wide countdown/music)"})
+Tabs.Carry:Button({Title="Force Dance Once", Callback=safeCB(function() DanceForce(); Notify("Dance","forced",3) end)})
+Tabs.Carry:Toggle({Title="Dance Spam Loop", Default=false, Callback=safeCB(function(v) danceSpam=v; if v then DanceSpamLoop() end end)})
+Tabs.Carry:Button({Title="Stop Dance", Callback=safeCB(DanceStopAll)})
+
+Tabs.Carry:Section({Title="Flowers / Bunga / Boneka Gift"})
+Tabs.Carry:Dropdown({Title="Flower Type", Values={"Rose","Sunflower","Whiterose","Bunga","Boneka"}, Value="Rose",
+    Callback=safeCB(function(v) flowerType=v end)})
+Tabs.Carry:Button({Title="Send Once", Callback=safeCB(function() SendFlower(flowerType); Notify("Flower","sent "..flowerType,3) end)})
+Tabs.Carry:Toggle({Title="Flower Spam Loop", Default=false, Callback=safeCB(function(v) flowerSpam=v; if v then FlowerSpamLoop() end end)})
+
+Tabs.Carry:Section({Title="Clothing (PAKAIAN prompts)"})
+Tabs.Carry:Button({Title="Fire All Clothing Prompts", Callback=safeCB(function() TryAllClothing(); Notify("Clothing","all fired",3) end)})
+
+-- === SKY / FX ===
+Tabs.Sky:Section({Title="Sky/Weather Override"})
+Tabs.Sky:Dropdown({Title="Sky Preset", Values={"Night","Day","Sunset","Storm","Rain","Blood","Void"}, Value="Night",
+    Callback=safeCB(function(v) currentSky=v end)})
+Tabs.Sky:Button({Title="Set Sky Once", Callback=safeCB(function() SetSkyOnTarget(); Notify("Sky","set to "..currentSky,3) end)})
+Tabs.Sky:Toggle({Title="Sky Cycle Spam", Default=false, Callback=safeCB(function(v) skySpam=v; if v then SkySpamLoop() end end)})
+
+Tabs.Sky:Section({Title="Fireworks (server-wide)"})
+Tabs.Sky:Button({Title="Fireworks ON", Callback=safeCB(function() tryFire(Remotes.FireworksToggle, true); Notify("FW","on",2) end)})
+Tabs.Sky:Button({Title="Fireworks OFF", Callback=safeCB(function() tryFire(Remotes.FireworksToggle, false); Notify("FW","off",2) end)})
+Tabs.Sky:Toggle({Title="Fireworks Strobe Spam", Default=false, Callback=safeCB(function(v) fwSpam=v; if v then FireworksSpamLoop() end end)})
+
+Tabs.Sky:Section({Title="Hacker HUD Event"})
+Tabs.Sky:Button({Title="Show Hacker HUD Once", Callback=safeCB(function() HackerHUDForce(); Notify("HackerHUD","forced",3) end)})
+Tabs.Sky:Toggle({Title="Hacker HUD Spam", Default=false, Callback=safeCB(function(v) hackerHUDSpam=v; if v then HackerHUDSpamLoop() end end)})
+
+Tabs.Sky:Section({Title="Sign Tool"})
+local signTxt = "X0DEC04T"
+Tabs.Sky:Input({Title="Sign Text", Value="X0DEC04T", Callback=safeCB(function(v) signTxt=v end)})
+Tabs.Sky:Button({Title="Update Sign", Callback=safeCB(function() UpdateSign(signTxt); Notify("Sign","updated",2) end)})
+
+-- === CHAT ===
 Tabs.Chat:Section({Title="Force Target Chat"})
 local forceChatText = "I love X0DEC04T"
-Tabs.Chat:Input({Title="Text to force", Value="I love X0DEC04T", Callback=safeCB(function(v) forceChatText=v end)})
+Tabs.Chat:Input({Title="Text", Value="I love X0DEC04T", Callback=safeCB(function(v) forceChatText=v end)})
 Tabs.Chat:Button({Title="Force Target Chat", Callback=safeCB(function() ForceChat(forceChatText); Notify("Chat","sent",3) end)})
 
 Tabs.Chat:Section({Title="Global Announcement"})
 Tabs.Chat:Input({Title="Text", Value="X0DEC04T WAS HERE", Callback=safeCB(function(v) announceText=v end)})
-Tabs.Chat:Button({Title="Send One Global Announce", Callback=safeCB(function() AnnounceOnce(); Notify("Announce","sent",3) end)})
+Tabs.Chat:Button({Title="Send Announce", Callback=safeCB(function() AnnounceOnce(); Notify("Announce","sent",3) end)})
 Tabs.Chat:Toggle({Title="Announce Spam Loop", Default=false, Callback=safeCB(function(v) announceSpam=v; if v then AnnounceSpamLoop() end end)})
 
--- SOUND TAB
-Tabs.Sound:Section({Title="Radio Hijack (server-wide)"})
+-- === SOUND ===
+Tabs.Sound:Section({Title="Radio Hijack (confirmed)"})
 local radioId = "142376088"
 Tabs.Sound:Input({Title="Sound ID", Value="142376088", Callback=safeCB(function(v) radioId=v end)})
 Tabs.Sound:Button({Title="Play on Radio", Callback=safeCB(function() RadioPlay(radioId); Notify("Radio","playing "..radioId,3) end)})
 Tabs.Sound:Button({Title="Stop Radio", Callback=safeCB(RadioStop)})
 
 Tabs.Sound:Section({Title="Piano"})
-Tabs.Sound:Toggle({Title="Piano Note Spam", Default=false, Callback=safeCB(function(v) pianoSpam=v; if v then PianoSpamLoop() end end)})
+local pianoSpam = false
+Tabs.Sound:Toggle({Title="Piano Note Spam", Default=false, Callback=safeCB(function(v)
+    pianoSpam=v
+    if v then
+        task.spawn(function()
+            while pianoSpam do
+                for i = 1, 25 do tryFire(Remotes.Piano, i, true) end
+                task.wait(0.15)
+            end
+        end)
+    end
+end)})
 
--- SELF TAB
+-- === SELF ===
 Tabs.Self:Section({Title="Movement"})
 Tabs.Self:Slider({Title="Walk Speed", Value={Min=16,Max=300,Default=16}, Step=4, Callback=safeCB(function(v)
     State.Speed=v; local h=GetHum(); if h then pcall(function() h.WalkSpeed=v end) end
@@ -683,53 +858,55 @@ Tabs.Self:Button({Title="Check My Coins", Callback=safeCB(function()
 end)})
 Tabs.Self:Button({Title="Show HD Prefix", Callback=safeCB(function() Notify("HD Prefix", "Current: "..HD_PREFIX, 4) end)})
 
--- HD ADMIN TAB
-Tabs.HDAdmin:Section({Title="Custom Command (uses detected prefix "..HD_PREFIX..")"})
+-- === HD ADMIN ===
+Tabs.HDAdmin:Section({Title="Custom Command"})
 local hdCmdInput = "kick playername"
 Tabs.HDAdmin:Input({Title="Command (no prefix)", Value="kick playername", Callback=safeCB(function(v) hdCmdInput=v end)})
 Tabs.HDAdmin:Button({Title="Execute", Callback=safeCB(function() RunHDCommand(hdCmdInput) end)})
 
 Tabs.HDAdmin:Section({Title="Quick Commands on Target"})
 local hdActions = {
-    {"Kick", "kick"}, {"Ban", "ban"}, {"Fling", "fling"}, {"Kill", "kill"},
-    {"Freeze", "freeze"}, {"Thaw", "thaw"}, {"Invisible", "invisible"}, {"Visible", "visible"},
-    {"Blind", "blind"}, {"Sit", "sit"}, {"Stand", "stand"},
-    {"Explode", "explode"}, {"Fire", "fire"}, {"Sparkles", "sparkles"},
-    {"Smoke", "smoke"}, {"Jump", "jump"}, {"Punish", "punish"}, {"Unpunish", "unpunish"},
-    {"Freefall", "freefall"}, {"Slap", "slap"},
+    {"Kick","kick"}, {"Ban","ban"}, {"Fling","fling"}, {"Kill","kill"},
+    {"Freeze","freeze"}, {"Thaw","thaw"}, {"Invisible","invisible"}, {"Visible","visible"},
+    {"Blind","blind"}, {"Sit","sit"}, {"Stand","stand"},
+    {"Explode","explode"}, {"Fire","fire"}, {"Sparkles","sparkles"},
+    {"Smoke","smoke"}, {"Jump","jump"}, {"Punish","punish"}, {"Unpunish","unpunish"},
+    {"Freefall","freefall"}, {"Slap","slap"},
 }
 for _, act in ipairs(hdActions) do
     Tabs.HDAdmin:Button({Title=act[1].." Target", Callback=safeCB(function()
-        local t = TargetName()
-        if t then RunHDCommand(act[2].." "..t) end
+        local t = TargetName(); if t then RunHDCommand(act[2].." "..t) end
     end)})
 end
 
--- FISH TAB
+-- === FISH ===
 Tabs.Fish:Section({Title="Fish Cheats"})
 Tabs.Fish:Button({Title="Sell All Fish", Callback=safeCB(SellAllFish)})
 local fishName = "Salmon"
 Tabs.Fish:Input({Title="Fish Name", Value="Salmon", Callback=safeCB(function(v) fishName=v end)})
-Tabs.Fish:Button({Title="Try Give 10 Fish", Callback=safeCB(function() GiveFish(fishName, 10) end)})
-Tabs.Fish:Button({Title="Try Give 100 Fish", Callback=safeCB(function() GiveFish(fishName, 100) end)})
+Tabs.Fish:Button({Title="Give 10 Fish", Callback=safeCB(function() GiveFish(fishName, 10) end)})
+Tabs.Fish:Button({Title="Give 100 Fish", Callback=safeCB(function() GiveFish(fishName, 100) end)})
 
--- SETTINGS TAB
+-- === SETTINGS ===
 Tabs.Settings:Button({Title="Minimize (RightShift)", Callback=safeCB(function()
     pcall(function() Window:Close() end); task.wait(0.2)
     if logoGui then logoGui.Enabled=true end
     logoActive=true
 end)})
-Tabs.Settings:Button({Title="PANIC (stop all spam loops)", Callback=safeCB(function()
-    giftSpam=false; giftUISpam=false; alertSpam=false; announceSpam=false
-    confSpam=false; seatLockLoop=false; pianoSpam=false; laporSpam=false
-    RadioStop()
+Tabs.Settings:Button({Title="PANIC (stop all loops)", Callback=safeCB(function()
+    giftSpam=false; alertSpam=false; announceSpam=false; confSpam=false
+    seatLockLoop=false; pianoSpam=false; laporSpam=false
+    carrySpam=false; danceSpam=false; skySpam=false; fwSpam=false
+    hackerHUDSpam=false; flowerSpam=false
+    RadioStop(); DanceStopAll(); EndCarry()
     Notify("PANIC","All stopped",4)
 end)})
-Tabs.Settings:Button({Title="Reload Remotes", Callback=safeCB(function() loadRemotes(); Notify("Reloaded","remotes cached",2) end)})
+Tabs.Settings:Button({Title="Reload Remotes", Callback=safeCB(function() loadRemotes(); Notify("Reloaded","cached",2) end)})
 Tabs.Settings:Button({Title="Re-detect HD Prefix", Callback=safeCB(DetectHDPrefix)})
 Tabs.Settings:Button({Title="Unload Hub", Callback=safeCB(function()
-    giftSpam=false; giftUISpam=false; alertSpam=false; announceSpam=false
-    confSpam=false; seatLockLoop=false; pianoSpam=false; laporSpam=false
+    giftSpam=false; announceSpam=false; confSpam=false; seatLockLoop=false
+    pianoSpam=false; laporSpam=false; carrySpam=false; danceSpam=false
+    skySpam=false; fwSpam=false; hackerHUDSpam=false; flowerSpam=false
     Noclip(false); Fly(false)
     if logoGui then pcall(function() logoGui:Destroy() end) end
     CM:Cleanup(); _G[INSTANCE_KEY]=nil
@@ -737,13 +914,13 @@ Tabs.Settings:Button({Title="Unload Hub", Callback=safeCB(function()
 end)})
 
 _G[INSTANCE_KEY] = {version=HUB.Version, destroy=function()
-    giftSpam=false; giftUISpam=false; alertSpam=false; announceSpam=false
-    confSpam=false; seatLockLoop=false; pianoSpam=false; laporSpam=false
+    giftSpam=false; announceSpam=false; confSpam=false; seatLockLoop=false
+    pianoSpam=false; laporSpam=false; carrySpam=false; danceSpam=false
+    skySpam=false; fwSpam=false; hackerHUDSpam=false; flowerSpam=false
     Noclip(false); Fly(false)
     if logoGui then pcall(function() logoGui:Destroy() end) end
     CM:Cleanup()
     pcall(function() Window:Destroy() end)
 end}
 
-Log("Rest Area Troll Hub v1.2 READY")
-Log("You are HD Admin OWNER - all commands should work")
+Log("Rest Area Troll Hub v1.3 READY - all confirmed features loaded")
