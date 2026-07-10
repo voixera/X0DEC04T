@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v4.1.0 - No anchor (fixes VehicleController spam)
+-- X0DEC04T Hub v4.1.1 - Camera stabilized during tween
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -20,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v410"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v411"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -28,7 +28,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v4.1.0...")
+Log("Starting v4.1.1...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -47,16 +47,14 @@ local ok, err = pcall(function()
 end)
 if not ok or not WindUI then warn("[X0DEC04T] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Version="4.1.0" }
+local HUB = { Name="X0DEC04T Hub", Version="4.1.1" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
 function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Disconnect() end) end; self._list={} end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ANTI-CHEAT NEUTRALIZATION
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local ACNeutral = { hooked=false, killedModules={}, rollbackConn=nil }
+--━ ANTI-CHEAT
+local ACNeutral = { hooked=false, rollbackConn=nil }
 
 local function HookRollback()
     local rf = ReplicatedStorage:FindFirstChild("__remotes")
@@ -71,12 +69,9 @@ local function HookRollback()
             pcall(function() conn:Disable() end)
             pcall(function() conn:Disconnect() end)
         end
-        Log("[ACN] Killed "..#conns.." rollback listeners")
     end
     if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end) end
-    ACNeutral.rollbackConn = rb.OnClientEvent:Connect(function(...)
-        Log("[ACN] BLOCKED rollback")
-    end)
+    ACNeutral.rollbackConn = rb.OnClientEvent:Connect(function() end)
     if hookmetamethod and not ACNeutral.hooked then
         pcall(function()
             local oldNamecall
@@ -86,14 +81,12 @@ local function HookRollback()
                     local n = self.Name or ""
                     local nl = n:lower()
                     if nl:find("rollback") or nl:find("antitp") or nl:find("teleportdet") then
-                        Log("[ACN] BLOCKED outgoing: "..method.." "..n)
                         return nil
                     end
                 end
                 return oldNamecall(self, ...)
             end)
             ACNeutral.hooked = true
-            Log("[ACN] Metamethod hooked")
         end)
     end
 end
@@ -106,18 +99,13 @@ local function KillClientAC()
                 local n = obj.Name:lower()
                 if n:find("anticheat") or n:find("antitp") or n:find("antifly") or n:find("antinoclip") then
                     pcall(function() obj:Destroy() end)
-                    Log("[ACN] Destroyed: "..obj.Name)
                 end
             end
         end
     end
 end
 
-function ACNeutral.Enable()
-    HookRollback()
-    KillClientAC()
-    Log("[ACN] Enabled")
-end
+function ACNeutral.Enable() HookRollback(); KillClientAC() end
 function ACNeutral.Disable()
     if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end); ACNeutral.rollbackConn = nil end
 end
@@ -173,6 +161,9 @@ local State = {
     Smuggler_CarNoClip=true,
     Smuggler_YOffset=5,
     Smuggler_MaxInventory=5,
+    Smuggler_CameraMode="Chase", -- "Chase" | "TopDown" | "Locked" | "Off"
+    Smuggler_CameraDistance=25,
+    Smuggler_CameraHeight=12,
     ACNeutralEnabled=true,
     TPStrategy="Instant", TweenSpeed=200, TweenNoclip=true,
     SafeLanding=true, NoFallDamage=true,
@@ -220,6 +211,95 @@ local function IsSeatedIn(car)
         if (o:IsA("VehicleSeat") or o:IsA("Seat")) and o.Occupant == hum then return true end
     end
     return false
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CAMERA STABILIZER
+-- During tween: takes over camera to smoothly follow the car
+-- After tween: releases back to Roblox default camera
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local CameraStab = {
+    active = false,
+    conn = nil,
+    savedCameraType = nil,
+    savedCameraSubject = nil,
+    target = nil,  -- BasePart to follow
+}
+
+function CameraStab.Start(car)
+    if CameraStab.active then CameraStab.Stop() end
+    if not car or State.Smuggler_CameraMode == "Off" then return end
+    local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+    if not root then return end
+    CameraStab.target = root
+    CameraStab.active = true
+
+    -- Save current camera state
+    pcall(function()
+        CameraStab.savedCameraType = Camera.CameraType
+        CameraStab.savedCameraSubject = Camera.CameraSubject
+    end)
+    -- Take over
+    pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
+
+    local mode = State.Smuggler_CameraMode
+    local dist = State.Smuggler_CameraDistance or 25
+    local height = State.Smuggler_CameraHeight or 12
+
+    -- Smooth interpolation state
+    local currentCF = Camera.CFrame
+
+    CameraStab.conn = RunService.RenderStepped:Connect(function(dt)
+        if not CameraStab.active then return end
+        if not CameraStab.target or not CameraStab.target.Parent then return end
+        local carCF = CameraStab.target.CFrame
+        local carPos = carCF.Position
+        local goalCF
+        
+        if mode == "Chase" then
+            -- Behind and above the car (like default car camera but smooth)
+            local behind = carCF.LookVector * -dist
+            local up = Vector3.new(0, height, 0)
+            local camPos = carPos + behind + up
+            goalCF = CFrame.lookAt(camPos, carPos + Vector3.new(0, 2, 0))
+        elseif mode == "TopDown" then
+            -- Bird's eye view
+            local camPos = carPos + Vector3.new(0, dist + height, 0)
+            goalCF = CFrame.lookAt(camPos, carPos)
+        elseif mode == "Locked" then
+            -- Locked to car direction, always behind
+            goalCF = carCF * CFrame.new(0, height, dist) * CFrame.Angles(math.rad(-15), 0, 0)
+            goalCF = CFrame.lookAt(goalCF.Position, carPos + Vector3.new(0, 2, 0))
+        else
+            return
+        end
+        
+        -- Smoothly interpolate to goal (removes shake)
+        local alpha = math.clamp(dt * 8, 0, 1) -- higher = snappier
+        currentCF = currentCF:Lerp(goalCF, alpha)
+        pcall(function() Camera.CFrame = currentCF end)
+    end)
+end
+
+function CameraStab.Stop()
+    if not CameraStab.active then return end
+    CameraStab.active = false
+    if CameraStab.conn then pcall(function() CameraStab.conn:Disconnect() end); CameraStab.conn = nil end
+    -- Restore camera
+    pcall(function()
+        if CameraStab.savedCameraType then
+            Camera.CameraType = CameraStab.savedCameraType
+        else
+            Camera.CameraType = Enum.CameraType.Custom
+        end
+        if CameraStab.savedCameraSubject then
+            Camera.CameraSubject = CameraStab.savedCameraSubject
+        else
+            local hum = GetHuman()
+            if hum then Camera.CameraSubject = hum end
+        end
+    end)
+    CameraStab.target = nil
 end
 
 --━ FALL GUARD
@@ -290,9 +370,7 @@ function SmartTP.TweenFoot(pos, yOff)
 end
 function SmartTP.Go(pos, yOff) return SmartTP.TweenFoot(pos, yOff) end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CAR TWEEN (no anchor - fixes VehicleController errors)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--━ CAR TWEEN
 local ActiveCarTween = { tween=nil, holdConn=nil, noclipConn=nil, savedCollide={} }
 
 local function StopCarTween()
@@ -303,11 +381,11 @@ local function StopCarTween()
         if part and part.Parent then pcall(function() part.CanCollide = orig end) end
     end
     ActiveCarTween.savedCollide = {}
+    CameraStab.Stop()
 end
 
 local function ApplyCarNoClip(car)
     if not car then return end
-    -- ONLY set CanCollide=false, NEVER anchor (breaks VehicleController)
     for _, p in ipairs(car:GetDescendants()) do
         if p:IsA("BasePart") then
             if ActiveCarTween.savedCollide[p] == nil then
@@ -359,7 +437,10 @@ function SmartTP.CarTweenTo(car, targetPos)
     local speed = State.Smuggler_TweenSpeed or 80
     local dur = math.clamp(totalDist / math.max(speed, 20), 0.4, 30)
 
-    Log(string.format("[CarTween] %.0f studs in %.2fs to Y=%.1f", totalDist, dur, finalPos.Y))
+    Log(string.format("[CarTween] %.0f studs in %.2fs", totalDist, dur))
+
+    -- Start camera stabilization BEFORE the tween begins
+    CameraStab.Start(car)
 
     if State.Smuggler_CarNoClip then
         ApplyCarNoClip(car)
@@ -413,7 +494,7 @@ function SmartTP.CarTweenTo(car, targetPos)
     while tick() - t0 < dur + 1 do
         if finished then break end
         if not car.Parent or not root.Parent then
-            Log("[CarTween] car despawned mid-tween")
+            Log("[CarTween] car despawned")
             if completeConn then pcall(function() completeConn:Disconnect() end) end
             StopCarTween()
             return false
@@ -464,7 +545,7 @@ end
 task.spawn(function() while task.wait(2) do pcall(function() for o in pairs(State.ESPCache) do if not o or not o.Parent then ESP.Clear(o) end end; ESP.ScanPlayers() end) end end)
 CM:Add(RunService.Heartbeat, function() pcall(ESP.UpdateDist) end)
 
---━ CAR CONTROLS
+--━ CAR
 local Car = {}
 function Car.ApplySpeed() local s=GetVehicleSeat(); if s then pcall(function() s.MaxSpeed=100+(State.CarSpeed or 0) end) end end
 function Car.SetSpeedHack(e) if State.SpeedHackConn then pcall(function() State.SpeedHackConn:Disconnect() end); State.SpeedHackConn=nil end; if e then State.SpeedHackConn=RunService.Heartbeat:Connect(function() local s=GetVehicleSeat(); if s then pcall(function() s.MaxSpeed=State.SpeedHackValue end) end end) end end
@@ -822,18 +903,15 @@ function Smuggler.DriveAndBuy(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[3] can't sit"); return false end
     end
-    
     local count = Smuggler.CountInventory(State.Smuggler_ItemName)
-    Log("[3] Current inventory: "..count.."/"..State.Smuggler_MaxInventory)
+    Log("[3] Inv: "..count.."/"..State.Smuggler_MaxInventory)
     if count >= State.Smuggler_MaxInventory then
-        Log("[3] Inventory full, skipping buy")
+        Log("[3] Full, skip")
         return true
     end
-    
     local ok = SmartTP.CarTweenTo(car, pos)
     if not ok then Log("[3] drive failed"); return false end
     task.wait(0.4)
-    
     for i=1, State.Smuggler_BuyRetries do
         if prompt then Smuggler.FirePrompt(prompt) end
         if BRP.PurchaseWorldItem then
@@ -844,7 +922,7 @@ function Smuggler.DriveAndBuy(car)
         end
         task.wait(0.35)
         local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
-        if nowCount >= State.Smuggler_MaxInventory then Log("[3] Got "..nowCount..", stopping"); break end
+        if nowCount >= State.Smuggler_MaxInventory then break end
     end
     Log("[3] Buy done")
     return true
@@ -929,7 +1007,7 @@ function Smuggler.RunCycle()
     Smuggler.DriveAndLaunder(car)
     if not State.Smuggler_AutoLoop then return end
     State.Smuggler_JobsDone = State.Smuggler_JobsDone + 1
-    Log("═══ JOB #"..State.Smuggler_JobsDone.." DONE ═══")
+    Log("═══ JOB #"..State.Smuggler_JobsDone.." ═══")
 end
 
 function Smuggler.SetAutoLoop(e)
@@ -1020,7 +1098,7 @@ local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="gamepad-2", Author="v"..HUB.Version, Folder="X0DEC04T",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
 })
-pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." ready", Duration=4, Icon="check"}) end)
+pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." smooth camera", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t, Content=c, Duration=d or 4, Icon="info"}) end) end
 
 local logoGui, logoActive = nil, false
@@ -1086,8 +1164,7 @@ local Tabs = {
 Window:SelectTab(1)
 
 Tabs.Main:Section({Title="X0DEC04T Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="Working!", Desc="✓ AC rollback blocked\n✓ Car tween + noclip (no anchor)\n✓ VehicleController errors fixed\n✓ Inventory cap respected (5 items)\n\nGame HUD errors are cosmetic - money still goes up!"})
-Tabs.Main:Button({Title="Re-enable AC Neutral", Callback=safeCB(function() ACNeutral.Enable(); Notify("AC","Re-neutralized") end)})
+Tabs.Main:Paragraph({Title="Smooth Camera", Desc="Camera now stabilizes during car tween.\n\n• Chase = 3rd person behind car\n• TopDown = bird's eye\n• Locked = strict follow\n• Off = default (shaky)\n\nAdjust distance/height in Smuggler tab"})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
 Tabs.Vehicle:Section({Title="Speed"})
@@ -1098,12 +1175,18 @@ Tabs.Vehicle:Button({Title="Flip Car", Callback=safeCB(Car.Flip)})
 Tabs.Vehicle:Button({Title="Boost", Callback=safeCB(Car.Boost)})
 Tabs.Vehicle:Button({Title="Unstuck", Callback=safeCB(function() if BRP.UnstuckVehicle then pcall(function() BRP.UnstuckVehicle:FireServer() end) end end)})
 Tabs.Vehicle:Section({Title="Abilities"})
-Tabs.Vehicle:Toggle({Title="NoClip (always)", Default=false, Callback=safeCB(function(v) State.NoClip=v; Car.SetNoClip(v) end)})
+Tabs.Vehicle:Toggle({Title="NoClip", Default=false, Callback=safeCB(function(v) State.NoClip=v; Car.SetNoClip(v) end)})
 Tabs.Vehicle:Toggle({Title="Fly", Default=false, Callback=safeCB(function(v) State.FlyActive=v; Car.SetFly(v) end)})
 Tabs.Vehicle:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(v) State.GodMode=v; Car.SetGod(v) end)})
 Tabs.Vehicle:Section({Title="Character"})
 Tabs.Vehicle:Slider({Title="WalkSpeed", Value={Min=16,Max=200,Default=16}, Step=4, Callback=safeCB(function(v) local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end)})
 Tabs.Vehicle:Toggle({Title="Infinite Jump", Default=false, Callback=safeCB(function(v) State.InfiniteJump=v end)})
+
+Tabs.Smuggler:Section({Title="Camera (during tween)"})
+Tabs.Smuggler:Dropdown({Title="Camera Mode", Values={"Chase","TopDown","Locked","Off"}, Value="Chase", Callback=safeCB(function(v) State.Smuggler_CameraMode=v end)})
+Tabs.Smuggler:Slider({Title="Camera Distance", Value={Min=10,Max=60,Default=25}, Step=1, Callback=safeCB(function(v) State.Smuggler_CameraDistance=v end)})
+Tabs.Smuggler:Slider({Title="Camera Height", Value={Min=2,Max=40,Default=12}, Step=1, Callback=safeCB(function(v) State.Smuggler_CameraHeight=v end)})
+Tabs.Smuggler:Button({Title="Force Restore Camera", Callback=safeCB(CameraStab.Stop)})
 
 Tabs.Smuggler:Section({Title="Anti-Cheat"})
 Tabs.Smuggler:Toggle({Title="AC Neutralization", Default=true, Callback=safeCB(function(v) State.ACNeutralEnabled=v; if v then ACNeutral.Enable() else ACNeutral.Disable() end end)})
@@ -1184,9 +1267,9 @@ Tabs.Visuals:Slider({Title="FOV", Value={Min=30,Max=120,Default=70}, Step=5, Cal
 
 Tabs.Settings:Toggle({Title="Anti-AFK", Default=true, Callback=safeCB(function(v) State.AntiAFK=v end)})
 Tabs.Settings:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
-Tabs.Settings:Button({Title="PANIC", Callback=safeCB(function() Smuggler.SetAutoLoop(false); StopCarTween(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false); Notify("PANIC","Off",3) end)})
+Tabs.Settings:Button({Title="PANIC", Callback=safeCB(function() Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop(); Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false); Notify("PANIC","Off",3) end)})
 Tabs.Settings:Button({Title="Unload", Callback=safeCB(function()
-    Smuggler.SetAutoLoop(false); StopCarTween()
+    Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop()
     Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
     FallGuard.Disable(); ACNeutral.Disable()
     if logoGui then pcall(function() logoGui:Destroy() end) end
@@ -1210,7 +1293,7 @@ end)
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
-        Smuggler.SetAutoLoop(false); StopCarTween()
+        Smuggler.SetAutoLoop(false); StopCarTween(); CameraStab.Stop()
         Police.SetAutoAim(false); Police.SetAutoFire(false); Police.SetAutoArrest(false)
         FallGuard.Disable(); ACNeutral.Disable()
         if logoGui then pcall(function() logoGui:Destroy() end) end
@@ -1219,4 +1302,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("v4.1.0 ready - money-making bot!")
+Log("v4.1.1 ready - smooth camera during tween")
