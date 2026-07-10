@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub - Grow A Garden v0.1 (STARTER TEMPLATE)
--- NEEDS diagnostic info to fill in correct remotes
+-- X0DEC04T Hub - Grow A Garden v1.0
+-- Full auto: Plant, Harvest, Sell (Steven), Buy Seeds (Sam), Collect
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -20,11 +20,11 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_GAG_v01"
+local INSTANCE_KEY = "__X0DEC04T_GAG_v10"
 if _G[INSTANCE_KEY] then pcall(function() _G[INSTANCE_KEY].destroy() end); _G[INSTANCE_KEY] = nil; task.wait(0.2) end
 
 local function Log(m) print("[GAG] " .. tostring(m)) end
-Log("Starting GAG v0.1...")
+Log("Starting GAG v1.0...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -43,409 +43,164 @@ local ok = pcall(function()
 end)
 if not ok or not WindUI then warn("[GAG] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T GAG", Version="0.1" }
+local HUB = { Name="X0DEC04T GAG", Version="1.0" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
 function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Disconnect() end) end; self._list={} end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- PATHS (filled from diagnostic - update as needed)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local PATHS = {
-    Gardens = Workspace:FindFirstChild("Gardens") or Workspace:FindFirstChild("_Gardens"),
-    NPCs = Workspace:FindFirstChild("NPCS") or Workspace:FindFirstChild("NPCs") or Workspace:FindFirstChild("NPC"),
-    Teleports = Workspace:FindFirstChild("Teleports"),
-    Handles = Workspace:FindFirstChild("Handles"),
-    DroppedItems = Workspace:FindFirstChild("DroppedItems"),
-    PottedPlantVisuals = Workspace:FindFirstChild("PottedPlantVisuals"),
-    -- ReplicatedStorage
-    RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents"),
-    Modules = ReplicatedStorage:FindFirstChild("Modules"),
-    Assets = ReplicatedStorage:FindFirstChild("Assets"),
-    SharedData = ReplicatedStorage:FindFirstChild("SharedData"),
-    ServerValues = ReplicatedStorage:FindFirstChild("ServerValues"),
-    StockValues = ReplicatedStorage:FindFirstChild("StockValues"),
-    WeatherValues = ReplicatedStorage:FindFirstChild("WeatherValues"),
-    GardenZoneData = ReplicatedStorage:FindFirstChild("GardenZoneData"),
+--━ SEEDS DATA (39 seeds detected from game)
+local SEEDS = {
+    "Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Apple", "Bamboo",
+    "Corn", "Cactus", "Pineapple", "Mushroom", "Green Bean", "Banana", "Grape",
+    "Coconut", "Mango", "Rocket Pop", "Dragon Fruit", "Acorn", "Cherry", "Sunflower",
+    "Fire Fern", "Venus Fly Trap", "Pomegranate", "Poison Apple", "Venom Spitter",
+    "Briar Rose", "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Ghost Pepper",
+    "Poison Ivy", "Baby Cactus", "Glow Mushroom", "Romanesco", "Horned Melon",
+    "Gold", "Rainbow", "Mega"
 }
 
--- REMOTES (need diagnostic to confirm - these are best guesses based on common patterns)
-local function FindRemote(searchName)
-    local search = searchName:lower()
-    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if (obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction")) then
-            if obj.Name:lower():find(search) then return obj end
-        end
-    end
-    return nil
-end
-
-local REMOTES = {
-    -- These may not exist yet — send diagnostic to confirm
-    Packet          = FindRemote("Packet") or FindRemote("RemoteEvent"),
-    ReplicaRequest  = ReplicatedStorage:FindFirstChild("RemoteEvents") and ReplicatedStorage.RemoteEvents:FindFirstChild("ReplicaRequestData"),
-    ReplicaSignal   = ReplicatedStorage:FindFirstChild("RemoteEvents") and ReplicatedStorage.RemoteEvents:FindFirstChild("ReplicaSignal"),
-    -- Actions (best-guess names, need confirmation)
-    Plant           = FindRemote("Plant") or FindRemote("PlaceSeed"),
-    Harvest         = FindRemote("Harvest") or FindRemote("Collect"),
-    Sell            = FindRemote("Sell"),
-    BuySeed         = FindRemote("BuySeed") or FindRemote("PurchaseSeed"),
-    BuyEgg          = FindRemote("BuyEgg"),
-    HatchEgg        = FindRemote("Hatch"),
-    EquipPet        = FindRemote("EquipPet"),
-    Water           = FindRemote("Water"),
-    Sprinkler       = FindRemote("Sprinkler"),
-    ClaimReward     = FindRemote("Claim") or FindRemote("Reward"),
-}
-
-for k, v in pairs(REMOTES) do
-    Log(string.format("Remote %s: %s", k, v and v:GetFullName() or "NOT FOUND"))
-end
-
---━ STATE ━
-local State = {
-    -- Auto Plant
-    AutoPlant = false, PlantSeedName = "Carrot", PlantDelay = 0.5,
-    -- Auto Harvest
-    AutoHarvest = false, HarvestDelay = 0.5, HarvestOnlyRipe = true,
-    -- Auto Sell
-    AutoSell = false, SellDelay = 1, SellAtValue = 10000, -- sell when carrying $X worth
-    SellerName = "Steven", -- update from diagnostic
-    -- Auto Buy Seeds
-    AutoBuySeeds = false, BuySeedName = "Carrot", BuyQuantity = 10, BuyDelay = 1,
-    ShopName = "SeedShop", -- update from diagnostic
-    -- Auto Buy Egg
-    AutoBuyEgg = false, EggName = "CommonEgg",
-    -- Auto Hatch
-    AutoHatch = false,
-    -- Auto Collect drops
-    AutoCollectDrops = false, CollectRadius = 50,
-    -- Weather
-    AutoWeather = false, PreferredWeather = "Rain",
-    -- Safety
-    NoFallDamage = true, GodMode = false, AntiAFK = true,
-    WalkSpeed = 16, JumpPower = 50,
-    -- Character TP
-    TP_Target = "",
-    -- Camera
-    FOV = 70,
-    -- Cache
-    CurrentGarden = nil,
-}
-
+--━ HELPERS
 local function GetChar() return LocalPlayer.Character end
 local function GetHRP() local ch=GetChar(); return ch and ch:FindFirstChild("HumanoidRootPart") end
 local function GetHuman() local ch=GetChar(); return ch and ch:FindFirstChildOfClass("Humanoid") end
 local function GuiParent() local p=CoreGui; pcall(function() if gethui then p=gethui() end end); return p end
 
--- Find player's own garden
+-- Find MY garden by Owner attribute
+local _cachedGarden
 local function GetMyGarden()
-    if State.CurrentGarden and State.CurrentGarden.Parent then return State.CurrentGarden end
-    if not PATHS.Gardens then return nil end
-    for _, g in ipairs(PATHS.Gardens:GetChildren()) do
-        -- Garden usually named after player or has owner attribute
-        if g.Name == LocalPlayer.Name 
-           or g:GetAttribute("Owner") == LocalPlayer.UserId
-           or g:GetAttribute("OwnerName") == LocalPlayer.Name then
-            State.CurrentGarden = g
+    if _cachedGarden and _cachedGarden.Parent then return _cachedGarden end
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if not gardens then return nil end
+    for _, g in ipairs(gardens:GetChildren()) do
+        if g:GetAttribute("Owner") == LocalPlayer.Name 
+           or g:GetAttribute("OwnerUserId") == LocalPlayer.UserId then
+            _cachedGarden = g
             return g
-        end
-        -- Check for a nametag/sign with player name
-        for _, ch in ipairs(g:GetDescendants()) do
-            if ch:IsA("TextLabel") or ch:IsA("StringValue") then
-                if tostring(ch.Text or ch.Value):find(LocalPlayer.Name) then
-                    State.CurrentGarden = g
-                    return g
-                end
-            end
         end
     end
     return nil
 end
 
--- Find plants ready to harvest in my garden
-local function FindHarvestablePlants()
+-- Find all ripe fruits (PlantGrowthReady = true, or has Harvest prompts)
+local function FindRipeFruits()
     local garden = GetMyGarden()
     if not garden then return {} end
+    local plants = garden:FindFirstChild("Plants")
+    if not plants then return {} end
     local ripe = {}
-    for _, obj in ipairs(garden:GetDescendants()) do
-        -- Plants may have attributes like "Grown", "Ripe", "Ready", "GrowthStage"
-        local ready = obj:GetAttribute("Grown") 
-                   or obj:GetAttribute("Ripe") 
-                   or obj:GetAttribute("Ready") 
-                   or obj:GetAttribute("FullyGrown")
-        if ready then
-            table.insert(ripe, obj)
-        elseif obj:IsA("Model") and (obj.Name:find("Plant") or obj.Name:find("Crop")) then
-            -- Fallback: check ProximityPrompt exists (means interactable)
-            local pp = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if pp then table.insert(ripe, obj) end
+    for _, plant in ipairs(plants:GetChildren()) do
+        -- Only if plant is grown
+        if plant:GetAttribute("PlantGrowthReady") then
+            local fruits = plant:FindFirstChild("Fruits")
+            if fruits then
+                for _, fruit in ipairs(fruits:GetChildren()) do
+                    -- Look for the Harvest ProximityPrompt on this fruit
+                    for _, obj in ipairs(fruit:GetDescendants()) do
+                        if obj:IsA("ProximityPrompt") and obj.ActionText == "Harvest" then
+                            table.insert(ripe, {fruit=fruit, prompt=obj, plant=plant})
+                            break
+                        end
+                    end
+                end
+            end
         end
     end
     return ripe
 end
 
--- Find empty plots
-local function FindEmptyPlots()
+-- Find plot columns
+local function GetPlotColumns()
     local garden = GetMyGarden()
     if not garden then return {} end
-    local empty = {}
+    local cols = {}
     for _, obj in ipairs(garden:GetDescendants()) do
-        if obj:IsA("BasePart") and (obj.Name:lower():find("plot") or obj.Name:lower():find("dirt") or obj.Name:lower():find("soil")) then
-            -- Empty if no plant model as child
-            local hasPlant = false
-            for _, ch in ipairs(obj:GetChildren()) do
-                if ch:IsA("Model") then hasPlant = true; break end
-            end
-            if not hasPlant then table.insert(empty, obj) end
+        if obj:IsA("BasePart") and obj.Name:find("PlantAreaColumn") then
+            table.insert(cols, obj)
         end
     end
-    return empty
+    return cols
+end
+
+-- Get NPC by name
+local function GetNPC(name)
+    local npcs = Workspace:FindFirstChild("NPCS") or Workspace:FindFirstChild("NPCs")
+    if not npcs then return nil end
+    return npcs:FindFirstChild(name)
+end
+
+local function GetNPCPos(name)
+    local npc = GetNPC(name)
+    if not npc then return nil end
+    local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+    return hrp and hrp.Position
 end
 
 local function FirePrompt(prompt, dur)
-    if not prompt then return end
-    pcall(function() if fireproximityprompt then fireproximityprompt(prompt, dur or 0.25) end end)
+    if not prompt then return false end
+    local ok = pcall(function() if fireproximityprompt then fireproximityprompt(prompt, dur or 0.25) end end)
+    return ok
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO PLANT
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoPlant = {}
-function AutoPlant.PlantOnce(plot, seedName)
-    -- Method 1: Equip seed tool and click plot
+local function GetTalkPrompt(npc)
+    if not npc then return nil end
+    for _, obj in ipairs(npc:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.ActionText == "Talk" then return obj end
+    end
+end
+
+local function GetInteractPrompt(npc)
+    if not npc then return nil end
+    for _, obj in ipairs(npc:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.ActionText == "Interact" then return obj end
+    end
+end
+
+-- TP helper
+local function TPTo(pos, yOff)
+    local hrp = GetHRP()
+    if not hrp then return end
+    pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, yOff or 3, 0)) end)
+end
+
+-- Sheckles
+local function GetSheckles()
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if not ls then return 0 end
+    local s = ls:FindFirstChild("Sheckles")
+    return s and tonumber(s.Value) or 0
+end
+
+-- Count crops in backpack (based on tools with weight [Xkg])
+local function CountCrops()
     local bp = LocalPlayer:FindFirstChild("Backpack")
-    local hum = GetHuman()
-    if bp and hum then
-        for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find(seedName:lower()) then
-                pcall(function() hum:EquipTool(t) end)
-                task.wait(0.15)
-                break
-            end
-        end
+    if not bp then return 0 end
+    local n = 0
+    for _, t in ipairs(bp:GetChildren()) do
+        if t:IsA("Tool") and t.Name:find("%[") then n = n + 1 end
     end
-    -- Method 2: Fire the Plant remote if we found one
-    if REMOTES.Plant then
-        pcall(function()
-            if REMOTES.Plant:IsA("RemoteEvent") then
-                REMOTES.Plant:FireServer(seedName, plot.Position)
-            else
-                REMOTES.Plant:InvokeServer(seedName, plot.Position)
-            end
-        end)
-    end
-    -- Method 3: If plot has a ProximityPrompt, fire it
-    local pp = plot:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if pp then FirePrompt(pp) end
+    return n
 end
 
-function AutoPlant.Loop()
-    task.spawn(function()
-        while State.AutoPlant do
-            local plots = FindEmptyPlots()
-            if #plots > 0 then
-                for _, p in ipairs(plots) do
-                    if not State.AutoPlant then break end
-                    AutoPlant.PlantOnce(p, State.PlantSeedName)
-                    task.wait(State.PlantDelay)
-                end
-            end
-            task.wait(1)
-        end
-    end)
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO HARVEST
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoHarvest = {}
-function AutoHarvest.HarvestOne(plant)
-    -- Method 1: ProximityPrompt
-    local pp = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if pp then FirePrompt(pp) end
-    -- Method 2: Harvest remote
-    if REMOTES.Harvest then
-        pcall(function()
-            if REMOTES.Harvest:IsA("RemoteEvent") then
-                REMOTES.Harvest:FireServer(plant)
-            else
-                REMOTES.Harvest:InvokeServer(plant)
-            end
-        end)
-    end
-end
-
-function AutoHarvest.Loop()
-    task.spawn(function()
-        while State.AutoHarvest do
-            local ripe = FindHarvestablePlants()
-            if #ripe > 0 then
-                Log("[Harvest] Found " .. #ripe .. " ripe plants")
-                for _, p in ipairs(ripe) do
-                    if not State.AutoHarvest then break end
-                    AutoHarvest.HarvestOne(p)
-                    task.wait(State.HarvestDelay)
-                end
-            end
-            task.wait(1)
-        end
-    end)
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO SELL
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoSell = {}
-function AutoSell.GetSellerNPC()
-    if not PATHS.NPCs then return nil end
-    for _, npc in ipairs(PATHS.NPCs:GetChildren()) do
-        if npc.Name:lower():find(State.SellerName:lower()) 
-           or npc.Name:lower():find("sell") 
-           or npc.Name:lower():find("shop") then
-            return npc
-        end
-    end
-    return nil
-end
-
-function AutoSell.TPToSeller()
-    local npc = AutoSell.GetSellerNPC()
-    if not npc then return false end
-    local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
-    if not hrp then return false end
-    local myHRP = GetHRP()
-    if not myHRP then return false end
-    pcall(function() myHRP.CFrame = hrp.CFrame + Vector3.new(0, 0, 3) end)
-    task.wait(0.3)
-    return true
-end
-
-function AutoSell.SellNow()
-    -- Method 1: Fire sell remote
-    if REMOTES.Sell then
-        pcall(function()
-            if REMOTES.Sell:IsA("RemoteEvent") then REMOTES.Sell:FireServer()
-            else REMOTES.Sell:InvokeServer() end
-        end)
-    end
-    -- Method 2: Fire seller NPC prompt
-    local npc = AutoSell.GetSellerNPC()
-    if npc then
-        local pp = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if pp then FirePrompt(pp) end
-    end
-end
-
-function AutoSell.Loop()
-    task.spawn(function()
-        while State.AutoSell do
-            local backpack = LocalPlayer:FindFirstChild("Backpack")
-            local charge = 0
-            if backpack then charge = #backpack:GetChildren() end
-            if charge >= 5 then -- has stuff to sell
-                AutoSell.TPToSeller()
-                task.wait(0.5)
-                AutoSell.SellNow()
-                task.wait(1)
-            end
-            task.wait(State.SellDelay)
-        end
-    end)
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO BUY SEEDS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoBuySeeds = {}
-function AutoBuySeeds.BuyOne(seedName)
-    if REMOTES.BuySeed then
-        pcall(function()
-            if REMOTES.BuySeed:IsA("RemoteEvent") then REMOTES.BuySeed:FireServer(seedName)
-            else REMOTES.BuySeed:InvokeServer(seedName) end
-        end)
-    end
-    -- Fallback: generic Packet remote if exists
-    if REMOTES.Packet then
-        pcall(function()
-            REMOTES.Packet:FireServer("BuySeed", seedName)
-        end)
-    end
-end
-
-function AutoBuySeeds.Loop()
-    task.spawn(function()
-        while State.AutoBuySeeds do
-            for i=1, State.BuyQuantity do
-                if not State.AutoBuySeeds then break end
-                AutoBuySeeds.BuyOne(State.BuySeedName)
-                task.wait(0.3)
-            end
-            task.wait(State.BuyDelay)
-        end
-    end)
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO COLLECT DROPPED ITEMS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoCollect = {}
-function AutoCollect.Loop()
-    task.spawn(function()
-        while State.AutoCollectDrops do
-            if PATHS.DroppedItems then
-                local hrp = GetHRP()
-                if hrp then
-                    for _, item in ipairs(PATHS.DroppedItems:GetChildren()) do
-                        if not State.AutoCollectDrops then break end
-                        local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
-                        if part then
-                            local dist = (part.Position - hrp.Position).Magnitude
-                            if dist <= State.CollectRadius then
-                                pcall(function() hrp.CFrame = part.CFrame end)
-                                task.wait(0.2)
-                            end
-                        end
-                    end
-                end
-            end
-            task.wait(1)
-        end
-    end)
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO HATCH EGGS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local AutoHatch = {}
-function AutoHatch.HatchOne()
-    if REMOTES.HatchEgg then
-        pcall(function()
-            if REMOTES.HatchEgg:IsA("RemoteEvent") then REMOTES.HatchEgg:FireServer()
-            else REMOTES.HatchEgg:InvokeServer() end
-        end)
-    end
-    -- Also try firing prompts on egg models
-    local garden = GetMyGarden()
-    if garden then
-        for _, obj in ipairs(garden:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name:lower():find("egg") then
-                local pp = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if pp then FirePrompt(pp) end
-            end
-        end
-    end
-end
-
-function AutoHatch.Loop()
-    task.spawn(function()
-        while State.AutoHatch do
-            AutoHatch.HatchOne()
-            task.wait(2)
-        end
-    end)
-end
+--━ STATE
+local State = {
+    -- Auto Plant
+    AutoPlant = false, PlantSeedName = "Carrot", PlantDelay = 0.4,
+    -- Auto Harvest
+    AutoHarvest = false, HarvestDelay = 0.15,
+    -- Auto Sell
+    AutoSell = false, SellDelay = 5, SellWhenCount = 20,
+    -- Auto Buy Seeds
+    AutoBuySeeds = false, BuySeedName = "Carrot", BuyQuantity = 10, BuyDelay = 2,
+    -- Auto Collect
+    AutoCollectDrops = false, CollectRadius = 100,
+    -- Safety
+    NoFallDamage = true, GodMode = false, AntiAFK = true,
+    WalkSpeed = 16, JumpPower = 50,
+    -- Camera
+    FOV = 70,
+    TP_Target = "",
+}
 
 --━ FALL GUARD
 local FallGuard = { conns={} }
@@ -467,17 +222,363 @@ function FallGuard.Enable()
 end
 function FallGuard.Disable() ClearFG() end
 
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AUTO HARVEST - fires "Harvest" prompt on all ripe fruits
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AutoHarvest = {}
+function AutoHarvest.HarvestAll()
+    local ripe = FindRipeFruits()
+    if #ripe == 0 then return 0 end
+    local count = 0
+    for _, r in ipairs(ripe) do
+        if not State.AutoHarvest and not _G.__manualHarvest then break end
+        FirePrompt(r.prompt, r.prompt.HoldDuration or 0)
+        count = count + 1
+        task.wait(State.HarvestDelay)
+    end
+    return count
+end
+
+function AutoHarvest.Loop()
+    task.spawn(function()
+        while State.AutoHarvest do
+            local ripe = FindRipeFruits()
+            if #ripe > 0 then
+                Log("[Harvest] Found "..#ripe.." ripe fruits")
+                for _, r in ipairs(ripe) do
+                    if not State.AutoHarvest then break end
+                    FirePrompt(r.prompt, r.prompt.HoldDuration or 0)
+                    task.wait(State.HarvestDelay)
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AUTO PLANT - equip seed tool + walk to plot + fire click
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AutoPlant = {}
+
+-- Find seed tool in backpack (not a harvested crop tool)
+function AutoPlant.FindSeedTool(seedName)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not bp then return nil end
+    local target = seedName:lower()
+    for _, t in ipairs(bp:GetChildren()) do
+        if t:IsA("Tool") then
+            local tn = t.Name:lower()
+            -- Match seed name AND not a harvested crop (no kg bracket)
+            if tn:find(target) and not tn:find("%[") then
+                return t
+            end
+        end
+    end
+    return nil
+end
+
+function AutoPlant.EquipSeed(seedName)
+    local tool = AutoPlant.FindSeedTool(seedName)
+    if not tool then Log("[Plant] no seed tool: "..seedName); return false end
+    local hum = GetHuman()
+    if not hum then return false end
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.2)
+    return GetChar() and GetChar():FindFirstChild(tool.Name) ~= nil
+end
+
+function AutoPlant.PlantOnce(plot)
+    -- Walk player above plot then simulate click to plant
+    local hrp = GetHRP()
+    if not hrp then return end
+    -- TP above plot
+    local center = plot.Position + Vector3.new(math.random(-15,15), 5, math.random(-5,5))
+    pcall(function() hrp.CFrame = CFrame.new(center) end)
+    task.wait(0.15)
+    -- Simulate mouse click at screen center to place seed
+    pcall(function()
+        VIM:SendMouseButtonEvent(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2, 0, true, game, 0)
+        task.wait(0.05)
+        VIM:SendMouseButtonEvent(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2, 0, false, game, 0)
+    end)
+end
+
+function AutoPlant.PlantMany()
+    if not AutoPlant.EquipSeed(State.PlantSeedName) then return end
+    local plots = GetPlotColumns()
+    if #plots == 0 then Log("[Plant] no plot columns"); return end
+    for _, plot in ipairs(plots) do
+        if not State.AutoPlant then break end
+        -- Plant multiple times along the column length
+        for i = 1, 3 do
+            if not State.AutoPlant then break end
+            AutoPlant.PlantOnce(plot)
+            task.wait(State.PlantDelay)
+        end
+    end
+end
+
+function AutoPlant.Loop()
+    task.spawn(function()
+        while State.AutoPlant do
+            AutoPlant.PlantMany()
+            task.wait(3)
+        end
+    end)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AUTO SELL - Talk to Steven, click "Sell Inventory!"
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AutoSell = {}
+
+function AutoSell.OpenSteven()
+    local steven = GetNPC("Steven")
+    if not steven then Log("[Sell] no Steven"); return false end
+    local pos = GetNPCPos("Steven")
+    if not pos then return false end
+    TPTo(pos + Vector3.new(3, 0, 0), 0)
+    task.wait(0.4)
+    -- Fire Talk prompt on Steven
+    local talk = GetTalkPrompt(steven)
+    if talk then FirePrompt(talk, talk.HoldDuration or 0.25) end
+    task.wait(0.5)
+    return true
+end
+
+function AutoSell.ClickSellInventory()
+    -- Find the DialogChoice buttons in CoreGui
+    local dialogFrame
+    pcall(function()
+        dialogFrame = CoreGui.RobloxGui.ControlFrame.BottomLeftControl.DialogFrame.UserDialogArea
+    end)
+    if not dialogFrame then Log("[Sell] no dialog frame"); return false end
+
+    -- Wait up to 3s for the buttons to appear
+    local t0 = tick()
+    local buttons = {}
+    while tick() - t0 < 3 do
+        buttons = {}
+        for _, b in ipairs(dialogFrame:GetDescendants()) do
+            if b:IsA("TextButton") and b.Name == "RBXchatDialogSelectionButton" then
+                table.insert(buttons, b)
+            end
+        end
+        if #buttons > 0 then break end
+        task.wait(0.1)
+    end
+    
+    if #buttons == 0 then Log("[Sell] no dialog buttons"); return false end
+    
+    -- Click the FIRST button ("Sell Inventory!")
+    local btn = buttons[1]
+    Log("[Sell] Clicking dialog button #1")
+    pcall(function()
+        if getconnections then
+            for _, c in ipairs(getconnections(btn.MouseButton1Click)) do pcall(function() c:Fire() end) end
+            for _, c in ipairs(getconnections(btn.Activated)) do pcall(function() c:Fire() end) end
+        end
+    end)
+    if btn.AbsolutePosition and btn.AbsoluteSize then
+        pcall(function()
+            local c = btn.AbsolutePosition + btn.AbsoluteSize/2
+            VIM:SendMouseButtonEvent(c.X, c.Y, 0, true, game, 0); task.wait(0.05)
+            VIM:SendMouseButtonEvent(c.X, c.Y, 0, false, game, 0)
+        end)
+    end
+    return true
+end
+
+function AutoSell.SellNow()
+    local startCount = CountCrops()
+    if startCount == 0 then Log("[Sell] nothing to sell"); return end
+    local startMoney = GetSheckles()
+    if not AutoSell.OpenSteven() then return end
+    task.wait(0.5)
+    AutoSell.ClickSellInventory()
+    task.wait(1.5)
+    local newMoney = GetSheckles()
+    local newCount = CountCrops()
+    Log(string.format("[Sell] $%d→$%d (+$%d), crops %d→%d", startMoney, newMoney, newMoney-startMoney, startCount, newCount))
+end
+
+function AutoSell.Loop()
+    task.spawn(function()
+        while State.AutoSell do
+            if CountCrops() >= State.SellWhenCount then
+                AutoSell.SellNow()
+            end
+            task.wait(State.SellDelay)
+        end
+    end)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AUTO BUY SEEDS - Talk to Sam, find seed in SeedShop, click buy
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AutoBuy = {}
+
+function AutoBuy.OpenSam()
+    local sam = GetNPC("Sam")
+    if not sam then Log("[Buy] no Sam"); return false end
+    local pos = GetNPCPos("Sam")
+    if not pos then return false end
+    TPTo(pos + Vector3.new(3, 0, 0), 0)
+    task.wait(0.4)
+    local interact = GetInteractPrompt(sam)
+    if interact then FirePrompt(interact, interact.HoldDuration or 0.25) end
+    task.wait(0.5)
+    return true
+end
+
+function AutoBuy.WaitForShopUI(timeout)
+    local t0 = tick()
+    while tick() - t0 < (timeout or 3) do
+        local shop = PlayerGui:FindFirstChild("SeedShop")
+        if shop and shop.Enabled then return shop end
+        task.wait(0.1)
+    end
+    return nil
+end
+
+function AutoBuy.FindSeedCard(shop, seedName)
+    local target = seedName:lower():gsub("%s+", "")
+    for _, obj in ipairs(shop:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local txt = tostring(obj.Text or ""):lower():gsub("%s+", "")
+            if txt == target then
+                -- Return the parent card (which contains the buy button)
+                return obj.Parent
+            end
+        end
+    end
+end
+
+function AutoBuy.ClickBuyButton(shop)
+    -- Try BuyButton
+    for _, b in ipairs(shop:GetDescendants()) do
+        if (b:IsA("TextButton") or b:IsA("ImageButton")) and b.Name == "BuyButton" then
+            pcall(function()
+                if getconnections then
+                    for _, c in ipairs(getconnections(b.MouseButton1Click)) do pcall(function() c:Fire() end) end
+                    for _, c in ipairs(getconnections(b.Activated)) do pcall(function() c:Fire() end) end
+                end
+            end)
+            if b.AbsolutePosition and b.AbsoluteSize then
+                pcall(function()
+                    local c = b.AbsolutePosition + b.AbsoluteSize/2
+                    VIM:SendMouseButtonEvent(c.X, c.Y, 0, true, game, 0); task.wait(0.05)
+                    VIM:SendMouseButtonEvent(c.X, c.Y, 0, false, game, 0)
+                end)
+            end
+            return true
+        end
+    end
+    return false
+end
+
+function AutoBuy.SelectCard(card)
+    if not card then return end
+    -- Click the card to select the seed
+    local clickTarget = card
+    if not (card:IsA("TextButton") or card:IsA("ImageButton")) then
+        for _, c in ipairs(card:GetDescendants()) do
+            if c:IsA("TextButton") or c:IsA("ImageButton") then clickTarget = c; break end
+        end
+    end
+    pcall(function()
+        if getconnections then
+            for _, c in ipairs(getconnections(clickTarget.MouseButton1Click)) do pcall(function() c:Fire() end) end
+            for _, c in ipairs(getconnections(clickTarget.Activated)) do pcall(function() c:Fire() end) end
+        end
+    end)
+    if clickTarget.AbsolutePosition and clickTarget.AbsoluteSize then
+        pcall(function()
+            local c = clickTarget.AbsolutePosition + clickTarget.AbsoluteSize/2
+            VIM:SendMouseButtonEvent(c.X, c.Y, 0, true, game, 0); task.wait(0.05)
+            VIM:SendMouseButtonEvent(c.X, c.Y, 0, false, game, 0)
+        end)
+    end
+end
+
+function AutoBuy.BuyOne(seedName)
+    -- Open shop if not open
+    local shop = PlayerGui:FindFirstChild("SeedShop")
+    if not shop or not shop.Enabled then
+        AutoBuy.OpenSam()
+        shop = AutoBuy.WaitForShopUI(3)
+    end
+    if not shop then Log("[Buy] shop not open"); return false end
+    -- Select the seed
+    local card = AutoBuy.FindSeedCard(shop, seedName)
+    if not card then Log("[Buy] seed not found in shop: "..seedName); return false end
+    AutoBuy.SelectCard(card)
+    task.wait(0.3)
+    -- Click 1Button quantity
+    for _, b in ipairs(shop:GetDescendants()) do
+        if b.Name == "1Button" and (b:IsA("TextButton") or b:IsA("ImageButton")) then
+            AutoBuy.SelectCard(b)
+            break
+        end
+    end
+    task.wait(0.2)
+    -- Click Buy button
+    AutoBuy.ClickBuyButton(shop)
+    task.wait(0.3)
+    return true
+end
+
+function AutoBuy.Loop()
+    task.spawn(function()
+        while State.AutoBuySeeds do
+            AutoBuy.OpenSam()
+            task.wait(0.5)
+            for i=1, State.BuyQuantity do
+                if not State.AutoBuySeeds then break end
+                AutoBuy.BuyOne(State.BuySeedName)
+                task.wait(0.5)
+            end
+            task.wait(State.BuyDelay)
+        end
+    end)
+end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AUTO COLLECT DROPPED ITEMS
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+local AutoCollect = {}
+function AutoCollect.Loop()
+    task.spawn(function()
+        while State.AutoCollectDrops do
+            local drops = Workspace:FindFirstChild("DroppedItems")
+            if drops then
+                local hrp = GetHRP()
+                if hrp then
+                    for _, item in ipairs(drops:GetChildren()) do
+                        if not State.AutoCollectDrops then break end
+                        local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
+                        if part then
+                            local dist = (part.Position - hrp.Position).Magnitude
+                            if dist <= State.CollectRadius then
+                                pcall(function() hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0) end)
+                                task.wait(0.2)
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.8)
+        end
+    end)
+end
+
+--━ INIT
 if State.NoFallDamage then FallGuard.Enable() end
 task.spawn(function() while task.wait(1) do if State.GodMode then local h=GetHuman(); if h then pcall(function() h.MaxHealth=math.huge; h.Health=math.huge end) end end end end)
 CM:Add(LocalPlayer.Idled, function() if State.AntiAFK then pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.zero) end) end end)
 
---━ TP HELPER
-local function TPToPos(pos)
-    local hrp = GetHRP()
-    if hrp then pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end) end
-end
-
---━ UI ━
+--━ UI
 local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="leaf", Author="v"..HUB.Version, Folder="X0DEC04T_GAG",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
@@ -537,107 +638,92 @@ CM:Add(UserInputService.InputBegan, function(input, gp)
 end)
 
 local Tabs = {
-    Main    = Window:Tab({Title="Main",       Icon="home"}),
-    Farm    = Window:Tab({Title="Farm",       Icon="leaf"}),
-    Shop    = Window:Tab({Title="Shop",       Icon="shopping-cart"}),
-    Pets    = Window:Tab({Title="Pets",       Icon="paw-print"}),
-    Teleport= Window:Tab({Title="Teleport",   Icon="map-pin"}),
-    Player  = Window:Tab({Title="Player",     Icon="user"}),
-    Settings= Window:Tab({Title="Settings",   Icon="settings"}),
+    Main    = Window:Tab({Title="Main",      Icon="home"}),
+    Farm    = Window:Tab({Title="Farm",      Icon="leaf"}),
+    Shop    = Window:Tab({Title="Shop",      Icon="shopping-cart"}),
+    Auto    = Window:Tab({Title="AUTO ALL",  Icon="zap"}),
+    Teleport= Window:Tab({Title="Teleport",  Icon="map-pin"}),
+    Player  = Window:Tab({Title="Player",    Icon="user"}),
+    Settings= Window:Tab({Title="Settings",  Icon="settings"}),
 }
 Window:SelectTab(1)
 
 -- MAIN
 Tabs.Main:Section({Title="X0DEC04T GAG Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="Grow A Garden Bot", Desc="⚠️ STARTER TEMPLATE\n\nRemotes are auto-detected but might need manual fix.\nCheck console (F9) for [GAG] logs showing which remotes were found.\n\nSend full diagnostic output to get accurate remotes!"})
+Tabs.Main:Paragraph({Title="Grow A Garden Bot", Desc="✓ Auto Harvest (fires ripe fruit prompts)\n✓ Auto Sell (Steven → Sell Inventory)\n✓ Auto Buy Seeds (Sam → SeedShop UI)\n✓ Auto Plant (equip + click)\n✓ Auto Collect drops\n\nRightShift = toggle UI"})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
 -- FARM
-Tabs.Farm:Section({Title="Auto Plant"})
-Tabs.Farm:Input({Title="Seed Name", Placeholder="Carrot", Default="Carrot", Callback=safeCB(function(v) State.PlantSeedName=v end)})
-Tabs.Farm:Slider({Title="Plant Delay (sec x10)", Value={Min=1,Max=50,Default=5}, Step=1, Callback=safeCB(function(v) State.PlantDelay=v/10 end)})
-Tabs.Farm:Toggle({Title="Auto Plant Empty Plots", Default=false, Callback=safeCB(function(v) State.AutoPlant=v; if v then AutoPlant.Loop() end end)})
-
 Tabs.Farm:Section({Title="Auto Harvest"})
-Tabs.Farm:Slider({Title="Harvest Delay (sec x10)", Value={Min=1,Max=50,Default=5}, Step=1, Callback=safeCB(function(v) State.HarvestDelay=v/10 end)})
-Tabs.Farm:Toggle({Title="Only Harvest Ripe", Default=true, Callback=safeCB(function(v) State.HarvestOnlyRipe=v end)})
-Tabs.Farm:Toggle({Title="Auto Harvest Ripe Plants", Default=false, Callback=safeCB(function(v) State.AutoHarvest=v; if v then AutoHarvest.Loop() end end)})
+Tabs.Farm:Slider({Title="Harvest Delay x100 (sec)", Value={Min=5,Max=100,Default=15}, Step=1, Callback=safeCB(function(v) State.HarvestDelay=v/100 end)})
+Tabs.Farm:Toggle({Title="Auto Harvest Ripe", Default=false, Callback=safeCB(function(v) State.AutoHarvest=v; if v then AutoHarvest.Loop() end end)})
+Tabs.Farm:Button({Title="Harvest All NOW", Callback=safeCB(function()
+    _G.__manualHarvest = true
+    local n = AutoHarvest.HarvestAll()
+    _G.__manualHarvest = false
+    Notify("Harvest", "Fired on "..n.." fruits", 3)
+end)})
 
-Tabs.Farm:Section({Title="Auto Sell"})
-Tabs.Farm:Input({Title="Seller NPC Name", Placeholder="Steven", Default="Steven", Callback=safeCB(function(v) State.SellerName=v end)})
-Tabs.Farm:Slider({Title="Sell Every (sec)", Value={Min=1,Max=60,Default=10}, Step=1, Callback=safeCB(function(v) State.SellDelay=v end)})
+Tabs.Farm:Section({Title="Auto Plant"})
+Tabs.Farm:Dropdown({Title="Seed Name", Values=SEEDS, Value="Carrot", Callback=safeCB(function(v) State.PlantSeedName=v end)})
+Tabs.Farm:Slider({Title="Plant Delay x10 (sec)", Value={Min=2,Max=30,Default=4}, Step=1, Callback=safeCB(function(v) State.PlantDelay=v/10 end)})
+Tabs.Farm:Toggle({Title="Auto Plant Empty Plots", Default=false, Callback=safeCB(function(v) State.AutoPlant=v; if v then AutoPlant.Loop() end end)})
+Tabs.Farm:Button({Title="Plant Now (1 cycle)", Callback=safeCB(AutoPlant.PlantMany)})
+
+Tabs.Farm:Section({Title="Auto Sell (Steven)"})
+Tabs.Farm:Slider({Title="Sell When Crops ≥", Value={Min=1,Max=50,Default=20}, Step=1, Callback=safeCB(function(v) State.SellWhenCount=v end)})
+Tabs.Farm:Slider({Title="Sell Check Interval (sec)", Value={Min=1,Max=60,Default=5}, Step=1, Callback=safeCB(function(v) State.SellDelay=v end)})
 Tabs.Farm:Toggle({Title="Auto Sell When Full", Default=false, Callback=safeCB(function(v) State.AutoSell=v; if v then AutoSell.Loop() end end)})
-
-Tabs.Farm:Section({Title="Manual"})
-Tabs.Farm:Button({Title="Harvest All Now", Callback=safeCB(function()
-    local ripe = FindHarvestablePlants()
-    Log("Manual harvest: found " .. #ripe)
-    for _, p in ipairs(ripe) do AutoHarvest.HarvestOne(p); task.wait(0.2) end
-end)})
-Tabs.Farm:Button({Title="Plant on All Empty Plots", Callback=safeCB(function()
-    local plots = FindEmptyPlots()
-    Log("Manual plant: found " .. #plots .. " empty")
-    for _, p in ipairs(plots) do AutoPlant.PlantOnce(p, State.PlantSeedName); task.wait(0.2) end
-end)})
-Tabs.Farm:Button({Title="Sell All Now", Callback=safeCB(function()
-    AutoSell.TPToSeller(); task.wait(0.5); AutoSell.SellNow()
-end)})
-Tabs.Farm:Button({Title="TP to Seller", Callback=safeCB(function() AutoSell.TPToSeller() end)})
-Tabs.Farm:Button({Title="TP to My Garden", Callback=safeCB(function()
-    local g = GetMyGarden()
-    if g then
-        local part = g:FindFirstChildWhichIsA("BasePart", true)
-        if part then TPToPos(part.Position) end
-    end
-end)})
+Tabs.Farm:Button({Title="Sell All NOW", Callback=safeCB(AutoSell.SellNow)})
 
 -- SHOP
-Tabs.Shop:Section({Title="Auto Buy Seeds"})
-Tabs.Shop:Input({Title="Seed to Buy", Placeholder="Carrot", Default="Carrot", Callback=safeCB(function(v) State.BuySeedName=v end)})
-Tabs.Shop:Slider({Title="Quantity per Batch", Value={Min=1,Max=100,Default=10}, Step=1, Callback=safeCB(function(v) State.BuyQuantity=v end)})
-Tabs.Shop:Slider({Title="Buy Delay (sec)", Value={Min=1,Max=60,Default=5}, Step=1, Callback=safeCB(function(v) State.BuyDelay=v end)})
-Tabs.Shop:Toggle({Title="Auto Buy Seeds", Default=false, Callback=safeCB(function(v) State.AutoBuySeeds=v; if v then AutoBuySeeds.Loop() end end)})
-Tabs.Shop:Button({Title="Buy 1 Now", Callback=safeCB(function() AutoBuySeeds.BuyOne(State.BuySeedName) end)})
+Tabs.Shop:Section({Title="Auto Buy Seeds (Sam)"})
+Tabs.Shop:Dropdown({Title="Seed to Buy", Values=SEEDS, Value="Carrot", Callback=safeCB(function(v) State.BuySeedName=v end)})
+Tabs.Shop:Slider({Title="Quantity per Cycle", Value={Min=1,Max=100,Default=10}, Step=1, Callback=safeCB(function(v) State.BuyQuantity=v end)})
+Tabs.Shop:Slider({Title="Buy Cycle Delay (sec)", Value={Min=1,Max=120,Default=10}, Step=1, Callback=safeCB(function(v) State.BuyDelay=v end)})
+Tabs.Shop:Toggle({Title="Auto Buy Seeds", Default=false, Callback=safeCB(function(v) State.AutoBuySeeds=v; if v then AutoBuy.Loop() end end)})
+Tabs.Shop:Button({Title="Buy 1 Now", Callback=safeCB(function() AutoBuy.BuyOne(State.BuySeedName) end)})
 
-Tabs.Shop:Section({Title="Auto Collect"})
-Tabs.Shop:Slider({Title="Collect Radius", Value={Min=10,Max=200,Default=50}, Step=5, Callback=safeCB(function(v) State.CollectRadius=v end)})
+Tabs.Shop:Section({Title="Auto Collect Drops"})
+Tabs.Shop:Slider({Title="Collect Radius", Value={Min=20,Max=300,Default=100}, Step=10, Callback=safeCB(function(v) State.CollectRadius=v end)})
 Tabs.Shop:Toggle({Title="Auto Collect Dropped Items", Default=false, Callback=safeCB(function(v) State.AutoCollectDrops=v; if v then AutoCollect.Loop() end end)})
 
--- PETS
-Tabs.Pets:Section({Title="Auto Hatch"})
-Tabs.Pets:Toggle({Title="Auto Hatch Eggs", Default=false, Callback=safeCB(function(v) State.AutoHatch=v; if v then AutoHatch.Loop() end end)})
-Tabs.Pets:Button({Title="Hatch Now", Callback=safeCB(AutoHatch.HatchOne)})
-
-Tabs.Pets:Section({Title="Info"})
-Tabs.Pets:Paragraph({Title="Pet features", Desc="Need diagnostic to add:\n• Auto equip best pet\n• Auto buy eggs from shop\n• Pet inventory list"})
+-- AUTO ALL
+Tabs.Auto:Section({Title="MEGA AUTO — Farming Bot"})
+Tabs.Auto:Paragraph({Title="How it works", Desc="Enable this to auto:\n1. Harvest all ripe fruits (loop)\n2. Sell to Steven when ≥20 crops\n3. Buy Carrot seeds from Sam\n4. Plant seeds in empty plots\n5. Repeat forever\n\nMake sure your default seed is set + you have money to buy seeds"})
+Tabs.Auto:Toggle({Title="🚀 ENABLE FULL AUTOMATION", Default=false, Callback=safeCB(function(v)
+    State.AutoHarvest = v
+    State.AutoSell = v
+    State.AutoBuySeeds = v
+    State.AutoPlant = v
+    State.AutoCollectDrops = v
+    if v then
+        AutoHarvest.Loop()
+        AutoSell.Loop()
+        AutoBuy.Loop()
+        AutoPlant.Loop()
+        AutoCollect.Loop()
+        Notify("AUTO ALL", "Full bot started!", 4)
+    else
+        Notify("AUTO ALL", "All loops stopped", 3)
+    end
+end)})
 
 -- TELEPORT
-Tabs.Teleport:Section({Title="Locations"})
-Tabs.Teleport:Button({Title="My Garden", Callback=safeCB(function()
+Tabs.Teleport:Section({Title="NPCs"})
+Tabs.Teleport:Button({Title="TP to Steven (Seller)", Callback=safeCB(function() local p=GetNPCPos("Steven"); if p then TPTo(p+Vector3.new(3,0,0),0) end end)})
+Tabs.Teleport:Button({Title="TP to Sam (Seed Shop)", Callback=safeCB(function() local p=GetNPCPos("Sam"); if p then TPTo(p+Vector3.new(3,0,0),0) end end)})
+Tabs.Teleport:Button({Title="TP to Charlotte (Props)", Callback=safeCB(function() local p=GetNPCPos("Charlotte"); if p then TPTo(p+Vector3.new(3,0,0),0) end end)})
+Tabs.Teleport:Button({Title="TP to Gilbert (Guild)", Callback=safeCB(function() local p=GetNPCPos("Gilbert"); if p then TPTo(p+Vector3.new(3,0,0),0) end end)})
+Tabs.Teleport:Section({Title="My Garden"})
+Tabs.Teleport:Button({Title="TP to My Garden", Callback=safeCB(function()
     local g = GetMyGarden()
-    if g then local part = g:FindFirstChildWhichIsA("BasePart", true); if part then TPToPos(part.Position) end end
+    if g then
+        local sp = g:FindFirstChild("SpawnPoint")
+        if sp and sp:IsA("BasePart") then TPTo(sp.Position, 3)
+        else local part = g:FindFirstChildWhichIsA("BasePart", true); if part then TPTo(part.Position, 3) end end
+    end
 end)})
-Tabs.Teleport:Button({Title="Seller NPC", Callback=safeCB(function() AutoSell.TPToSeller() end)})
-
-Tabs.Teleport:Section({Title="Auto-discovered NPCs"})
-if PATHS.NPCs then
-    for _, npc in ipairs(PATHS.NPCs:GetChildren()) do
-        Tabs.Teleport:Button({Title="TP to "..npc.Name, Callback=safeCB(function()
-            local h = npc:FindFirstChildWhichIsA("BasePart", true)
-            if h then TPToPos(h.Position) end
-        end)})
-    end
-end
-
-Tabs.Teleport:Section({Title="Auto-discovered Teleports"})
-if PATHS.Teleports then
-    for _, tp in ipairs(PATHS.Teleports:GetChildren()) do
-        Tabs.Teleport:Button({Title="TP to "..tp.Name, Callback=safeCB(function()
-            local h = tp:IsA("BasePart") and tp or tp:FindFirstChildWhichIsA("BasePart", true)
-            if h then TPToPos(h.Position) end
-        end)})
-    end
-end
 
 Tabs.Teleport:Section({Title="Player TP"})
 Tabs.Teleport:Input({Title="Player Name", Placeholder="username", Callback=safeCB(function(v) State.TP_Target=v end)})
@@ -645,7 +731,7 @@ Tabs.Teleport:Button({Title="TP to Player", Callback=safeCB(function()
     local t = Players:FindFirstChild(State.TP_Target)
     if t and t.Character then
         local th = t.Character:FindFirstChild("HumanoidRootPart")
-        if th then TPToPos(th.Position + Vector3.new(0,0,4)) end
+        if th then TPTo(th.Position + Vector3.new(0,0,4)) end
     end
 end)})
 
@@ -653,44 +739,33 @@ end)})
 Tabs.Player:Section({Title="Movement"})
 Tabs.Player:Slider({Title="Walk Speed", Value={Min=16,Max=200,Default=16}, Step=4, Callback=safeCB(function(v) State.WalkSpeed=v; local h=GetHuman(); if h then pcall(function() h.WalkSpeed=v end) end end)})
 Tabs.Player:Slider({Title="Jump Power", Value={Min=50,Max=500,Default=50}, Step=10, Callback=safeCB(function(v) State.JumpPower=v; local h=GetHuman(); if h then pcall(function() h.JumpPower=v end) end end)})
+
 Tabs.Player:Section({Title="Safety"})
 Tabs.Player:Toggle({Title="No Fall Damage", Default=true, Callback=safeCB(function(v) State.NoFallDamage=v; if v then FallGuard.Enable() else FallGuard.Disable() end end)})
 Tabs.Player:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(v) State.GodMode=v end)})
 Tabs.Player:Toggle({Title="Anti AFK", Default=true, Callback=safeCB(function(v) State.AntiAFK=v end)})
 
 -- SETTINGS
-Tabs.Settings:Section({Title="Debug"})
-Tabs.Settings:Button({Title="Print All Remotes to Console", Callback=safeCB(function()
-    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            print("[REMOTE]", obj.ClassName, obj:GetFullName())
-        end
-    end
-end)})
-Tabs.Settings:Button({Title="Print My Garden Structure", Callback=safeCB(function()
+Tabs.Settings:Section({Title="Info"})
+Tabs.Settings:Button({Title="Show Sheckles", Callback=safeCB(function() Notify("Money", "$"..GetSheckles().." | Crops: "..CountCrops(), 4) end)})
+Tabs.Settings:Button({Title="Show Ripe Fruits Count", Callback=safeCB(function() Notify("Farm", "Ripe: "..#FindRipeFruits(), 4) end)})
+Tabs.Settings:Button({Title="Print Garden Info to Console", Callback=safeCB(function()
     local g = GetMyGarden()
-    if not g then Log("No garden found"); return end
-    Log("Garden: " .. g:GetFullName())
-    for _, ch in ipairs(g:GetChildren()) do
-        Log("  " .. ch.ClassName .. " | " .. ch.Name)
+    if g then
+        Log("Garden: "..g.Name.." | Owner: "..tostring(g:GetAttribute("Owner")))
+        local plants = g:FindFirstChild("Plants")
+        if plants then Log("Plants count: "..#plants:GetChildren()) end
     end
 end)})
-Tabs.Settings:Button({Title="Print Backpack", Callback=safeCB(function()
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    if not bp then return end
-    for _, t in ipairs(bp:GetChildren()) do
-        Log("Tool: " .. t.Name .. " | " .. t.ClassName)
-    end
-end)})
-Tabs.Settings:Button({Title="Minimize", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
+Tabs.Settings:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 Tabs.Settings:Button({Title="PANIC (stop all)", Callback=safeCB(function()
     State.AutoPlant=false; State.AutoHarvest=false; State.AutoSell=false
-    State.AutoBuySeeds=false; State.AutoHatch=false; State.AutoCollectDrops=false
+    State.AutoBuySeeds=false; State.AutoCollectDrops=false
     Notify("PANIC","All loops stopped",3)
 end)})
 Tabs.Settings:Button({Title="Unload", Callback=safeCB(function()
     State.AutoPlant=false; State.AutoHarvest=false; State.AutoSell=false
-    State.AutoBuySeeds=false; State.AutoHatch=false; State.AutoCollectDrops=false
+    State.AutoBuySeeds=false; State.AutoCollectDrops=false
     FallGuard.Disable()
     if logoGui then pcall(function() logoGui:Destroy() end) end
     CM:Cleanup()
@@ -698,11 +773,17 @@ Tabs.Settings:Button({Title="Unload", Callback=safeCB(function()
     pcall(function() Window:Destroy() end)
 end)})
 
+CM:Add(LocalPlayer.CharacterAdded, function()
+    task.wait(1)
+    _cachedGarden = nil
+    if State.NoFallDamage then FallGuard.Enable() end
+end)
+
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
         State.AutoPlant=false; State.AutoHarvest=false; State.AutoSell=false
-        State.AutoBuySeeds=false; State.AutoHatch=false; State.AutoCollectDrops=false
+        State.AutoBuySeeds=false; State.AutoCollectDrops=false
         FallGuard.Disable()
         if logoGui then pcall(function() logoGui:Destroy() end) end
         CM:Cleanup()
@@ -710,4 +791,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("GAG v0.1 ready - CHECK CONSOLE FOR REMOTE DETECTION LOG")
+Log("GAG v1.0 ready | Sheckles: $"..GetSheckles())
