@@ -1,5 +1,5 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v4.1.1 - Camera stabilized during tween
+-- X0DEC04T Hub v4.1.2 - Verify + Retry loop for Buy/Sell/Launder
 --═══════════════════════════════════════════════════════════════
 
 local LOGO_ASSET_ID = 132469099334813
@@ -20,7 +20,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
-local INSTANCE_KEY = "__X0DEC04T_BRP_v411"
+local INSTANCE_KEY = "__X0DEC04T_BRP_v412"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -28,7 +28,7 @@ if _G[INSTANCE_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T] " .. tostring(m)) end
-Log("Starting v4.1.1...")
+Log("Starting v4.1.2...")
 
 local function safeCB(fn)
     if not fn then return function() end end
@@ -47,7 +47,7 @@ local ok, err = pcall(function()
 end)
 if not ok or not WindUI then warn("[X0DEC04T] WindUI failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Version="4.1.1" }
+local HUB = { Name="X0DEC04T Hub", Version="4.1.2" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb) if not sig then return end; local ok,c=pcall(function() return sig:Connect(cb) end); if ok and c then table.insert(self._list, c); return c end end
@@ -55,7 +55,6 @@ function CM:Cleanup() for _,c in ipairs(self._list) do pcall(function() c:Discon
 
 --━ ANTI-CHEAT
 local ACNeutral = { hooked=false, rollbackConn=nil }
-
 local function HookRollback()
     local rf = ReplicatedStorage:FindFirstChild("__remotes")
     if not rf then return end
@@ -90,7 +89,6 @@ local function HookRollback()
         end)
     end
 end
-
 local function KillClientAC()
     local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
     if scripts then
@@ -104,7 +102,6 @@ local function KillClientAC()
         end
     end
 end
-
 function ACNeutral.Enable() HookRollback(); KillClientAC() end
 function ACNeutral.Disable()
     if ACNeutral.rollbackConn then pcall(function() ACNeutral.rollbackConn:Disconnect() end); ACNeutral.rollbackConn = nil end
@@ -154,6 +151,8 @@ local State = {
     Smuggler_ItemName="Fake Diamond Ring", Smuggler_SellerName="Seller",
     Smuggler_VehicleName="Tayora Cambria", 
     Smuggler_BuyRetries=8, Smuggler_SellRetries=10, Smuggler_LaunderRetries=6,
+    Smuggler_MaxAttempts=5, -- how many times to retry full action if verify fails
+    Smuggler_VerifyTimeout=3, -- seconds to wait for verification
     Smuggler_Delay=1, Smuggler_DebugMode=true,
     Smuggler_AutoEquip=true, Smuggler_EquipAll=true,
     Smuggler_RemoveTires=false, Smuggler_SpawnCar=true, Smuggler_CurrentCar=nil,
@@ -161,7 +160,7 @@ local State = {
     Smuggler_CarNoClip=true,
     Smuggler_YOffset=5,
     Smuggler_MaxInventory=5,
-    Smuggler_CameraMode="Chase", -- "Chase" | "TopDown" | "Locked" | "Off"
+    Smuggler_CameraMode="Chase",
     Smuggler_CameraDistance=25,
     Smuggler_CameraHeight=12,
     ACNeutralEnabled=true,
@@ -213,19 +212,8 @@ local function IsSeatedIn(car)
     return false
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CAMERA STABILIZER
--- During tween: takes over camera to smoothly follow the car
--- After tween: releases back to Roblox default camera
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local CameraStab = {
-    active = false,
-    conn = nil,
-    savedCameraType = nil,
-    savedCameraSubject = nil,
-    target = nil,  -- BasePart to follow
-}
-
+--━ CAMERA
+local CameraStab = { active=false, conn=nil, savedType=nil, savedSubject=nil, target=nil }
 function CameraStab.Start(car)
     if CameraStab.active then CameraStab.Stop() end
     if not car or State.Smuggler_CameraMode == "Off" then return end
@@ -233,71 +221,47 @@ function CameraStab.Start(car)
     if not root then return end
     CameraStab.target = root
     CameraStab.active = true
-
-    -- Save current camera state
     pcall(function()
-        CameraStab.savedCameraType = Camera.CameraType
-        CameraStab.savedCameraSubject = Camera.CameraSubject
+        CameraStab.savedType = Camera.CameraType
+        CameraStab.savedSubject = Camera.CameraSubject
     end)
-    -- Take over
     pcall(function() Camera.CameraType = Enum.CameraType.Scriptable end)
-
     local mode = State.Smuggler_CameraMode
     local dist = State.Smuggler_CameraDistance or 25
     local height = State.Smuggler_CameraHeight or 12
-
-    -- Smooth interpolation state
     local currentCF = Camera.CFrame
-
     CameraStab.conn = RunService.RenderStepped:Connect(function(dt)
         if not CameraStab.active then return end
         if not CameraStab.target or not CameraStab.target.Parent then return end
         local carCF = CameraStab.target.CFrame
         local carPos = carCF.Position
         local goalCF
-        
         if mode == "Chase" then
-            -- Behind and above the car (like default car camera but smooth)
             local behind = carCF.LookVector * -dist
             local up = Vector3.new(0, height, 0)
             local camPos = carPos + behind + up
             goalCF = CFrame.lookAt(camPos, carPos + Vector3.new(0, 2, 0))
         elseif mode == "TopDown" then
-            -- Bird's eye view
             local camPos = carPos + Vector3.new(0, dist + height, 0)
             goalCF = CFrame.lookAt(camPos, carPos)
         elseif mode == "Locked" then
-            -- Locked to car direction, always behind
             goalCF = carCF * CFrame.new(0, height, dist) * CFrame.Angles(math.rad(-15), 0, 0)
             goalCF = CFrame.lookAt(goalCF.Position, carPos + Vector3.new(0, 2, 0))
-        else
-            return
-        end
-        
-        -- Smoothly interpolate to goal (removes shake)
-        local alpha = math.clamp(dt * 8, 0, 1) -- higher = snappier
+        else return end
+        local alpha = math.clamp(dt * 8, 0, 1)
         currentCF = currentCF:Lerp(goalCF, alpha)
         pcall(function() Camera.CFrame = currentCF end)
     end)
 end
-
 function CameraStab.Stop()
     if not CameraStab.active then return end
     CameraStab.active = false
     if CameraStab.conn then pcall(function() CameraStab.conn:Disconnect() end); CameraStab.conn = nil end
-    -- Restore camera
     pcall(function()
-        if CameraStab.savedCameraType then
-            Camera.CameraType = CameraStab.savedCameraType
-        else
-            Camera.CameraType = Enum.CameraType.Custom
-        end
-        if CameraStab.savedCameraSubject then
-            Camera.CameraSubject = CameraStab.savedCameraSubject
-        else
-            local hum = GetHuman()
-            if hum then Camera.CameraSubject = hum end
-        end
+        if CameraStab.savedType then Camera.CameraType = CameraStab.savedType
+        else Camera.CameraType = Enum.CameraType.Custom end
+        if CameraStab.savedSubject then Camera.CameraSubject = CameraStab.savedSubject
+        else local hum = GetHuman(); if hum then Camera.CameraSubject = hum end end
     end)
     CameraStab.target = nil
 end
@@ -321,9 +285,7 @@ function FallGuard.Enable()
     end)
     local c2 = h.HealthChanged:Connect(function(newH)
         if not State.NoFallDamage then return end
-        if newH < h.MaxHealth then
-            pcall(function() h.Health = h.MaxHealth end)
-        end
+        if newH < h.MaxHealth then pcall(function() h.Health = h.MaxHealth end) end
     end)
     table.insert(FallGuard.conns, c2)
 end
@@ -372,7 +334,6 @@ function SmartTP.Go(pos, yOff) return SmartTP.TweenFoot(pos, yOff) end
 
 --━ CAR TWEEN
 local ActiveCarTween = { tween=nil, holdConn=nil, noclipConn=nil, savedCollide={} }
-
 local function StopCarTween()
     if ActiveCarTween.tween then pcall(function() ActiveCarTween.tween:Cancel() end); ActiveCarTween.tween = nil end
     if ActiveCarTween.holdConn then pcall(function() ActiveCarTween.holdConn:Disconnect() end); ActiveCarTween.holdConn = nil end
@@ -383,7 +344,6 @@ local function StopCarTween()
     ActiveCarTween.savedCollide = {}
     CameraStab.Stop()
 end
-
 local function ApplyCarNoClip(car)
     if not car then return end
     for _, p in ipairs(car:GetDescendants()) do
@@ -406,7 +366,6 @@ local function ApplyCarNoClip(car)
         end
     end
 end
-
 function SmartTP.CarTweenTo(car, targetPos)
     if not car or not car.Parent then Log("[CarTween] no car"); return false end
     local root = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
@@ -417,10 +376,8 @@ function SmartTP.CarTweenTo(car, targetPos)
     end
     StopCarTween()
     if State.ACNeutralEnabled then ACNeutral.Enable() end
-
     local yOff = State.Smuggler_YOffset or 5
     local finalPos = Vector3.new(targetPos.X, targetPos.Y + yOff, targetPos.Z)
-
     local faceDir = Vector3.new(targetPos.X, finalPos.Y, targetPos.Z) - finalPos
     local yaw = 0
     if faceDir.Magnitude > 0.1 then
@@ -432,24 +389,17 @@ function SmartTP.CarTweenTo(car, targetPos)
         yaw = cy
     end
     local targetCF = CFrame.new(finalPos) * CFrame.Angles(0, yaw, 0)
-
     local totalDist = (targetCF.Position - root.Position).Magnitude
     local speed = State.Smuggler_TweenSpeed or 80
     local dur = math.clamp(totalDist / math.max(speed, 20), 0.4, 30)
-
     Log(string.format("[CarTween] %.0f studs in %.2fs", totalDist, dur))
-
-    -- Start camera stabilization BEFORE the tween begins
     CameraStab.Start(car)
-
     if State.Smuggler_CarNoClip then
         ApplyCarNoClip(car)
         ActiveCarTween.noclipConn = RunService.Stepped:Connect(function()
             if not car.Parent then return end
             for _, p in ipairs(car:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    pcall(function() p.CanCollide = false end)
-                end
+                if p:IsA("BasePart") then pcall(function() p.CanCollide = false end) end
             end
             local ch = GetChar()
             if ch then
@@ -459,7 +409,6 @@ function SmartTP.CarTweenTo(car, targetPos)
             end
         end)
     end
-
     ActiveCarTween.holdConn = RunService.Heartbeat:Connect(function()
         if not car.Parent then return end
         for _,p in ipairs(car:GetDescendants()) do
@@ -471,7 +420,6 @@ function SmartTP.CarTweenTo(car, targetPos)
             end
         end
     end)
-
     local tw
     local okC = pcall(function()
         tw = TweenService:Create(root, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {CFrame = targetCF})
@@ -483,13 +431,9 @@ function SmartTP.CarTweenTo(car, targetPos)
         StopCarTween()
         return false
     end
-
     local finished = false
     local completeConn
-    pcall(function()
-        completeConn = tw.Completed:Connect(function() finished = true end)
-    end)
-
+    pcall(function() completeConn = tw.Completed:Connect(function() finished = true end) end)
     local t0 = tick()
     while tick() - t0 < dur + 1 do
         if finished then break end
@@ -502,7 +446,6 @@ function SmartTP.CarTweenTo(car, targetPos)
         task.wait(0.05)
     end
     if completeConn then pcall(function() completeConn:Disconnect() end) end
-
     pcall(function()
         if car:IsA("Model") and car.PrimaryPart then car:PivotTo(targetCF)
         else root.CFrame = targetCF end
@@ -696,7 +639,7 @@ local function GetBuyableItemNames()
     return names
 end
 
---━ SMUGGLER
+--━ SMUGGLER + VERIFICATION
 local Smuggler = {}
 function Smuggler.FirePrompt(prompt)
     if not prompt then return end
@@ -712,6 +655,12 @@ function Smuggler.EquipTool(tn)
     if ch:FindFirstChild(tn) then return end
     local t=bp:FindFirstChild(tn); if t then local h=GetHuman(); if h then pcall(function() h:EquipTool(t) end); task.wait(0.3) end end
 end
+
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- HELPERS for verification
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- Count items across backpack + character
 function Smuggler.CountInventory(itemName)
     local count = 0
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -720,6 +669,37 @@ function Smuggler.CountInventory(itemName)
     if ch then for _,t in ipairs(ch:GetChildren()) do if t:IsA("Tool") and t.Name == itemName then count = count + 1 end end end
     return count
 end
+
+-- Detect briefcase (produced by selling)
+function Smuggler.HasBriefcase()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = GetChar()
+    local check = function(container)
+        if not container then return false end
+        for _, t in ipairs(container:GetChildren()) do
+            if t:IsA("Tool") then
+                local n = t.Name:lower()
+                if n:find("briefcase") or n:find("case") or n:find("money") then return true end
+            end
+        end
+        return false
+    end
+    return check(bp) or check(ch)
+end
+
+-- Get current money (best-effort from leaderstats)
+function Smuggler.GetMoney()
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if not ls then return nil end
+    for _, stat in ipairs(ls:GetChildren()) do
+        local n = stat.Name:lower()
+        if n:find("money") or n:find("cash") or n:find("dollar") or n == "$" then
+            return tonumber(stat.Value) or 0
+        end
+    end
+    return nil
+end
+
 function Smuggler.GetBuyPrompt()
     if not BRP_PATHS.WorldBuyableItems then return end
     local item = BRP_PATHS.WorldBuyableItems:FindFirstChild(State.Smuggler_ItemName); if not item then return end
@@ -893,6 +873,61 @@ function Smuggler.RemoveTires(car)
     Log("[Tires] Removed " .. removed)
 end
 
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ATTEMPT WRAPPER: runs action, verifies success, retries if failed
+-- action = function(car) -> triggers the buy/sell/launder
+-- verify = function() -> returns true if action succeeded
+-- name = string for logging
+--━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function Smuggler.RunWithVerify(name, car, targetPos, actionFn, verifyFn, maxAttempts)
+    maxAttempts = maxAttempts or State.Smuggler_MaxAttempts or 5
+    for attempt = 1, maxAttempts do
+        Log(string.format("[%s] Attempt %d/%d", name, attempt, maxAttempts))
+        
+        -- Pre-check: if already succeeded, skip
+        if verifyFn() then
+            Log(string.format("[%s] Already satisfied (pre-check)", name))
+            return true
+        end
+        
+        -- Ensure seated
+        if not IsSeatedIn(car) then
+            Smuggler.SitInCar(car)
+        end
+        
+        -- Drive to target
+        local drove = SmartTP.CarTweenTo(car, targetPos)
+        if not drove then
+            Log(string.format("[%s] Drive failed, retry", name))
+            task.wait(0.5)
+        else
+            task.wait(0.3)
+        end
+        
+        -- Run the action (fires prompt + remote)
+        actionFn(car)
+        
+        -- Verify with timeout
+        local vT = tick()
+        local ok = false
+        while tick() - vT < (State.Smuggler_VerifyTimeout or 3) do
+            if verifyFn() then ok = true; break end
+            task.wait(0.2)
+        end
+        
+        if ok then
+            Log(string.format("[%s] ✓ SUCCESS on attempt %d", name, attempt))
+            return true
+        else
+            Log(string.format("[%s] ✗ Failed attempt %d, retrying...", name, attempt))
+            task.wait(0.5)
+        end
+    end
+    Log(string.format("[%s] ✗✗ GAVE UP after %d attempts", name, maxAttempts))
+    return false
+end
+
+--━━━ BUY (verify = inventory count went up) ━━━
 function Smuggler.DriveAndBuy(car)
     Log("[3] Drive→Buy " .. State.Smuggler_ItemName)
     local prompt, item = Smuggler.GetBuyPrompt()
@@ -903,31 +938,44 @@ function Smuggler.DriveAndBuy(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[3] can't sit"); return false end
     end
-    local count = Smuggler.CountInventory(State.Smuggler_ItemName)
-    Log("[3] Inv: "..count.."/"..State.Smuggler_MaxInventory)
-    if count >= State.Smuggler_MaxInventory then
+    
+    local startCount = Smuggler.CountInventory(State.Smuggler_ItemName)
+    Log("[3] Start inv: "..startCount.."/"..State.Smuggler_MaxInventory)
+    if startCount >= State.Smuggler_MaxInventory then
         Log("[3] Full, skip")
         return true
     end
-    local ok = SmartTP.CarTweenTo(car, pos)
-    if not ok then Log("[3] drive failed"); return false end
-    task.wait(0.4)
-    for i=1, State.Smuggler_BuyRetries do
-        if prompt then Smuggler.FirePrompt(prompt) end
-        if BRP.PurchaseWorldItem then
-            pcall(function()
-                if BRP.PurchaseWorldItem:IsA("RemoteEvent") then BRP.PurchaseWorldItem:FireServer(State.Smuggler_ItemName)
-                else BRP.PurchaseWorldItem:InvokeServer(State.Smuggler_ItemName) end
-            end)
-        end
-        task.wait(0.35)
-        local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
-        if nowCount >= State.Smuggler_MaxInventory then break end
-    end
-    Log("[3] Buy done")
-    return true
+    
+    -- Each attempt tries to buy at least 1 more; loop until we hit max or run out of attempts
+    local targetCount = State.Smuggler_MaxInventory
+    
+    return Smuggler.RunWithVerify("BUY", car, pos,
+        function(c)
+            -- Action: fire prompt + remote several times
+            for i=1, State.Smuggler_BuyRetries do
+                if prompt then Smuggler.FirePrompt(prompt) end
+                if BRP.PurchaseWorldItem then
+                    pcall(function()
+                        if BRP.PurchaseWorldItem:IsA("RemoteEvent") then BRP.PurchaseWorldItem:FireServer(State.Smuggler_ItemName)
+                        else BRP.PurchaseWorldItem:InvokeServer(State.Smuggler_ItemName) end
+                    end)
+                end
+                task.wait(0.3)
+                local now = Smuggler.CountInventory(State.Smuggler_ItemName)
+                if now >= targetCount then break end
+            end
+        end,
+        function()
+            -- Verify: inventory has increased AND reached max (or increased at least by 1)
+            local now = Smuggler.CountInventory(State.Smuggler_ItemName)
+            Log("[3][verify] inv now: "..now)
+            return now >= targetCount or now > startCount
+        end,
+        State.Smuggler_MaxAttempts
+    )
 end
 
+--━━━ SELL (verify = inventory decreased OR briefcase appeared OR money increased) ━━━
 function Smuggler.DriveAndSell(car)
     Log("[4] Drive→Sell " .. State.Smuggler_SellerName)
     local prompt, seller = Smuggler.GetSellPrompt()
@@ -938,25 +986,47 @@ function Smuggler.DriveAndSell(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[4] can't sit"); return false end
     end
-    local ok = SmartTP.CarTweenTo(car, sellerPos)
-    if not ok then Log("[4] drive failed"); return false end
-    task.wait(0.4)
-    if State.Smuggler_AutoEquip then
-        if State.Smuggler_EquipAll then Smuggler.EquipAll(State.Smuggler_ItemName)
-        else Smuggler.EquipTool(State.Smuggler_ItemName) end
-        task.wait(0.3)
+    
+    local startCount = Smuggler.CountInventory(State.Smuggler_ItemName)
+    local startMoney = Smuggler.GetMoney()
+    local startHadBriefcase = Smuggler.HasBriefcase()
+    Log("[4] Start: inv="..startCount..", money="..tostring(startMoney)..", brief="..tostring(startHadBriefcase))
+    
+    if startCount == 0 then
+        Log("[4] Nothing to sell, skip")
+        return true
     end
-    for i=1, State.Smuggler_SellRetries do
-        if prompt then Smuggler.FirePrompt(prompt) end
-        if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
-            pcall(function() BRP.SellSmuggledGoods:FireServer() end)
-        end
-        task.wait(0.4)
-    end
-    Log("[4] Sell done")
-    return true
+    
+    return Smuggler.RunWithVerify("SELL", car, sellerPos,
+        function(c)
+            if State.Smuggler_AutoEquip then
+                if State.Smuggler_EquipAll then Smuggler.EquipAll(State.Smuggler_ItemName)
+                else Smuggler.EquipTool(State.Smuggler_ItemName) end
+                task.wait(0.3)
+            end
+            for i=1, State.Smuggler_SellRetries do
+                if prompt then Smuggler.FirePrompt(prompt) end
+                if State.Smuggler_UseRemotes and BRP.SellSmuggledGoods then
+                    pcall(function() BRP.SellSmuggledGoods:FireServer() end)
+                end
+                task.wait(0.35)
+            end
+        end,
+        function()
+            local nowCount = Smuggler.CountInventory(State.Smuggler_ItemName)
+            local nowMoney = Smuggler.GetMoney()
+            local nowBriefcase = Smuggler.HasBriefcase()
+            local invDropped = nowCount < startCount
+            local moneyUp = (startMoney and nowMoney and nowMoney > startMoney)
+            local briefcaseAppeared = (not startHadBriefcase and nowBriefcase)
+            Log(string.format("[4][verify] inv=%d/%d $%s→%s brief=%s→%s", nowCount, startCount, tostring(startMoney), tostring(nowMoney), tostring(startHadBriefcase), tostring(nowBriefcase)))
+            return invDropped or moneyUp or briefcaseAppeared
+        end,
+        State.Smuggler_MaxAttempts
+    )
 end
 
+--━━━ LAUNDER (verify = briefcase gone OR money went up significantly) ━━━
 function Smuggler.DriveAndLaunder(car)
     if not State.Smuggler_AutoLaunder then return true end
     Log("[5] Drive→Launder")
@@ -965,19 +1035,38 @@ function Smuggler.DriveAndLaunder(car)
     if not IsSeatedIn(car) then
         if not Smuggler.SitInCar(car) then Log("[5] can't sit"); return false end
     end
-    local ok = SmartTP.CarTweenTo(car, pos)
-    if not ok then Log("[5] drive failed"); return false end
-    task.wait(0.4)
-    local prompt = Smuggler.GetLaunderPrompt()
-    for i=1, State.Smuggler_LaunderRetries do
-        if prompt then Smuggler.FirePrompt(prompt) end
-        if State.Smuggler_UseRemotes and BRP.LaunderBriefcase then
-            pcall(function() BRP.LaunderBriefcase:FireServer() end)
-        end
-        task.wait(0.4)
+    
+    local startBriefcase = Smuggler.HasBriefcase()
+    local startMoney = Smuggler.GetMoney()
+    Log("[5] Start: brief="..tostring(startBriefcase)..", money="..tostring(startMoney))
+    
+    if not startBriefcase then
+        Log("[5] No briefcase, skip")
+        return true
     end
-    Log("[5] Launder done")
-    return true
+    
+    local prompt = Smuggler.GetLaunderPrompt()
+    
+    return Smuggler.RunWithVerify("LAUNDER", car, pos,
+        function(c)
+            for i=1, State.Smuggler_LaunderRetries do
+                if prompt then Smuggler.FirePrompt(prompt) end
+                if State.Smuggler_UseRemotes and BRP.LaunderBriefcase then
+                    pcall(function() BRP.LaunderBriefcase:FireServer() end)
+                end
+                task.wait(0.35)
+            end
+        end,
+        function()
+            local nowBriefcase = Smuggler.HasBriefcase()
+            local nowMoney = Smuggler.GetMoney()
+            local briefcaseGone = (startBriefcase and not nowBriefcase)
+            local bigMoneyGain = (startMoney and nowMoney and (nowMoney - startMoney) > 1000)
+            Log(string.format("[5][verify] brief=%s→%s $%s→%s", tostring(startBriefcase), tostring(nowBriefcase), tostring(startMoney), tostring(nowMoney)))
+            return briefcaseGone or bigMoneyGain
+        end,
+        State.Smuggler_MaxAttempts
+    )
 end
 
 function Smuggler.RunCycle()
@@ -1098,7 +1187,7 @@ local Window = WindUI:CreateWindow({
     Title=HUB.Name, Icon="gamepad-2", Author="v"..HUB.Version, Folder="X0DEC04T",
     Size=UDim2.fromOffset(560,460), Transparent=true, Theme="Dark", SideBarWidth=160, HasOutline=true,
 })
-pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." smooth camera", Duration=4, Icon="check"}) end)
+pcall(function() WindUI:Notify({Title=HUB.Name, Content="v"..HUB.Version.." verify+retry", Duration=4, Icon="check"}) end)
 local function Notify(t,c,d) pcall(function() WindUI:Notify({Title=t, Content=c, Duration=d or 4, Icon="info"}) end) end
 
 local logoGui, logoActive = nil, false
@@ -1164,7 +1253,7 @@ local Tabs = {
 Window:SelectTab(1)
 
 Tabs.Main:Section({Title="X0DEC04T Hub v"..HUB.Version})
-Tabs.Main:Paragraph({Title="Smooth Camera", Desc="Camera now stabilizes during car tween.\n\n• Chase = 3rd person behind car\n• TopDown = bird's eye\n• Locked = strict follow\n• Off = default (shaky)\n\nAdjust distance/height in Smuggler tab"})
+Tabs.Main:Paragraph({Title="Verify + Retry", Desc="Each action (buy/sell/launder) now verifies:\n\n• BUY = inventory count went up\n• SELL = inventory dropped OR money up OR briefcase appeared\n• LAUNDER = briefcase gone OR big money gain\n\nIf verification fails → auto-retries full action (drive + fire) up to Max Attempts"})
 Tabs.Main:Button({Title="Minimize UI", Callback=safeCB(function() pcall(function() Window:Close() end); task.wait(0.2); if logoGui then logoGui.Enabled=true end; logoActive=true end)})
 
 Tabs.Vehicle:Section({Title="Speed"})
@@ -1188,6 +1277,10 @@ Tabs.Smuggler:Slider({Title="Camera Distance", Value={Min=10,Max=60,Default=25},
 Tabs.Smuggler:Slider({Title="Camera Height", Value={Min=2,Max=40,Default=12}, Step=1, Callback=safeCB(function(v) State.Smuggler_CameraHeight=v end)})
 Tabs.Smuggler:Button({Title="Force Restore Camera", Callback=safeCB(CameraStab.Stop)})
 
+Tabs.Smuggler:Section({Title="Verify + Retry"})
+Tabs.Smuggler:Slider({Title="Max Attempts per Action", Value={Min=1,Max=15,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_MaxAttempts=v end)})
+Tabs.Smuggler:Slider({Title="Verify Timeout (sec)", Value={Min=1,Max=10,Default=3}, Step=1, Callback=safeCB(function(v) State.Smuggler_VerifyTimeout=v end)})
+
 Tabs.Smuggler:Section({Title="Anti-Cheat"})
 Tabs.Smuggler:Toggle({Title="AC Neutralization", Default=true, Callback=safeCB(function(v) State.ACNeutralEnabled=v; if v then ACNeutral.Enable() else ACNeutral.Disable() end end)})
 Tabs.Smuggler:Toggle({Title="No Fall Damage", Default=true, Callback=safeCB(function(v) State.NoFallDamage=v; if v then FallGuard.Enable() else FallGuard.Disable() end end)})
@@ -1196,7 +1289,7 @@ Tabs.Smuggler:Toggle({Title="God Mode", Default=false, Callback=safeCB(function(
 Tabs.Smuggler:Section({Title="Item"})
 Tabs.Smuggler:Dropdown({Title="Item to Buy", Values=GetBuyableItemNames(), Value="Fake Diamond Ring", Callback=safeCB(function(v) State.Smuggler_ItemName=v end)})
 Tabs.Smuggler:Slider({Title="Max Inventory", Value={Min=1,Max=10,Default=5}, Step=1, Callback=safeCB(function(v) State.Smuggler_MaxInventory=v end)})
-Tabs.Smuggler:Slider({Title="Buy Retries", Value={Min=1,Max=15,Default=8}, Step=1, Callback=safeCB(function(v) State.Smuggler_BuyRetries=v end)})
+Tabs.Smuggler:Slider({Title="Buy Fires per Attempt", Value={Min=1,Max=15,Default=8}, Step=1, Callback=safeCB(function(v) State.Smuggler_BuyRetries=v end)})
 
 Tabs.Smuggler:Section({Title="Vehicle"})
 Tabs.Smuggler:Toggle({Title="Auto Spawn Car", Default=true, Callback=safeCB(function(v) State.Smuggler_SpawnCar=v end)})
@@ -1211,13 +1304,13 @@ Tabs.Smuggler:Slider({Title="Y Offset above target", Value={Min=0,Max=15,Default
 
 Tabs.Smuggler:Section({Title="Seller"})
 Tabs.Smuggler:Dropdown({Title="Seller", Values=GetSellerNames(), Value=State.Smuggler_SellerName, Callback=safeCB(function(v) State.Smuggler_SellerName=v end)})
-Tabs.Smuggler:Slider({Title="Sell Retries", Value={Min=1,Max=20,Default=10}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellRetries=v end)})
+Tabs.Smuggler:Slider({Title="Sell Fires per Attempt", Value={Min=1,Max=20,Default=10}, Step=1, Callback=safeCB(function(v) State.Smuggler_SellRetries=v end)})
 Tabs.Smuggler:Toggle({Title="Auto Equip", Default=true, Callback=safeCB(function(v) State.Smuggler_AutoEquip=v end)})
 Tabs.Smuggler:Toggle({Title="Equip All", Default=true, Callback=safeCB(function(v) State.Smuggler_EquipAll=v end)})
 
 Tabs.Smuggler:Section({Title="Laundry"})
 Tabs.Smuggler:Toggle({Title="Auto Launder", Default=true, Callback=safeCB(function(v) State.Smuggler_AutoLaunder=v end)})
-Tabs.Smuggler:Slider({Title="Launder Retries", Value={Min=1,Max=15,Default=6}, Step=1, Callback=safeCB(function(v) State.Smuggler_LaunderRetries=v end)})
+Tabs.Smuggler:Slider({Title="Launder Fires per Attempt", Value={Min=1,Max=15,Default=6}, Step=1, Callback=safeCB(function(v) State.Smuggler_LaunderRetries=v end)})
 
 Tabs.Smuggler:Section({Title="Timing"})
 Tabs.Smuggler:Slider({Title="Cycle Delay", Value={Min=0,Max=10,Default=1}, Step=1, Callback=safeCB(function(v) State.Smuggler_Delay=v end)})
@@ -1229,9 +1322,9 @@ Tabs.Smuggler:Section({Title="Manual"})
 Tabs.Smuggler:Button({Title="1. Spawn Car", Callback=safeCB(Smuggler.SpawnCar)})
 Tabs.Smuggler:Button({Title="2. Sit In Car", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.SitInCar(c) end end)})
 Tabs.Smuggler:Button({Title="   Remove Tires", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.RemoveTires(c) end end)})
-Tabs.Smuggler:Button({Title="3. Tween → BUY", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
-Tabs.Smuggler:Button({Title="4. Tween → SELL", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
-Tabs.Smuggler:Button({Title="5. Tween → LAUNDER", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
+Tabs.Smuggler:Button({Title="3. BUY (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndBuy(c) end end)})
+Tabs.Smuggler:Button({Title="4. SELL (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndSell(c) end end)})
+Tabs.Smuggler:Button({Title="5. LAUNDER (verify+retry)", Callback=safeCB(function() local c=State.Smuggler_CurrentCar or GetPlayerCar(); if c then Smuggler.DriveAndLaunder(c) end end)})
 Tabs.Smuggler:Button({Title="STOP CAR TWEEN", Callback=safeCB(StopCarTween)})
 
 Tabs.Police:Toggle({Title="Wanted Only", Default=true, Callback=safeCB(function(v) State.Police_TargetWanted=v end)})
@@ -1302,4 +1395,4 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Log("v4.1.1 ready - smooth camera during tween")
+Log("v4.1.2 ready - verify+retry system")
