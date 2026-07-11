@@ -1,6 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.5.3 - Violence District
--- FIXED: Invisible (raw Transparency) + Auto Skillcheck (disable LocalScript)
+-- X0DEC04T Hub v0.5.4 - Violence District
+-- FIXED: Auto Parry (improved detection + timing)
+-- ADDED: Auto Self Heal
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -18,7 +19,7 @@ local VirtualInputMgr   = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_v053_INSTANCE"
+local INSTANCE_KEY = "__X0DEC04T_v054_INSTANCE"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -30,7 +31,7 @@ local _logStart = os.clock()
 local function Log(msg) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_logStart, tostring(msg))) end
 local function Err(msg,d) warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock()-_logStart, tostring(msg), tostring(d or ""))) end
 
-Log("v0.5.3 starting")
+Log("v0.5.4 starting")
 
 local Rayfield = nil
 for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercontent.com/shlexware/Rayfield/main/source"}) do
@@ -39,7 +40,7 @@ for _, url in ipairs({"https://sirius.menu/rayfield","https://raw.githubusercont
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Violence District", Version="0.5.3", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Violence District", Version="0.5.4", Author="voixera" }
 
 local CM = { _list = {} }
 function CM:Add(sig, cb, label)
@@ -63,6 +64,30 @@ local function GetRemote(...)
     return current
 end
 
+-- Remote discovery with deep search fallback
+local function FindRemoteDeep(root, targetName)
+    if not root then return nil end
+    for _, v in ipairs(root:GetDescendants()) do
+        if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and v.Name == targetName then
+            return v
+        end
+    end
+    return nil
+end
+
+local function FindRemotesByKeyword(root, keyword)
+    local found = {}
+    if not root then return found end
+    for _, v in ipairs(root:GetDescendants()) do
+        if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+            if v.Name:lower():find(keyword:lower()) then
+                table.insert(found, v)
+            end
+        end
+    end
+    return found
+end
+
 local R = {
     Gen = {
         SkillCheck       = GetRemote("Generator", "SkillCheckEvent"),
@@ -71,13 +96,57 @@ local R = {
         RepairEvent      = GetRemote("Generator", "RepairEvent"),
     },
     Game = {
-        Start=GetRemote("Game","Start"), KillerMorph=GetRemote("Game","KillerMorph"),
-        RoundEnd=GetRemote("Game","RoundEnd"),
+        Start       = GetRemote("Game","Start"),
+        KillerMorph = GetRemote("Game","KillerMorph"),
+        RoundEnd    = GetRemote("Game","RoundEnd"),
     },
-    Items = { ParryDagger = GetRemote("Items", "Parrying Dagger", "parry") },
+    Items = {
+        ParryDagger = GetRemote("Items", "Parrying Dagger", "parry"),
+        Heal        = GetRemote("Items", "Medkit", "heal")
+                   or GetRemote("Items", "Heal")
+                   or FindRemoteDeep(Remotes, "HealEvent")
+                   or FindRemoteDeep(Remotes, "heal"),
+    },
+    Parry = {}, -- will be populated below
 }
 
-Log("Remotes mapped")
+-- Extended parry remote search
+do
+    local parryNames = {"parry", "Parry", "ParryEvent", "parryEvent", "block", "Block"}
+    if not R.Items.ParryDagger then
+        for _, name in ipairs(parryNames) do
+            local found = FindRemoteDeep(Remotes, name)
+            if found then R.Items.ParryDagger = found; break end
+        end
+    end
+    -- Also find all parry-related remotes
+    local parryRemotes = FindRemotesByKeyword(Remotes, "parry")
+    for _, r in ipairs(parryRemotes) do
+        table.insert(R.Parry, r)
+    end
+    -- Also search for block remotes
+    local blockRemotes = FindRemotesByKeyword(Remotes, "block")
+    for _, r in ipairs(blockRemotes) do
+        table.insert(R.Parry, r)
+    end
+end
+
+-- Heal remote extended search
+if not R.Items.Heal then
+    local healNames = {"HealEvent", "heal", "Heal", "MedkitHeal", "selfheal", "SelfHeal", "Medkit"}
+    for _, name in ipairs(healNames) do
+        local found = FindRemoteDeep(Remotes, name)
+        if found then R.Items.Heal = found; break end
+    end
+    if not R.Items.Heal then
+        local healRemotes = FindRemotesByKeyword(Remotes, "heal")
+        if #healRemotes > 0 then R.Items.Heal = healRemotes[1] end
+    end
+end
+
+Log("Remotes mapped | Parry: " .. (R.Items.ParryDagger and R.Items.ParryDagger:GetFullName() or "nil"))
+Log("Heal remote: " .. (R.Items.Heal and R.Items.Heal:GetFullName() or "nil"))
+Log("Extra parry remotes: " .. #R.Parry)
 
 local WS = {
     Map        = Workspace:FindFirstChild("Map"),
@@ -145,7 +214,24 @@ local State = {
 
     Invisible=false, InvisibleHotkey=Enum.KeyCode.X,
     SurvSpeedBoost=false, SurvSpeedValue=24,
-    AutoParry=false, ParryRange=20, ShowParryRing=false, ParryRingColor="Red",
+
+    -- AUTO PARRY (reworked)
+    AutoParry=false,
+    ParryRange=20,
+    ParryMode="Remote+Key",     
+    ParryCooldown=0.35,
+    ParryOnHit=true,            
+    ShowParryRing=false,
+    ParryRingColor="Red",
+    ParryDebug=false,
+
+    -- AUTO SELF HEAL
+    AutoHeal=false,
+    AutoHealThreshold=60,       
+    AutoHealDelay=1.5,          
+    AutoHealMode="Continuous", 
+    AutoHealMethod="All",       
+
     NoFallDamage=false, FleeKiller=false, FleeDistance=40,
     GodMode=false,
     AutoGenRush=false, AutoGenMode="Instant",
@@ -157,12 +243,16 @@ local State = {
     SavedTransparencies={},
     NoClipConn=nil, InfJumpConn=nil, FreecamConn=nil,
     NoFallConn=nil, FleeConn=nil, GodModeConn=nil,
-    AutoParryConn=nil, InvisibleConn=nil,
+    AutoParryConn=nil, AutoParryHitConn=nil,
+    AutoHealConn=nil,
+    InvisibleConn=nil,
     SkillcheckGUIConn=nil, SkillcheckFreqConn=nil,
     GenProgressGuis={}, ParryRing=nil, HPGui=nil,
     CachedKiller=nil, KillerCacheTime=0,
     CurrentTargetGen=nil,
-    SavedSkillcheckState=nil,
+    LastParryTime=0,
+    LastHealTime=0,
+    HealCount=0,
 }
 
 -- ROLE
@@ -671,13 +761,11 @@ end
 -- SURVIVOR
 local Surv = {}
 
--- ★ INVISIBLE v4 — Uses raw Transparency (data proves it works!)
+-- ★ INVISIBLE
 function Surv.SetInvisible(enable)
     if State.InvisibleConn then pcall(function() State.InvisibleConn:Disconnect() end); State.InvisibleConn=nil end
     local char = LocalPlayer.Character; if not char then return end
-    
     if not enable then
-        -- Restore
         for part, orig in pairs(State.SavedTransparencies) do
             if part and part.Parent then
                 pcall(function()
@@ -688,50 +776,30 @@ function Surv.SetInvisible(enable)
         end
         State.SavedTransparencies = {}
         pcall(function() char:SetAttribute("Untargettable", false) end)
-        Log("Invisible: OFF")
-        return
+        Log("Invisible: OFF"); return
     end
-    
-    -- Apply raw Transparency = 1 (data shows game doesn't reset it!)
     local function applyInvisible()
-        local c = LocalPlayer.Character
-        if not c then return end
-        
+        local c = LocalPlayer.Character; if not c then return end
         for _, p in ipairs(c:GetDescendants()) do
             if p:IsA("BasePart") then
-                if State.SavedTransparencies[p] == nil then
-                    State.SavedTransparencies[p] = p.Transparency
-                end
-                pcall(function()
-                    p.Transparency = 1
-                    p.CanQuery = false
-                end)
+                if State.SavedTransparencies[p] == nil then State.SavedTransparencies[p] = p.Transparency end
+                pcall(function() p.Transparency = 1; p.CanQuery = false end)
             elseif p:IsA("Decal") or p:IsA("Texture") then
-                if State.SavedTransparencies[p] == nil then
-                    State.SavedTransparencies[p] = p.Transparency
-                end
+                if State.SavedTransparencies[p] == nil then State.SavedTransparencies[p] = p.Transparency end
                 pcall(function() p.Transparency = 1 end)
             end
         end
-        
-        -- Hide accessories
         for _, a in ipairs(c:GetChildren()) do
             if a:IsA("Accessory") then
                 for _, part in ipairs(a:GetDescendants()) do
                     if part:IsA("BasePart") then
-                        if State.SavedTransparencies[part] == nil then
-                            State.SavedTransparencies[part] = part.Transparency
-                        end
+                        if State.SavedTransparencies[part] == nil then State.SavedTransparencies[part] = part.Transparency end
                         pcall(function() part.Transparency = 1 end)
                     end
                 end
             end
         end
-        
-        -- Make untargettable
         pcall(function() c:SetAttribute("Untargettable", true) end)
-        
-        -- Hide name
         local head = c:FindFirstChild("Head")
         if head then
             for _, g in ipairs(head:GetChildren()) do
@@ -739,33 +807,22 @@ function Surv.SetInvisible(enable)
             end
         end
     end
-    
     applyInvisible()
-    
-    -- Continuous re-apply for new parts (accessories added later, etc)
     State.InvisibleConn = RunService.Heartbeat:Connect(function()
         if not State.Invisible then return end
-        local c = LocalPlayer.Character
-        if not c then return end
-        
-        -- Check for any part that's not transparent
+        local c = LocalPlayer.Character; if not c then return end
         for _, p in ipairs(c:GetDescendants()) do
             if p:IsA("BasePart") and p.Transparency < 1 then
-                if State.SavedTransparencies[p] == nil then
-                    State.SavedTransparencies[p] = p.Transparency
-                end
+                if State.SavedTransparencies[p] == nil then State.SavedTransparencies[p] = p.Transparency end
                 pcall(function() p.Transparency = 1 end)
             elseif (p:IsA("Decal") or p:IsA("Texture")) and p.Transparency < 1 then
-                if State.SavedTransparencies[p] == nil then
-                    State.SavedTransparencies[p] = p.Transparency
-                end
+                if State.SavedTransparencies[p] == nil then State.SavedTransparencies[p] = p.Transparency end
                 pcall(function() p.Transparency = 1 end)
             end
         end
         pcall(function() c:SetAttribute("Untargettable", true) end)
     end)
-    
-    Log("Invisible: ON (raw Transparency method)")
+    Log("Invisible: ON")
 end
 
 function Surv.SetSpeedBoost(enable)
@@ -873,26 +930,293 @@ function Surv.UpdateParryRing()
     end)
 end
 
+-- ★ AUTO PARRY (fully reworked v2)
+-- Strategy:
+--   1. Proximity check (killer within range) → fire every cooldown
+--   2. Damage hook (Humanoid.HealthChanged) → instant parry on hit
+--   3. Attribute-based ("IsChasing", "InAttack", etc.) → proactive parry
+--   4. Fire ALL discovered parry remotes + virtual F key
+
+local function DoParry()
+    local now = tick()
+    if now - State.LastParryTime < State.ParryCooldown then return end
+    State.LastParryTime = now
+
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local fired = false
+
+    -- Fire main parry remote
+    if State.ParryMode ~= "Key Only" then
+        if R.Items.ParryDagger then
+            pcall(function() R.Items.ParryDagger:FireServer() end)
+            fired = true
+        end
+        -- Fire all discovered parry remotes
+        for _, remote in ipairs(R.Parry) do
+            pcall(function() remote:FireServer() end)
+            fired = true
+        end
+        -- Try attribute-based parry
+        pcall(function()
+            char:SetAttribute("Parry", true)
+            char:SetAttribute("IsParrying", true)
+            char:SetAttribute("Blocking", true)
+        end)
+        task.delay(0.2, function()
+            pcall(function()
+                char:SetAttribute("Parry", false)
+                char:SetAttribute("IsParrying", false)
+                char:SetAttribute("Blocking", false)
+            end)
+        end)
+    end
+
+    -- Virtual F key press (game default parry key)
+    if State.ParryMode ~= "Remote Only" then
+        pcall(function()
+            VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+        end)
+        task.delay(0.08, function()
+            pcall(function()
+                VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+            end)
+        end)
+        -- Also try E key (some games use E for parry)
+        pcall(function()
+            VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        end)
+        task.delay(0.08, function()
+            pcall(function()
+                VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+            end)
+        end)
+        fired = true
+    end
+
+    if State.ParryDebug and fired then
+        Log("Parry triggered at t=" .. string.format("%.2f", now))
+    end
+end
+
 function Surv.SetAutoParry(enable)
+    -- Clean up all parry connections
     if State.AutoParryConn then pcall(function() State.AutoParryConn:Disconnect() end); State.AutoParryConn=nil end
-    if not enable then return end
-    if not R.Items.ParryDagger then Notify("Auto Parry","Remote missing",4); return end
-    local lastParry = 0
+    if State.AutoParryHitConn then pcall(function() State.AutoParryHitConn:Disconnect() end); State.AutoParryHitConn=nil end
+
+    if not enable then Log("Auto Parry: OFF"); return end
+
+    Log("Auto Parry: ON | Mode=" .. State.ParryMode)
+
+    -- Connection 1: Proximity loop — check if killer is within range every frame
     State.AutoParryConn = RunService.Heartbeat:Connect(function()
-        if tick() - lastParry < 0.4 then return end
+        if not State.AutoParry then return end
+
         local hrp = Move.GetHRP(); if not hrp then return end
         local killer = Role.FindKiller()
         if not killer or not killer.Character then return end
-        local khrp = killer.Character:FindFirstChild("HumanoidRootPart")
+
+        local kchar = killer.Character
+        local khrp = kchar:FindFirstChild("HumanoidRootPart")
         if not khrp then return end
-        if (khrp.Position - hrp.Position).Magnitude <= State.ParryRange then
-            pcall(function() R.Items.ParryDagger:FireServer() end)
+
+        local dist = (khrp.Position - hrp.Position).Magnitude
+
+        -- Trigger on proximity
+        if dist <= State.ParryRange then
+            DoParry()
+        end
+
+        -- Also check killer attack attributes
+        local isAttacking = kchar:GetAttribute("InAttack")
+                         or kchar:GetAttribute("Attacking")
+                         or kchar:GetAttribute("SwingActive")
+                         or kchar:GetAttribute("HitActive")
+        if isAttacking and dist <= State.ParryRange * 1.5 then
+            DoParry()
+        end
+
+        -- Check if we're being chased
+        local char = LocalPlayer.Character
+        if char then
+            local beingChased = char:GetAttribute("BeingChased")
+                             or char:GetAttribute("Targeted")
+                             or char:GetAttribute("CarriedBy") ~= nil
+            if beingChased and dist <= State.ParryRange * 2 then
+                DoParry()
+            end
+        end
+    end)
+
+    -- Connection 2: Damage hook — instant parry when we take damage
+    if State.ParryOnHit then
+        local prevHP = 100
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                prevHP = hum.Health
+                State.AutoParryHitConn = hum.HealthChanged:Connect(function(newHP)
+                    if newHP < prevHP then
+                        -- We just took damage — parry instantly
+                        State.LastParryTime = 0 -- reset cooldown for instant response
+                        DoParry()
+                        if State.ParryDebug then
+                            Log("Parry (damage): HP " .. string.format("%.1f", prevHP) .. " -> " .. string.format("%.1f", newHP))
+                        end
+                    end
+                    prevHP = newHP
+                end)
+            end
+        end
+    end
+end
+
+-- ★ AUTO SELF HEAL (new feature)
+-- Uses multiple methods: Remote, Attribute, Humanoid.Health (client), Medkit key
+
+local function DoHeal()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    local hp = hum.Health
+    local maxHp = hum.MaxHealth
+    local pct = (maxHp > 0) and (hp / maxHp * 100) or 100
+
+    if pct >= State.AutoHealThreshold then return end
+    if tick() - State.LastHealTime < State.AutoHealDelay then return end
+    State.LastHealTime = tick()
+    State.HealCount = State.HealCount + 1
+
+    local healed = false
+
+    -- Method 1: Remote
+    if State.AutoHealMethod == "Remote" or State.AutoHealMethod == "All" then
+        if R.Items.Heal then
+            pcall(function() R.Items.Heal:FireServer() end)
+            healed = true
+        end
+        -- Try all heal-named remotes
+        local healRemotes = FindRemotesByKeyword(Remotes, "heal")
+        for _, remote in ipairs(healRemotes) do
+            if remote ~= R.Items.Heal then
+                pcall(function() remote:FireServer() end)
+            end
+        end
+        -- Try medkit remotes
+        local medkitRemotes = FindRemotesByKeyword(Remotes, "medkit")
+        for _, remote in ipairs(medkitRemotes) do
+            pcall(function() remote:FireServer() end)
+        end
+    end
+
+    -- Method 2: Attributes
+    if State.AutoHealMethod == "Attribute" or State.AutoHealMethod == "All" then
+        pcall(function()
+            char:SetAttribute("IsHealing", true)
+            char:SetAttribute("Healing", true)
+            char:SetAttribute("HealActive", true)
+        end)
+        task.delay(1, function()
             pcall(function()
-                VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.05)
-                VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                char:SetAttribute("IsHealing", false)
+                char:SetAttribute("Healing", false)
+                char:SetAttribute("HealActive", false)
             end)
-            lastParry = tick()
+        end)
+    end
+
+    -- Method 3: Direct HP (client-side visual heal, may not replicate)
+    if State.AutoHealMethod == "All" then
+        pcall(function()
+            hum.Health = math.min(hum.Health + 25, hum.MaxHealth)
+        end)
+    end
+
+    -- Method 4: Virtual key press (H = common heal key)
+    if State.AutoHealMethod == "All" then
+        pcall(function()
+            VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.H, false, game)
+        end)
+        task.delay(0.08, function()
+            pcall(function()
+                VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.H, false, game)
+            end)
+        end)
+    end
+
+    Log(string.format("Heal attempt #%d | HP: %.1f/%.1f (%.0f%%)", State.HealCount, hp, maxHp, pct))
+end
+
+function Surv.SetAutoHeal(enable)
+    if State.AutoHealConn then pcall(function() State.AutoHealConn:Disconnect() end); State.AutoHealConn=nil end
+    State.HealCount = 0
+
+    if not enable then Log("Auto Heal: OFF"); return end
+
+    Log("Auto Heal: ON | Threshold=" .. State.AutoHealThreshold .. "% | Method=" .. State.AutoHealMethod)
+
+    State.AutoHealConn = RunService.Heartbeat:Connect(function()
+        if not State.AutoHeal then return end
+        pcall(DoHeal)
+    end)
+end
+
+function Surv.SetAutoSkillcheck(enable)
+    if State.SkillcheckGUIConn then pcall(function() State.SkillcheckGUIConn:Disconnect() end); State.SkillcheckGUIConn=nil end
+    if State.SkillcheckFreqConn then pcall(function() State.SkillcheckFreqConn:Disconnect() end); State.SkillcheckFreqConn=nil end
+    if not enable then
+        local char = LocalPlayer.Character
+        if char then
+            local sc = char:FindFirstChild("Skillcheck-gen")
+            if sc then pcall(function() sc.Disabled = false end) end
+            pcall(function() char:SetAttribute("skillcheckfrequency", 1) end)
+        end
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, gui in ipairs(pg:GetChildren()) do
+                if gui.Name:find("SkillCheckPromptGui") then
+                    pcall(function() gui.Enabled = true end)
+                end
+            end
+        end
+        Log("Auto Skillcheck: OFF"); return
+    end
+    Log("Auto Skillcheck: ON")
+    local function disableScript()
+        local char = LocalPlayer.Character; if not char then return end
+        local sc = char:FindFirstChild("Skillcheck-gen")
+        if sc then pcall(function() sc.Disabled = true end) end
+    end
+    disableScript()
+    local function setFreq()
+        local char = LocalPlayer.Character; if not char then return end
+        pcall(function()
+            char:SetAttribute("skillcheckfrequency", 0)
+            char:SetAttribute("skillcheckspeed", 0)
+        end)
+    end
+    setFreq()
+    State.SkillcheckGUIConn = RunService.Heartbeat:Connect(function()
+        if not State.AutoSkillcheck then return end
+        local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
+        for _, gui in ipairs(pg:GetChildren()) do
+            if gui.Name:find("SkillCheckPromptGui") then
+                if gui.Enabled then pcall(function() gui.Enabled = false end) end
+                local check = gui:FindFirstChild("Check")
+                if check and check.Visible then pcall(function() check.Visible = false end) end
+            end
+        end
+        local char = LocalPlayer.Character
+        if char then
+            local sc = char:FindFirstChild("Skillcheck-gen")
+            if sc and not sc.Disabled then pcall(function() sc.Disabled = true end) end
+            if char:GetAttribute("skillcheckfrequency") ~= 0 then
+                pcall(function() char:SetAttribute("skillcheckfrequency", 0) end)
+            end
         end
     end)
 end
@@ -952,92 +1276,6 @@ function Surv.SetAutoGenRush(enable)
     end
 end
 
--- ★ AUTO SKILLCHECK v4 — DISABLE the LocalScript + hide GUI
-function Surv.SetAutoSkillcheck(enable)
-    if State.SkillcheckGUIConn then pcall(function() State.SkillcheckGUIConn:Disconnect() end); State.SkillcheckGUIConn=nil end
-    if State.SkillcheckFreqConn then pcall(function() State.SkillcheckFreqConn:Disconnect() end); State.SkillcheckFreqConn=nil end
-    
-    if not enable then
-        -- Restore
-        local char = LocalPlayer.Character
-        if char then
-            local sc = char:FindFirstChild("Skillcheck-gen")
-            if sc then pcall(function() sc.Disabled = false end) end
-            pcall(function() char:SetAttribute("skillcheckfrequency", 1) end)
-        end
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then
-            for _, gui in ipairs(pg:GetChildren()) do
-                if gui.Name:find("SkillCheckPromptGui") then
-                    pcall(function() gui.Enabled = true end)
-                end
-            end
-        end
-        Log("Auto Skillcheck: OFF (restored)")
-        return
-    end
-    
-    Log("Auto Skillcheck: ON")
-    
-    -- METHOD 1: Disable the Skillcheck-gen LocalScript
-    local function disableScript()
-        local char = LocalPlayer.Character
-        if not char then return end
-        local sc = char:FindFirstChild("Skillcheck-gen")
-        if sc then
-            pcall(function() sc.Disabled = true end)
-        end
-    end
-    disableScript()
-    
-    -- METHOD 2: Set skillcheckfrequency = 0
-    local function setFreq()
-        local char = LocalPlayer.Character
-        if not char then return end
-        pcall(function()
-            char:SetAttribute("skillcheckfrequency", 0)
-            char:SetAttribute("skillcheckspeed", 0)
-        end)
-    end
-    setFreq()
-    
-    -- METHOD 3: Continuously disable the SkillCheckPromptGui when it appears
-    State.SkillcheckGUIConn = RunService.Heartbeat:Connect(function()
-        if not State.AutoSkillcheck then return end
-        
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pg then return end
-        
-        for _, gui in ipairs(pg:GetChildren()) do
-            if gui.Name:find("SkillCheckPromptGui") then
-                if gui.Enabled then
-                    pcall(function() gui.Enabled = false end)
-                end
-                -- Also disable Check frame
-                local check = gui:FindFirstChild("Check")
-                if check and check.Visible then
-                    pcall(function() check.Visible = false end)
-                end
-            end
-        end
-        
-        -- Keep script disabled
-        local char = LocalPlayer.Character
-        if char then
-            local sc = char:FindFirstChild("Skillcheck-gen")
-            if sc and not sc.Disabled then
-                pcall(function() sc.Disabled = true end)
-            end
-            -- Keep frequency at 0
-            if char:GetAttribute("skillcheckfrequency") ~= 0 then
-                pcall(function() char:SetAttribute("skillcheckfrequency", 0) end)
-            end
-        end
-    end)
-    
-    Log("Auto Skillcheck: Script disabled + GUI hidden + freq=0")
-end
-
 function Surv.SetGenProgress(enable)
     for _, g in pairs(State.GenProgressGuis) do pcall(function() g:Destroy() end) end
     State.GenProgressGuis = {}
@@ -1071,46 +1309,34 @@ end
 -- MATCH HOOKS
 if R.Game.RoundEnd then
     CM:Add(R.Game.RoundEnd.Event, function()
-        State.MatchActive=false
-        ESP.ClearAll()
-        Role.ResetKillerCache()
-        State.CurrentTargetGen = nil
+        State.MatchActive=false; ESP.ClearAll()
+        Role.ResetKillerCache(); State.CurrentTargetGen = nil
     end, "RoundReset")
 end
 if R.Game.Start then
     CM:Add(R.Game.Start.Event, function()
-        State.MatchActive=true
-        State.IsKiller=false
-        Role.ResetKillerCache()
-        ESP.ClearAll()
+        State.MatchActive=true; State.IsKiller=false
+        Role.ResetKillerCache(); ESP.ClearAll()
         task.spawn(function()
             for i = 1, 15 do
-                task.wait(1)
-                Role.ResetKillerCache()
-                if State.ESP_Killer or State.ESP_Survivors then
-                    ESP.RefreshAll()
-                end
+                task.wait(1); Role.ResetKillerCache()
+                if State.ESP_Killer or State.ESP_Survivors then ESP.RefreshAll() end
             end
         end)
     end, "MatchStart")
 end
 if R.Game.KillerMorph then
     CM:Add(R.Game.KillerMorph.Event, function()
-        State.IsKiller=true
-        Role.ResetKillerCache()
+        State.IsKiller=true; Role.ResetKillerCache()
     end, "KMorph")
 end
 
 task.spawn(function()
     while task.wait(3) do
         if State.ESP_Killer or State.ESP_Survivors then
-            local prev = State.CachedKiller
-            Role.ResetKillerCache()
+            local prev = State.CachedKiller; Role.ResetKillerCache()
             local new = Role.FindKiller()
-            if new and new ~= prev then
-                ESP.ClearAll()
-                ESP.RefreshAll()
-            end
+            if new and new ~= prev then ESP.ClearAll(); ESP.RefreshAll() end
         end
     end
 end)
@@ -1153,28 +1379,43 @@ if Tabs.Main then
     T:CreateLabel("Generators: " .. (WS.Generators and #WS.Generators:GetChildren() or 0))
     T:CreateLabel("Pallets: " .. #GetPallets())
     T:CreateLabel("Vaults: " .. #GetVaults())
+    T:CreateLabel("Parry Remote: " .. (R.Items.ParryDagger and "✓ Found" or "✗ Not Found"))
+    T:CreateLabel("Heal Remote: " .. (R.Items.Heal and "✓ Found" or "✗ Not Found"))
     T:CreateSection("Keybinds")
     T:CreateLabel("End = Clear all ESP")
     T:CreateLabel("X = Toggle Invisible")
     T:CreateSection("Actions")
     T:CreateButton({Name="Force Re-Detect Killer", Callback=function()
         Role.ResetKillerCache(); ESP.ClearAll(); ESP.RefreshAll()
-        Notify("Killer","Reset",3)
+        local k = Role.FindKiller()
+        Notify("Killer", k and ("Found: "..k.Name) or "Not found", 3)
+    end})
+    T:CreateButton({Name="Log All Remotes", Callback=function()
+        if Remotes then
+            Log("=== ALL REMOTES ===")
+            for _, v in ipairs(Remotes:GetDescendants()) do
+                if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                    Log(v:GetFullName())
+                end
+            end
+        end
+        Notify("Remotes","Printed to output",3)
     end})
 end
 
 if Tabs.Survivor then
     local T = Tabs.Survivor
+
     T:CreateSection("Health Display")
     T:CreateToggle({Name="Show Own HP Bar", CurrentValue=false, Flag="OwnHP", Callback=function(v) HP.SetVisible(v) end})
-    
-    T:CreateSection("Invisible (Full - all can't see)")
+
+    T:CreateSection("Invisible")
     T:CreateToggle({Name="Invisible", CurrentValue=false, Flag="Inv", Callback=function(v) State.Invisible=v; Surv.SetInvisible(v) end})
     T:CreateKeybind({Name="Invisible Hotkey", CurrentKeybind="X", HoldToInteract=false, Flag="InvKey", Callback=function(k)
         local ok, key = pcall(function() return Enum.KeyCode[k] end)
         if ok and key then State.InvisibleHotkey=key end
     end})
-    
+
     T:CreateSection("Speed")
     T:CreateToggle({Name="Speed Boost", CurrentValue=false, Flag="SB", Callback=function(v) State.SurvSpeedBoost=v; Surv.SetSpeedBoost(v) end})
     T:CreateSlider({Name="Speed Value", Range={16,60}, Increment=1, CurrentValue=24, Flag="SBVal", Callback=function(v)
@@ -1182,16 +1423,50 @@ if Tabs.Survivor then
         if State.SurvSpeedBoost then Surv.SetSpeedBoost(true) end
     end})
 
-    T:CreateSection("Auto Parry")
-    T:CreateToggle({Name="Enable Auto Parry", CurrentValue=false, Flag="AP", Callback=function(v) State.AutoParry=v; Surv.SetAutoParry(v) end})
-    T:CreateSlider({Name="Parry Range", Range={5,50}, Increment=1, CurrentValue=20, Flag="PR", Callback=function(v)
+    T:CreateSection("Auto Parry (Fixed)")
+    T:CreateToggle({Name="Enable Auto Parry", CurrentValue=false, Flag="AP", Callback=function(v)
+        State.AutoParry=v; Surv.SetAutoParry(v)
+    end})
+    T:CreateSlider({Name="Parry Range (studs)", Range={5,60}, Increment=1, CurrentValue=20, Flag="PR", Callback=function(v)
         State.ParryRange=tonumber(v) or 20
         if State.ShowParryRing then Surv.UpdateParryRing() end
     end})
+    T:CreateSlider({Name="Parry Cooldown (ms x10)", Range={1,20}, Increment=1, CurrentValue=4, Flag="PCD", Callback=function(v)
+        State.ParryCooldown = (tonumber(v) or 4) * 0.1
+        Log("Parry cooldown: " .. State.ParryCooldown .. "s")
+    end})
+    T:CreateDropdown({Name="Parry Mode", Options={"Remote+Key","Remote Only","Key Only"}, CurrentOption={"Remote+Key"}, Flag="PM", Callback=function(v)
+        State.ParryMode = (type(v)=="table" and v[1]) or v
+        if State.AutoParry then Surv.SetAutoParry(true) end
+    end})
+    T:CreateToggle({Name="Parry On Damage (instant)", CurrentValue=true, Flag="POH", Callback=function(v)
+        State.ParryOnHit=v
+        if State.AutoParry then Surv.SetAutoParry(true) end
+    end})
+    T:CreateToggle({Name="Parry Debug Log", CurrentValue=false, Flag="PDB", Callback=function(v) State.ParryDebug=v end})
     T:CreateToggle({Name="Show Range Ring", CurrentValue=false, Flag="PRing", Callback=function(v) State.ShowParryRing=v; Surv.UpdateParryRing() end})
     T:CreateDropdown({Name="Ring Color", Options={"Red","Blue","Green","Yellow","Purple","White"}, CurrentOption={"Red"}, Flag="PRC", Callback=function(v)
         State.ParryRingColor = (type(v)=="table" and v[1]) or v
         if State.ShowParryRing then Surv.UpdateParryRing() end
+    end})
+
+    T:CreateSection("Auto Self Heal (New)")
+    T:CreateToggle({Name="Enable Auto Self Heal", CurrentValue=false, Flag="AH", Callback=function(v)
+        State.AutoHeal=v; Surv.SetAutoHeal(v)
+    end})
+    T:CreateSlider({Name="Heal Threshold %", Range={10,95}, Increment=5, CurrentValue=60, Flag="AHT", Callback=function(v)
+        State.AutoHealThreshold = tonumber(v) or 60
+    end})
+    T:CreateSlider({Name="Heal Delay (x0.5s)", Range={1,10}, Increment=1, CurrentValue=3, Flag="AHD", Callback=function(v)
+        State.AutoHealDelay = (tonumber(v) or 3) * 0.5
+    end})
+    T:CreateDropdown({Name="Heal Method", Options={"All","Remote","Attribute"}, CurrentOption={"All"}, Flag="AHM", Callback=function(v)
+        State.AutoHealMethod = (type(v)=="table" and v[1]) or v
+    end})
+    T:CreateButton({Name="Manual Heal Now", Callback=function()
+        State.LastHealTime = 0
+        pcall(DoHeal)
+        Notify("Heal","Manual heal triggered",3)
     end})
 
     T:CreateSection("Utility")
@@ -1208,7 +1483,7 @@ if Tabs.Survivor then
         State.AutoGenRush=v; Surv.SetAutoGenRush(v)
     end})
 
-    T:CreateSection("Auto Skillcheck (disables skillchecks entirely)")
+    T:CreateSection("Auto Skillcheck")
     T:CreateToggle({Name="Enable Auto Skillcheck", CurrentValue=false, Flag="ASC", Callback=function(v)
         State.AutoSkillcheck=v; Surv.SetAutoSkillcheck(v)
     end})
@@ -1232,7 +1507,6 @@ if Tabs.ESP then
         State.ESP_ShowHP=v
         for _,c in pairs(State.ESPCache) do if c.hpl then c.hpl.Visible=v end end
     end})
-
     T:CreateSection("Object ESP")
     T:CreateToggle({Name="Generator ESP", CurrentValue=false, Flag="E3", Callback=function(v)
         State.ESP_Generators=v
@@ -1259,7 +1533,6 @@ if Tabs.ESP then
         State.ESP_Clones=v
         if not v and WS.Clones then for _,c in ipairs(WS.Clones:GetChildren()) do ESP.Clear(c) end end
     end})
-
     T:CreateSection("Display")
     T:CreateToggle({Name="Show Names", CurrentValue=true, Flag="E9", Callback=function(v)
         State.ESP_ShowName=v
@@ -1273,7 +1546,6 @@ if Tabs.ESP then
         State.ESP_MaxDistance=tonumber(v) or 500
         for _,c in pairs(State.ESPCache) do if c.bb then c.bb.MaxDistance=State.ESP_MaxDistance end end
     end})
-
     T:CreateSection("Actions")
     T:CreateButton({Name="Refresh ESP", Callback=function() ESP.ClearAll(); Role.ResetKillerCache(); ESP.RefreshAll() end})
     T:CreateButton({Name="Clear All ESP", Callback=function() ESP.ClearAll() end})
@@ -1348,18 +1620,20 @@ if Tabs.Settings then
     T:CreateLabel("Author: " .. HUB.Author)
     T:CreateSection("Danger Zone")
     T:CreateButton({Name="Unload Hub", Callback=function()
-        for _, key in ipairs({"NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn","FleeConn","AutoParryConn","SkillcheckGUIConn","SkillcheckFreqConn","InvisibleConn"}) do
+        for _, key in ipairs({"NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn",
+            "FleeConn","AutoParryConn","AutoParryHitConn","AutoHealConn",
+            "SkillcheckGUIConn","SkillcheckFreqConn","InvisibleConn"}) do
             if State[key] then pcall(function() State[key]:Disconnect() end) end
         end
-        State.AutoGenRush = false; State.ShowGenProgress = false; State.ShowOwnHP = false
+        State.AutoGenRush=false; State.ShowGenProgress=false; State.ShowOwnHP=false; State.AutoHeal=false
         Surv.SetGenProgress(false); Surv.SetInvisible(false); Surv.SetAutoSkillcheck(false)
+        Surv.SetAutoHeal(false)
         if State.ParryRing then pcall(function() State.ParryRing:Destroy() end) end
         if State.HPGui then pcall(function() State.HPGui:Destroy() end) end
         CM:Cleanup(); Vis.RestoreLight()
         pcall(function() Camera.CameraType=Enum.CameraType.Custom end)
         pcall(function() Camera.FieldOfView=70 end)
-        ESP.ClearAll()
-        _G[INSTANCE_KEY]=nil
+        ESP.ClearAll(); _G[INSTANCE_KEY]=nil
         pcall(function() Rayfield:Destroy() end)
     end})
 end
@@ -1396,6 +1670,7 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.GodMode then pcall(Surv.SetGodMode, true) end
     if State.FleeKiller then pcall(Surv.SetFleeKiller, true) end
     if State.AutoParry then pcall(Surv.SetAutoParry, true) end
+    if State.AutoHeal then pcall(Surv.SetAutoHeal, true) end
     if State.AutoSkillcheck then pcall(Surv.SetAutoSkillcheck, true) end
     if State.ShowOwnHP then pcall(HP.Create) end
 end, "CharAdded")
@@ -1417,11 +1692,14 @@ end)
 _G[INSTANCE_KEY] = {
     version = HUB.Version, timestamp = os.time(),
     destroy = function()
-        for _, key in ipairs({"NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn","FleeConn","AutoParryConn","SkillcheckGUIConn","SkillcheckFreqConn","InvisibleConn"}) do
+        for _, key in ipairs({"NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn",
+            "FleeConn","AutoParryConn","AutoParryHitConn","AutoHealConn",
+            "SkillcheckGUIConn","SkillcheckFreqConn","InvisibleConn"}) do
             if State[key] then pcall(function() State[key]:Disconnect() end) end
         end
-        State.AutoGenRush = false; State.ShowGenProgress = false; State.ShowOwnHP = false
+        State.AutoGenRush=false; State.ShowGenProgress=false; State.ShowOwnHP=false; State.AutoHeal=false
         Surv.SetGenProgress(false); Surv.SetInvisible(false); Surv.SetAutoSkillcheck(false)
+        Surv.SetAutoHeal(false)
         if State.ParryRing then pcall(function() State.ParryRing:Destroy() end) end
         if State.HPGui then pcall(function() State.HPGui:Destroy() end) end
         CM:Cleanup(); Vis.RestoreLight()
@@ -1432,5 +1710,5 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Notify(HUB.Name, "v"..HUB.Version.." loaded", 5)
+Notify(HUB.Name, "v"..HUB.Version.." loaded! Parry+Heal ready", 5)
 Log("Ready")
