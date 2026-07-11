@@ -33,11 +33,41 @@ local function Err(msg,d) warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s"
 Log("Script starting - v0.3.1")
 
 local WindUI = nil
-local ok, result = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-end)
-if ok and result then WindUI = result; Log("Wind UI loaded")
-else Err("Wind UI failed", tostring(result)); return end
+
+-- Try multiple sources
+local WIND_SOURCES = {
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/src/init.lua",
+}
+
+for i, url in ipairs(WIND_SOURCES) do
+    Log("Attempt " .. i .. ": " .. url)
+    local ok, source = pcall(game.HttpGet, game, url)
+    if ok and source and #source > 1000 then
+        Log("Downloaded " .. #source .. " bytes")
+        local loadOk, loadResult = pcall(loadstring, source)
+        if loadOk and loadResult then
+            local runOk, runResult = pcall(loadResult)
+            if runOk and runResult then
+                WindUI = runResult
+                Log("✅ Wind UI loaded from source " .. i)
+                break
+            else
+                Err("Run failed: " .. tostring(runResult))
+            end
+        else
+            Err("loadstring failed: " .. tostring(loadResult))
+        end
+    else
+        Err("Download failed: " .. tostring(source))
+    end
+end
+
+if not WindUI then
+    Err("FATAL: Wind UI failed from all sources", "")
+    return
+end
 
 local HUB = {
     Name    = "X0DEC04T Hub",
