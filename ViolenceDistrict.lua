@@ -1,11 +1,8 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.3.0 - Violence District
--- FIXED: Skillcheck, ESP colors, No Fall, God Mode, Flee, Gen Rush
+-- X0DEC04T Hub v0.3.1 - Violence District
+-- FIXED: Vaults ESP (was called Windows before)
 --═══════════════════════════════════════════════════════════════
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SERVICES
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -21,81 +18,50 @@ local VirtualInputMgr   = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- DUPLICATE GUARD
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local INSTANCE_KEY = "__X0DEC04T_v030_INSTANCE"
+local INSTANCE_KEY = "__X0DEC04T_v031_INSTANCE"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
-    if type(prev.destroy) == "function" then
-        pcall(prev.destroy)
-    end
+    if type(prev.destroy) == "function" then pcall(prev.destroy) end
     _G[INSTANCE_KEY] = nil
     task.wait(0.1)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LOGGER
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local _logStart = os.clock()
 local function Log(msg) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_logStart, tostring(msg))) end
 local function Err(msg,d) warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock()-_logStart, tostring(msg), tostring(d or ""))) end
 
-Log("Script starting - v0.3.0")
+Log("Script starting - v0.3.1")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- LOAD WIND UI
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local WindUI = nil
 local ok, result = pcall(function()
     return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 end)
-if ok and result then
-    WindUI = result
-    Log("Wind UI loaded")
-else
-    Err("Wind UI failed", tostring(result))
-    return
-end
+if ok and result then WindUI = result; Log("Wind UI loaded")
+else Err("Wind UI failed", tostring(result)); return end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- HUB CONFIG
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.3.0",
+    Version = "0.3.1",
     Author  = "voixera",
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CONNECTION MANAGER
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local CM = { _list = {} }
 function CM:Add(sig, cb, label)
     if not sig then return end
     local ok, conn = pcall(function() return sig:Connect(cb) end)
-    if ok and conn then
-        table.insert(self._list, conn)
-        return conn
-    end
+    if ok and conn then table.insert(self._list, conn); return conn end
 end
 function CM:Cleanup()
     for _, c in ipairs(self._list) do pcall(function() c:Disconnect() end) end
     self._list = {}
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- KILLERS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local KNOWN_KILLERS = {
     ["stalker"]=true, ["killer"]=true, ["hidden"]=true, ["abysswalker"]=true,
     ["veil"]=true, ["slasher"]=true, ["masked"]=true, ["cure"]=true, ["jason"]=true,
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REMOTES
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 
 local function GetRemote(...)
@@ -116,7 +82,6 @@ local R = {
         GenDone          = GetRemote("Generator", "GenDone"),
         AllGenDone       = GetRemote("Generator", "allgendone"),
         RepairEvent      = GetRemote("Generator", "RepairEvent"),
-        Skillcheckvalidated = GetRemote("Generator", "Skillcheckvalidated"),
     },
     Heal = {
         SkillCheck       = GetRemote("Healing", "SkillCheckEvent"),
@@ -142,15 +107,10 @@ local R = {
     Msg = { Announce = GetRemote("Messages", "AnnounceMessage") },
     Exit = { Gate = GetRemote("Exit", "gate") },
     Items = { ParryDagger = GetRemote("Items", "Parrying Dagger", "parry") },
-    Window = { VaultEvent = GetRemote("Window", "VaultEvent") },
-    Pallet = { Drop = GetRemote("Pallet", "PalletDropEvent") },
 }
 
 Log("Remotes mapped")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- WORKSPACE REFS - AUTO-DETECT PALLETS AND WINDOWS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local WS = {
     Map        = Workspace:FindFirstChild("Map"),
     Generators = nil,
@@ -158,15 +118,12 @@ local WS = {
     FakeChars  = Workspace:FindFirstChild("FakeCharacters"),
     Weapons    = Workspace:FindFirstChild("Weapons"),
     Pallets    = nil,
-    Windows    = nil,
+    Vaults     = nil,
 }
 
--- Deep search for Pallets/Windows anywhere in workspace
 local function DeepFind(name)
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Folder") and v.Name:lower() == name:lower() then
-            return v
-        end
+        if v:IsA("Folder") and v.Name:lower() == name:lower() then return v end
     end
     return nil
 end
@@ -174,19 +131,16 @@ end
 if WS.Map then
     WS.Generators = WS.Map:FindFirstChild("Generators")
     WS.Pallets    = WS.Map:FindFirstChild("Pallets") or DeepFind("Pallets")
-    WS.Windows    = WS.Map:FindFirstChild("Windows") or DeepFind("Windows")
+    WS.Vaults     = WS.Map:FindFirstChild("Vaults") or DeepFind("Vaults")
 else
     WS.Pallets = DeepFind("Pallets")
-    WS.Windows = DeepFind("Windows")
+    WS.Vaults  = DeepFind("Vaults")
 end
 
 Log("Pallets: " .. (WS.Pallets and "Found @" .. WS.Pallets:GetFullName() or "NOT FOUND"))
-Log("Windows: " .. (WS.Windows and "Found @" .. WS.Windows:GetFullName() or "NOT FOUND"))
+Log("Vaults: " .. (WS.Vaults and "Found @" .. WS.Vaults:GetFullName() or "NOT FOUND"))
 Log("Generators: " .. (WS.Generators and "Found" or "NOT FOUND"))
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- STATE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local State = {
     ChaseAlert=true, AttackAlert=true, LungeAlert=true, HookAlert=true,
     HookPhaseAlert=true, UnhookAlert=true, KnockedAlert=true,
@@ -196,7 +150,7 @@ local State = {
 
     ESP_Generators=false, ESP_Killer=false, ESP_Survivors=false,
     ESP_Items=false, ESP_Weapons=false, ESP_Clones=false,
-    ESP_Pallets=false, ESP_Windows=false,
+    ESP_Pallets=false, ESP_Vaults=false,
     ESP_MaxDistance=500, ESP_ShowDistance=true, ESP_ShowName=true,
 
     Color_Killer    = Color3.fromRGB(255,40,40),
@@ -206,7 +160,7 @@ local State = {
     Color_Weapon    = Color3.fromRGB(255,120,220),
     Color_Clone     = Color3.fromRGB(180,180,180),
     Color_Pallet    = Color3.fromRGB(255,165,0),
-    Color_Window    = Color3.fromRGB(0,255,200),
+    Color_Vault     = Color3.fromRGB(0,255,200),
 
     WalkSpeed=16, JumpPower=50, NoClip=false, InfJump=false,
     FullBright=false, NoFog=false, NoShadows=false, ClearWeather=false,
@@ -215,7 +169,6 @@ local State = {
     NoSound=false, MuteBGMusic=false, NoParticles=false,
     AutoRejoin=false, AntiAFK=true,
 
-    -- Survivor
     Invisible=false, InvisibleHotkey=Enum.KeyCode.X,
     SurvSpeedBoost=false, SurvSpeedValue=24,
     AutoParry=false, ParryRange=20, ShowParryRing=false, ParryRingColor="Red",
@@ -230,15 +183,8 @@ local State = {
     AutoParryConn=nil, AutoSkillConn=nil,
     GenProgressGuis={}, ParryRing=nil,
     AwarenessReady=false,
-
-    -- Skillcheck state
-    ActiveSkillcheck=nil,
-    ActiveHealSkillcheck=nil,
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ROLE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Role = {}
 function Role.IsKiller(char)
     if not char then return false end
@@ -248,7 +194,6 @@ function Role.IsKiller(char)
     for k in pairs(KNOWN_KILLERS) do
         if n:find(k,1,true) then return true end
     end
-    -- Also check player's SelectedKiller attribute
     local plr = Players:GetPlayerFromCharacter(char)
     if plr and plr:GetAttribute("AllowKiller") == true then return true end
     return false
@@ -268,9 +213,6 @@ function Role.IsFake(char)
     return false
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- NOTIFY
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function Notify(t,c,d)
     pcall(function()
         WindUI:Notify({ Title=tostring(t or ""), Content=tostring(c or ""), Duration=tonumber(d) or 4 })
@@ -283,9 +225,6 @@ local function GuiParent()
     return p
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- ESP
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local ESP = {}
 function ESP.Clear(obj)
     local c = State.ESPCache[obj]; if not c then return end
@@ -439,12 +378,12 @@ function ESP.ScanPallets()
     end
 end
 
-function ESP.ScanWindows()
-    if not WS.Windows then return end
-    for _, w in ipairs(WS.Windows:GetChildren()) do
-        if State.ESP_Windows and not State.ESPCache[w] then
-            ESP.AddObj(w, "🪟 Window", State.Color_Window)
-        elseif not State.ESP_Windows then ESP.Clear(w) end
+function ESP.ScanVaults()
+    if not WS.Vaults then return end
+    for _, w in ipairs(WS.Vaults:GetChildren()) do
+        if State.ESP_Vaults and not State.ESPCache[w] then
+            ESP.AddObj(w, "🪟 Vault", State.Color_Vault)
+        elseif not State.ESP_Vaults then ESP.Clear(w) end
     end
 end
 
@@ -465,7 +404,7 @@ function ESP.RefreshAll()
     ESP.ScanWeapons()
     ESP.ScanClones()
     ESP.ScanPallets()
-    ESP.ScanWindows()
+    ESP.ScanVaults()
     ESP.ScanItems()
 end
 
@@ -484,9 +423,6 @@ for _, p in ipairs(Players:GetPlayers()) do
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- MOVEMENT
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Move = {}
 function Move.GetHuman() local ch=LocalPlayer.Character; return ch and ch:FindFirstChildOfClass("Humanoid") end
 function Move.GetHRP() local ch=LocalPlayer.Character; return ch and ch:FindFirstChild("HumanoidRootPart") end
@@ -547,9 +483,6 @@ function Move.NearestExit()
     else Notify("TP","No exit found.",3) end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- VISUALS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Vis = {}
 function Vis.BackupLight()
     if next(State.LightBackup) then return end
@@ -675,12 +608,8 @@ function Vis.ServerHop()
     end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- SURVIVOR FEATURES - REBUILT
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Surv = {}
 
--- INVISIBLE (works)
 function Surv.SetInvisible(enable)
     local char = LocalPlayer.Character; if not char then return end
     for _, p in ipairs(char:GetDescendants()) do
@@ -690,13 +619,11 @@ function Surv.SetInvisible(enable)
     end
 end
 
--- SPEED (works)
 function Surv.SetSpeedBoost(enable)
     local h = Move.GetHuman(); if not h then return end
     h.WalkSpeed = enable and State.SurvSpeedValue or State.WalkSpeed
 end
 
--- NO FALL DAMAGE - FIXED
 function Surv.SetNoFall(enable)
     if State.NoFallConn then pcall(function() State.NoFallConn:Disconnect() end); State.NoFallConn=nil end
     local char = LocalPlayer.Character
@@ -704,37 +631,29 @@ function Surv.SetNoFall(enable)
         local h = char:FindFirstChildOfClass("Humanoid")
         if h then
             if enable then
-                -- Method 1: Set state disabled
                 pcall(function()
                     h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
                     h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
                 end)
-                -- Method 2: Kill velocity on landing
                 State.NoFallConn = h.StateChanged:Connect(function(old, new)
                     if new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Freefall then
                         local hrp = char:FindFirstChild("HumanoidRootPart")
-                        if hrp then
-                            hrp.Velocity = Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z)
-                        end
+                        if hrp then hrp.Velocity = Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z) end
                     end
                 end)
             else
-                pcall(function()
-                    h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-                end)
+                pcall(function() h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true) end)
             end
         end
     end
 end
 
--- GOD MODE - REBUILT (multiple methods)
 function Surv.SetGodMode(enable)
     if State.GodModeConn then pcall(function() State.GodModeConn:Disconnect() end); State.GodModeConn=nil end
     if enable then
         State.GodModeConn = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             if char then
-                -- Multiple methods for God Mode
                 pcall(function()
                     char:SetAttribute("Iframes", true)
                     char:SetAttribute("Untargettable", true)
@@ -743,10 +662,7 @@ function Surv.SetGodMode(enable)
                 end)
                 local h = char:FindFirstChildOfClass("Humanoid")
                 if h then
-                    if h.Health < h.MaxHealth then
-                        pcall(function() h.Health = h.MaxHealth end)
-                    end
-                    -- Anti-ragdoll
+                    if h.Health < h.MaxHealth then pcall(function() h.Health = h.MaxHealth end) end
                     local trg = char:FindFirstChild("RagdollTrigger")
                     if trg and trg:IsA("BoolValue") and trg.Value then
                         pcall(function() trg.Value = false end)
@@ -766,7 +682,6 @@ function Surv.SetGodMode(enable)
     end
 end
 
--- FLEE KILLER - REBUILT
 function Surv.SetFleeKiller(enable)
     if State.FleeConn then pcall(function() State.FleeConn:Disconnect() end); State.FleeConn=nil end
     if enable then
@@ -795,7 +710,6 @@ function Surv.SetFleeKiller(enable)
     end
 end
 
--- PARRY RING
 function Surv.UpdateParryRing()
     if State.ParryRing then pcall(function() State.ParryRing:Destroy() end); State.ParryRing=nil end
     if not State.ShowParryRing then return end
@@ -824,7 +738,6 @@ function Surv.UpdateParryRing()
     end)
 end
 
--- AUTO PARRY - REBUILT
 function Surv.SetAutoParry(enable)
     if State.AutoParryConn then pcall(function() State.AutoParryConn:Disconnect() end); State.AutoParryConn=nil end
     if enable then
@@ -836,9 +749,7 @@ function Surv.SetAutoParry(enable)
         State.AutoParryConn = RunService.Heartbeat:Connect(function()
             if tick() - lastParry < 0.5 then return end
             local hrp = Move.GetHRP(); if not hrp then return end
-            local char = LocalPlayer.Character
-            if not char then return end
-            
+            local char = LocalPlayer.Character; if not char then return end
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character and Role.IsKiller(p.Character) then
                     local khrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -856,7 +767,6 @@ function Surv.SetAutoParry(enable)
     end
 end
 
--- AUTO GEN RUSH - REBUILT
 function Surv.SetAutoGenRush(enable)
     if enable then
         if not R.Gen.RepairEvent then
@@ -887,13 +797,9 @@ function Surv.SetAutoGenRush(enable)
                                        or best:FindFirstChild("GeneratorPoint3")
                                        or best:FindFirstChild("GeneratorPoint4")
                             if hb and (hb.Position - hrp.Position).Magnitude > 8 then
-                                pcall(function()
-                                    hrp.CFrame = hb.CFrame + Vector3.new(0, 3, 0)
-                                end)
+                                pcall(function() hrp.CFrame = hb.CFrame + Vector3.new(0, 3, 0) end)
                             end
-                            pcall(function()
-                                R.Gen.RepairEvent:FireServer(best, point)
-                            end)
+                            pcall(function() R.Gen.RepairEvent:FireServer(best, point) end)
                         end
                     end
                 end
@@ -902,42 +808,25 @@ function Surv.SetAutoGenRush(enable)
     end
 end
 
--- ★ AUTO SKILLCHECK - COMPLETELY REBUILT ★
--- Uses the server's SkillCheckEvent trigger + fires SkillCheckResultEvent with success args
 function Surv.SetAutoSkillcheck(enable)
     if State.AutoSkillConn then pcall(function() State.AutoSkillConn:Disconnect() end); State.AutoSkillConn=nil end
-    
     if enable then
-        -- Method 1: Hook SkillCheckEvent for Generator
         if R.Gen.SkillCheck then
             State.AutoSkillConn = R.Gen.SkillCheck.OnClientEvent:Connect(function(gen, point)
-                -- Choose delay based on mode
-                local delay = 0.15  -- Legit
-                if State.SkillcheckMode == "Fast" then
-                    delay = 0.05
-                elseif State.SkillcheckMode == "Instant" then
-                    delay = 0
-                end
-                
+                local delay = 0.15
+                if State.SkillcheckMode == "Fast" then delay = 0.05
+                elseif State.SkillcheckMode == "Instant" then delay = 0 end
                 task.wait(delay)
-                
-                -- Method A: Press SPACE (works for most cases)
                 pcall(function()
                     VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
                     task.wait(0.03)
                     VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
                 end)
-                
-                -- Method B: If result event exists, fire it with success
                 if R.Gen.SkillCheckResult then
-                    pcall(function()
-                        R.Gen.SkillCheckResult:FireServer(gen, point, true)
-                    end)
+                    pcall(function() R.Gen.SkillCheckResult:FireServer(gen, point, true) end)
                 end
             end)
         end
-        
-        -- Also hook Healing skillcheck
         if R.Heal.SkillCheck then
             CM:Add(R.Heal.SkillCheck.OnClientEvent, function(...)
                 local delay = 0.15
@@ -957,13 +846,11 @@ function Surv.SetAutoSkillcheck(enable)
     end
 end
 
--- GEN PROGRESS DISPLAY
 function Surv.SetGenProgress(enable)
     for _, g in pairs(State.GenProgressGuis) do pcall(function() g:Destroy() end) end
     State.GenProgressGuis = {}
     if not enable then return end
     if not WS.Generators then return end
-    
     for _, gen in ipairs(WS.Generators:GetChildren()) do
         local hb = gen:FindFirstChild("HitBox") or gen:FindFirstChildWhichIsA("BasePart")
         if hb then
@@ -999,9 +886,6 @@ end
 
 Log("Survivor module loaded")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AWARENESS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local function SetupAwareness()
     if State.AwarenessReady then return end
     State.AwarenessReady = true
@@ -1074,9 +958,6 @@ local function SetupAwareness()
     Log("Awareness ready")
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- BUILD UI
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local Window = WindUI:CreateWindow({
     Title = HUB.Name, Icon = "shield",
     Author = HUB.Author.." • "..HUB.Game,
@@ -1103,7 +984,6 @@ for _, def in ipairs(TAB_LIST) do
     if ok and tab then Tabs[def.key]=tab end
 end
 
--- MAIN
 if Tabs.Main then
     local T = Tabs.Main
     T:Section({Title="Information"})
@@ -1114,10 +994,9 @@ if Tabs.Main then
     T:Paragraph({Title="Workspace", Desc=
         "Generators: "..(WS.Generators and "✅" or "❌").."\n"..
         "Pallets: "..(WS.Pallets and "✅" or "❌").."\n"..
-        "Windows: "..(WS.Windows and "✅" or "❌")})
+        "Vaults: "..(WS.Vaults and "✅" or "❌")})
 end
 
--- SURVIVOR
 if Tabs.Survivor then
     local T = Tabs.Survivor
     T:Section({Title="Feature Invisible"})
@@ -1173,7 +1052,7 @@ if Tabs.Survivor then
     end})
     T:Toggle({Title="Enable Auto Skillcheck", Value=false, Callback=function(v)
         State.AutoSkillcheck=v; Surv.SetAutoSkillcheck(v)
-        if v then Notify("Auto Skillcheck","Enabled! Will auto-hit SPACE.",3) end
+        if v then Notify("Auto Skillcheck","Enabled!",3) end
     end})
 
     T:Section({Title="Generator Info"})
@@ -1182,7 +1061,6 @@ if Tabs.Survivor then
     end})
 end
 
--- AWARENESS
 if Tabs.Awareness then
     local T = Tabs.Awareness
     T:Section({Title="Killer Alerts"})
@@ -1207,7 +1085,6 @@ if Tabs.Awareness then
     T:Toggle({Title="Announcements", Value=true, Callback=function(v) State.AnnounceAlert=v end})
 end
 
--- ESP
 if Tabs.ESP then
     local T = Tabs.ESP
     T:Section({Title="Player ESP (Red=Killer, Blue=Survivor)"})
@@ -1233,9 +1110,9 @@ if Tabs.ESP then
         State.ESP_Pallets=v
         if not v and WS.Pallets then for _,p in ipairs(WS.Pallets:GetChildren()) do ESP.Clear(p) end end
     end})
-    T:Toggle({Title="Window ESP (Vault)", Value=false, Callback=function(v)
-        State.ESP_Windows=v
-        if not v and WS.Windows then for _,w in ipairs(WS.Windows:GetChildren()) do ESP.Clear(w) end end
+    T:Toggle({Title="Vault ESP (Windows)", Value=false, Callback=function(v)
+        State.ESP_Vaults=v
+        if not v and WS.Vaults then for _,w in ipairs(WS.Vaults:GetChildren()) do ESP.Clear(w) end end
     end})
     T:Toggle({Title="Item ESP", Value=false, Callback=function(v) State.ESP_Items=v end})
     T:Toggle({Title="Weapon ESP", Value=false, Callback=function(v)
@@ -1266,7 +1143,6 @@ if Tabs.ESP then
     T:Button({Title="Clear All ESP", Callback=function() ESP.ClearAll(); Notify("ESP","Cleared",2) end})
 end
 
--- MOVEMENT
 if Tabs.Movement then
     local T = Tabs.Movement
     T:Section({Title="Speed & Jump"})
@@ -1287,7 +1163,6 @@ if Tabs.Movement then
     T:Button({Title="TP to Player", Callback=Move.ToPlayer})
 end
 
--- VISUALS
 if Tabs.Visuals then
     local T = Tabs.Visuals
     T:Section({Title="Lighting"})
@@ -1311,7 +1186,6 @@ if Tabs.Visuals then
     T:Toggle({Title="Low Graphics", Value=false, Callback=function(v) State.LowGraphics=v; Vis.LowGfx(v) end})
 end
 
--- MISC
 if Tabs.Misc then
     local T = Tabs.Misc
     T:Section({Title="Audio"})
@@ -1332,7 +1206,6 @@ if Tabs.Misc then
     T:Toggle({Title="Auto Rejoin on Kick", Value=false, Callback=function(v) State.AutoRejoin=v end})
 end
 
--- SETTINGS
 if Tabs.Settings then
     local T = Tabs.Settings
     T:Section({Title="Anti-AFK"})
@@ -1358,9 +1231,6 @@ if Tabs.Settings then
     end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- POST BUILD
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SetupAwareness()
 
 CM:Add(UserInputService.InputBegan, function(inp, gpe)
@@ -1371,7 +1241,7 @@ CM:Add(UserInputService.InputBegan, function(inp, gpe)
         State.ESP_Killer=false; State.ESP_Survivors=false
         State.ESP_Generators=false; State.ESP_Items=false
         State.ESP_Weapons=false; State.ESP_Clones=false
-        State.ESP_Pallets=false; State.ESP_Windows=false
+        State.ESP_Pallets=false; State.ESP_Vaults=false
         ESP.ClearAll(); Notify("Panic","All ESP cleared!",3)
     elseif inp.KeyCode == State.InvisibleHotkey then
         State.Invisible = not State.Invisible
@@ -1432,5 +1302,5 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Notify(HUB.Name, "v"..HUB.Version.." loaded! Auto Skillcheck FIXED.", 5)
+Notify(HUB.Name, "v"..HUB.Version.." loaded!", 5)
 Log("v"..HUB.Version.." ready")
