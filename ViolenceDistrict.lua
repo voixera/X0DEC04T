@@ -1,12 +1,12 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.7.0 - Violence District [WindUI]
--- FULL RELEASE: Survivor + Killer + Config + Full Menu
+-- X0DEC04T Hub v0.7.1 - Violence District [WindUI]
+-- Fixes: Invisible (free to move), Logo (ImageLabel), Vault/Exit filter,
+--        Duplicate GetExits removed, while+continue removed
 -- Keybinds (double-tap V/G/H/R, single Insert):
 --   V=WalkSpeed | G=Invisible | H=AutoHeal | R=AutoParry
 --   Insert=Toggle UI
 --═══════════════════════════════════════════════════════════════
 
--- PART 1/3
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -24,7 +24,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_v070"
+local INSTANCE_KEY = "__X0DEC04T_v071"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -35,7 +35,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 
-Log("v0.7.0 starting")
+Log("v0.7.1 starting")
 
 -- WINDUI
 local WindUI = nil
@@ -51,9 +51,9 @@ if not WindUI then warn("WindUI failed"); return end
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.7.0",
+    Version = "0.7.1",
     Author  = "voixera",
-    LogoId  = "https://www.roblox.com/asset/?id=91626851418651",
+    LogoId  = "rbxassetid://91626851418651",
     Discord = "discord.gg/x0dec04t",
     ConfigFolder = "X0DEC04T/Configs",
 }
@@ -116,9 +116,9 @@ CM:Add(UserInputService.InputBegan, function(inp, gpe)
     end
 end)
 
--- REMOTES (Survivor + Killer)
+-- REMOTES
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-local function GR(...) 
+local function GR(...)
     if not Remotes then return nil end
     local c = Remotes
     for _,n in ipairs({...}) do c = c:FindFirstChild(n); if not c then return nil end end
@@ -143,7 +143,6 @@ local function FindKW(root, kw)
 end
 
 local R = {
-    -- Survivor
     Gen = { RepairEvent = GR("Generator","RepairEvent") },
     Game = {
         Start = GR("Game","Start"),
@@ -156,7 +155,6 @@ local R = {
     Vault = GR("Vault","VaultEvent") or FindDeep(Remotes,"VaultEvent") or FindDeep(Remotes,"Vault"),
     ExitGate = GR("ExitGate","Open") or FindDeep(Remotes,"ExitGate") or FindDeep(Remotes,"OpenExit"),
 
-    -- Killer (from your paste)
     Pallet = {
         SlideAnim = GR("Pallet","PalletSlideAnim"),
         SlideEvent = GR("Pallet","PalletSlideEvent"),
@@ -213,7 +211,9 @@ local WS = {
     FakeChars = Workspace:FindFirstChild("FakeCharacters"),
 }
 
+-- ═══════════════════════════════════════════
 -- SCANNERS
+-- ═══════════════════════════════════════════
 local function FindAllGenerators()
     local list, seen = {}, {}
     if WS.Map then
@@ -239,27 +239,7 @@ local function FindAllGenerators()
     return list
 end
 
-local function FindByName(names, mustBeModel)
-    local list = {}
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        local ok = mustBeModel and v:IsA("Model") or (v:IsA("Model") or v:IsA("BasePart"))
-        if ok then
-            local n = v.Name:lower()
-            for _, name in ipairs(names) do
-                if n == name or n:find("^"..name) then
-                    table.insert(list, v); break
-                end
-            end
-        end
-    end
-    return list
-end
-
--- ═══════════════════════════════════════════
--- STRICT SCANNERS - only real interactive objects
--- ═══════════════════════════════════════════
-
--- Blacklist: anything containing these words is NOT a real vault/exit
+-- STRICT FILTERS
 local FALSE_KEYWORDS = {
     "column", "stone", "concrete", "wall", "floor", "roof",
     "frame", "beam", "railing", "fence", "post", "pillar",
@@ -275,15 +255,31 @@ local function IsFalseObject(name)
     return false
 end
 
--- PALLETS: exact match "Palletwrong" (this game's actual name)
 local function GetPallets()
     local list = {}
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v:IsA("Model") then
             local n = v.Name
-            -- Exact matches for real pallets in this game
-            if n == "Palletwrong" or n == "Pallet" then
-                if not IsFalseObject(n) then
+            if (n == "Palletwrong" or n == "Pallet") and not IsFalseObject(n) then
+                table.insert(list, v)
+            end
+        end
+    end
+    return list
+end
+
+local function GetVaults()
+    local list = {}
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("Model") then
+            local n = v.Name
+            if (n == "Window" or n == "Vault") and not IsFalseObject(n) then
+                local hasHitbox = v:FindFirstChild("HitBox")
+                local hasClick = v:FindFirstChildWhichIsA("ClickDetector", true)
+                local hasProximity = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                local isInteractable = v:GetAttribute("Interactable")
+                    or v:GetAttribute("Vault") or v:GetAttribute("IsVault")
+                if hasHitbox or hasClick or hasProximity or isInteractable then
                     table.insert(list, v)
                 end
             end
@@ -292,60 +288,24 @@ local function GetPallets()
     return list
 end
 
--- VAULTS: exact name "Window" model with a HitBox or interactable
-local function GetVaults()
-    local list = {}
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Model") then
-            local n = v.Name
-            -- Exact matches only
-            if n == "Window" or n == "Vault" then
-                if not IsFalseObject(n) then
-                    -- Verify it's a real vault: has hitbox OR interactable OR is small enough
-                    local hasHitbox = v:FindFirstChild("HitBox")
-                    local hasClick = v:FindFirstChildWhichIsA("ClickDetector", true)
-                    local hasProximity = v:FindFirstChildWhichIsA("ProximityPrompt", true)
-                    local isInteractable = v:GetAttribute("Interactable")
-                        or v:GetAttribute("Vault")
-                        or v:GetAttribute("IsVault")
-                    if hasHitbox or hasClick or hasProximity or isInteractable then
-                        table.insert(list, v)
-                    end
-                end
-            end
-        end
-    end
-    return list
-end
-
--- EXIT GATES: strict — must be ExitGate/Gate model with switch/lever
 local function GetExits()
     local list = {}
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Model") then
+        if v:IsA("Model") and not IsFalseObject(v.Name) then
             local n = v.Name
-            local nl = n:lower()
-
-            -- Reject false matches (Driveway_Gate_Column, etc.)
-            if IsFalseObject(n) then continue end
-
-            -- Only accept exact/prefix matches
             local isExit = false
 
-            -- Exact name match
             if n == "ExitGate" or n == "Exit" or n == "EscapeGate"
                or n == "Gate" or n == "Escape" then
                 isExit = true
             end
 
-            -- Or has exit-specific attributes
             if v:GetAttribute("IsExit") ~= nil
                or v:GetAttribute("ExitGate") ~= nil
                or v:GetAttribute("EscapeGate") ~= nil then
                 isExit = true
             end
 
-            -- Or contains a Switch/Lever child (real exit gates have these)
             if isExit then
                 local hasSwitch = v:FindFirstChild("Switch")
                     or v:FindFirstChild("Lever")
@@ -353,7 +313,6 @@ local function GetExits()
                     or v:FindFirstChild("Button")
                     or v:FindFirstChildWhichIsA("ProximityPrompt", true)
                 if not hasSwitch then
-                    -- Fallback: must be a small model (real gates aren't huge structures)
                     local size = 0
                     for _, p in ipairs(v:GetDescendants()) do
                         if p:IsA("BasePart") then
@@ -365,13 +324,10 @@ local function GetExits()
                 end
             end
 
-            if isExit then
-                table.insert(list, v)
-            end
+            if isExit then table.insert(list, v) end
         end
     end
 
-    -- Also try dedicated ExitGate folder
     local gateFolder = Workspace:FindFirstChild("ExitGates")
         or Workspace:FindFirstChild("Exits")
         or (WS.Map and WS.Map:FindFirstChild("ExitGates"))
@@ -386,6 +342,7 @@ local function GetExits()
 
     return list
 end
+
 local function GetZombies()
     local list = {}
     for _, name in ipairs({"Zombies","NPCs","Enemies","Mobs","AI","Zombie"}) do
@@ -415,7 +372,6 @@ end
 
 -- STATE
 local State = {
-    -- ESP
     ESP_Player = false, ESP_Survivor = false, ESP_Killer = false,
     ESP_Zombie = false, ESP_HealthBar = true, ESP_Distance = true,
     ESP_Generator = false, ESP_GenProgress = false,
@@ -431,7 +387,6 @@ local State = {
     Color_Zombie = Color3.fromRGB(255,140,20),
     Color_Exit = Color3.fromRGB(255,255,255),
 
-    -- Survivor
     AutoGenRush = false, GenKillerRadius = 30, AutoGenMode = "Legit",
     AutoSkillcheck = false, SkillcheckMode = "Legit",
     RemoveSkillcheck = false,
@@ -443,7 +398,6 @@ local State = {
     WalkSpeedEnabled = false, WalkSpeedValue = 28,
     Invisible = false,
 
-    -- Killer
     AutoHit = false, AutoHitRange = 12,
     KillAura = false, KillAuraRange = 20,
     HitboxExpander = false, HitboxSize = 8,
@@ -455,21 +409,17 @@ local State = {
     NoStun = false,
     NoSlowdown = false,
 
-    -- Visuals
     FullBright = false, NoFog = false, NoShadows = false,
     UnlimitedZoom = false, Crosshair = false,
 
-    -- Misc
     AntiAFK = true, FPSBoost = false,
 
-    -- Settings
     Theme = "Dark", UIScale = 1, BlurBg = true,
     SoundEffects = true, Notifications = true, AutoLoadConfig = false,
 
-    -- Runtime
     WalkSpeed = 16, ESPCache = {}, GenProgressGuis = {},
-    InvisibleSavedPos = nil, InvisibleVoidPos = nil, InvisibleConn = nil,
     HitboxSaved = {}, HitboxConn = nil,
+    InvisibleConn = nil,
     NoFallConn = nil, AutoHealConn = nil, AutoParryConn = nil,
     AutoHitConn = nil, KillAuraConn = nil, AutoDamageGenConn = nil,
     SkillcheckConn = nil, RemoveSCConn = nil, AutoEscapeConn = nil,
@@ -501,7 +451,6 @@ local function Char() return LocalPlayer.Character end
 local function HRP() local c=Char(); return c and c:FindFirstChild("HumanoidRootPart") end
 local function Hum() local c=Char(); return c and c:FindFirstChildOfClass("Humanoid") end
 
--- COLOR LERP
 local function LerpColor(c1, c2, t)
     return Color3.new(
         c1.R + (c2.R - c1.R) * t,
@@ -510,7 +459,6 @@ local function LerpColor(c1, c2, t)
     )
 end
 local function GetGradientColor(pct)
-    -- 0-50%: purple->yellow, 50-100%: yellow->green
     if pct <= 0.5 then
         return LerpColor(State.Color_Generator_Low, State.Color_Generator_Mid, pct*2)
     else
@@ -575,62 +523,33 @@ function Role.AmIKiller()
     return c and Role.IsKillerChar(c)
 end
 
--- CONFIG SYSTEM (file-based JSON)
+-- CONFIG SYSTEM
 local Config = {}
-
 local function EnsureFolder()
     if not isfolder then return end
     if not isfolder("X0DEC04T") then makefolder("X0DEC04T") end
     if not isfolder("X0DEC04T/Configs") then makefolder("X0DEC04T/Configs") end
 end
-
 function Config.List()
     EnsureFolder()
     local list = {}
     if not listfiles then return list end
     for _, f in ipairs(listfiles("X0DEC04T/Configs")) do
         local name = f:match("[^/\\]+%.json$")
-        if name then
-            table.insert(list, name:gsub("%.json$", ""))
-        end
+        if name then table.insert(list, name:gsub("%.json$", "")) end
     end
     return list
 end
-
 function Config.Save(name)
     if not writefile then Notify("Config","writefile not supported",3); return false end
     EnsureFolder()
-    local data = {
-        ESP_Player = State.ESP_Player, ESP_Survivor = State.ESP_Survivor,
-        ESP_Killer = State.ESP_Killer, ESP_Zombie = State.ESP_Zombie,
-        ESP_HealthBar = State.ESP_HealthBar, ESP_Distance = State.ESP_Distance,
-        ESP_Generator = State.ESP_Generator, ESP_GenProgress = State.ESP_GenProgress,
-        ESP_Vault = State.ESP_Vault, ESP_Pallet = State.ESP_Pallet,
-        ESP_Exit = State.ESP_Exit, ESP_MaxDistance = State.ESP_MaxDistance,
-        AutoGenRush = State.AutoGenRush, GenKillerRadius = State.GenKillerRadius,
-        AutoGenMode = State.AutoGenMode, AutoSkillcheck = State.AutoSkillcheck,
-        SkillcheckMode = State.SkillcheckMode, RemoveSkillcheck = State.RemoveSkillcheck,
-        AutoHeal = State.AutoHeal, AutoHealThreshold = State.AutoHealThreshold,
-        AutoParry = State.AutoParry, ParryRange = State.ParryRange,
-        AutoEscape = State.AutoEscape, FastVault = State.FastVault,
-        NoFallDamage = State.NoFallDamage,
-        WalkSpeedEnabled = State.WalkSpeedEnabled, WalkSpeedValue = State.WalkSpeedValue,
-        AutoHit = State.AutoHit, AutoHitRange = State.AutoHitRange,
-        KillAura = State.KillAura, KillAuraRange = State.KillAuraRange,
-        HitboxExpander = State.HitboxExpander, HitboxSize = State.HitboxSize,
-        AutoDamageGen = State.AutoDamageGen, InstantDamageGen = State.InstantDamageGen,
-        InstantBreakPallet = State.InstantBreakPallet,
-        KillerWalkSpeed = State.KillerWalkSpeed, KillerWalkSpeedValue = State.KillerWalkSpeedValue,
-        LungeDist = State.LungeDist, LungeDistValue = State.LungeDistValue,
-        NoStun = State.NoStun, NoSlowdown = State.NoSlowdown,
-        FullBright = State.FullBright, NoFog = State.NoFog,
-        NoShadows = State.NoShadows, UnlimitedZoom = State.UnlimitedZoom,
-        Crosshair = State.Crosshair,
-        AntiAFK = State.AntiAFK, FPSBoost = State.FPSBoost,
-        Theme = State.Theme, UIScale = State.UIScale, BlurBg = State.BlurBg,
-        SoundEffects = State.SoundEffects, Notifications = State.Notifications,
-        AutoLoadConfig = State.AutoLoadConfig,
-    }
+    local data = {}
+    for k, v in pairs(State) do
+        local t = type(v)
+        if t == "boolean" or t == "number" or t == "string" then
+            data[k] = v
+        end
+    end
     local ok, json = pcall(HttpService.JSONEncode, HttpService, data)
     if ok then
         writefile("X0DEC04T/Configs/"..name..".json", json)
@@ -639,7 +558,6 @@ function Config.Save(name)
     end
     return false
 end
-
 function Config.Load(name)
     if not readfile then Notify("Config","readfile not supported",3); return false end
     EnsureFolder()
@@ -653,22 +571,17 @@ function Config.Load(name)
     Notify("Config","Loaded: "..name, 3)
     return true
 end
-
 function Config.Delete(name)
     if not delfile then Notify("Config","delfile not supported",3); return false end
     local path = "X0DEC04T/Configs/"..name..".json"
     if isfile(path) then
-        delfile(path)
-        Notify("Config","Deleted: "..name, 3)
-        return true
+        delfile(path); Notify("Config","Deleted: "..name, 3); return true
     end
     return false
 end
-
 function Config.SaveLastLoaded(name)
     if not writefile then return end
-    EnsureFolder()
-    writefile("X0DEC04T/last_config.txt", name)
+    EnsureFolder(); writefile("X0DEC04T/last_config.txt", name)
 end
 function Config.GetLastLoaded()
     if not readfile then return nil end
@@ -728,12 +641,9 @@ local function MakeEntry(obj, label, color, isChar, kind)
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 200, 0, isChar and 60 or 45)
     bb.StudsOffset = Vector3.new(0, isChar and 2.5 or 2, 0)
-    bb.AlwaysOnTop = true
-    bb.LightInfluence = 0
+    bb.AlwaysOnTop = true; bb.LightInfluence = 0
     bb.MaxDistance = State.ESP_MaxDistance
-    bb.ResetOnSpawn = false
-    bb.Adornee = topPart
-    bb.Parent = ESPGui
+    bb.ResetOnSpawn = false; bb.Adornee = topPart; bb.Parent = ESPGui
 
     local layout = Instance.new("UIListLayout", bb)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -806,18 +716,14 @@ local ESPRender = RunService.RenderStepped:Connect(function()
                     pcall(function() e.bb.Adornee = top end)
                 end
                 pcall(function() e.bb.MaxDistance = State.ESP_MaxDistance end)
-
                 local dist = (rp.Position - pos).Magnitude
                 local vis = dist <= State.ESP_MaxDistance
-
                 pcall(function()
                     e.dl.Text = math.floor(dist).."m"
                     e.dl.Visible = State.ESP_Distance
                     e.bb.Enabled = vis
                     e.hl.Enabled = vis
                 end)
-
-                -- Character-specific updates
                 if e.isChar and e.hp then
                     pcall(function()
                         local h = obj:FindFirstChildOfClass("Humanoid")
@@ -827,8 +733,6 @@ local ESPRender = RunService.RenderStepped:Connect(function()
                             e.hp.Text = "[HP] "..hp.."/"..mx
                             e.hp.TextColor3 = GetHealthColor(pct)
                             e.hp.Visible = State.ESP_HealthBar
-
-                            -- Survivor: sync highlight color with HP
                             if e.kind == "survivor" then
                                 local hpColor = GetHealthColor(pct)
                                 pcall(function()
@@ -840,8 +744,6 @@ local ESPRender = RunService.RenderStepped:Connect(function()
                         end
                     end)
                 end
-
-                -- Generator: gradient color based on progress
                 if e.kind == "generator" and obj:IsA("Model") then
                     local prog = obj:GetAttribute("RepairProgress") or 0
                     local pct = math.clamp(prog/100, 0, 1)
@@ -869,21 +771,18 @@ function ESP.ScanPlayers()
             local show = false
             local label, color, kind
 
-            -- Player ESP shows everyone
             if State.ESP_Player then
                 show = true
                 label = "["..p.Name.."]"
                 color = isK and State.Color_Killer or Color3.fromRGB(60,220,60)
                 kind = isK and "killer" or "survivor"
             end
-
             if isK and State.ESP_Killer then
                 show = true
                 label = "[KILLER] "..p.Name
                 color = State.Color_Killer
                 kind = "killer"
             end
-
             if not isK and State.ESP_Survivor then
                 show = true
                 label = "[SURV] "..p.Name
@@ -990,9 +889,7 @@ end
 for _, p in ipairs(Players:GetPlayers()) do HookPlayer(p) end
 CM:Add(Players.PlayerAdded, HookPlayer)
 
--- ═══════════════════════════════════════════
--- GEN PROGRESS BILLBOARDS (big overhead %)
--- ═══════════════════════════════════════════
+-- GEN PROGRESS BILLBOARDS
 local function SetGenProgressGuis(enable)
     for _, g in pairs(State.GenProgressGuis) do pcall(function() g:Destroy() end) end
     State.GenProgressGuis = {}
@@ -1029,13 +926,9 @@ local function SetGenProgressGuis(enable)
     end
 end
 
--- ═══════════════════════════════════════════
--- WALK SPEED (V) - works for both Survivor + Killer
--- ═══════════════════════════════════════════
+-- WALK SPEED
 local Move = {}
-function Move.Speed()
-    local h = Hum(); if h then h.WalkSpeed = State.WalkSpeed end
-end
+function Move.Speed() local h = Hum(); if h then h.WalkSpeed = State.WalkSpeed end end
 function Move.SetWalkSpeed(e)
     local h = Hum(); if not h then return end
     local isKiller = Role.AmIKiller()
@@ -1062,8 +955,10 @@ local function SetNoFall(e)
 end
 
 -- ═══════════════════════════════════════════
--- INVISIBLE (Void TP flow)
+-- INVISIBLE (visual only, character can move)
 -- ═══════════════════════════════════════════
+local invisibleSavedTransp = {}
+
 local function SetInvisible(enable)
     if State.InvisibleConn then
         pcall(function() State.InvisibleConn:Disconnect() end)
@@ -1071,26 +966,22 @@ local function SetInvisible(enable)
     end
     local char = Char()
     if not char then Notify("Invisible","No character",2); return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
 
     if not enable then
-        pcall(function()
-            Camera.CameraType = Enum.CameraType.Custom
-            Camera.CameraSubject = hum
-        end)
-        pcall(function()
-            hum.PlatformStand = false; hum.AutoRotate = true
-            hum.WalkSpeed = State.WalkSpeedEnabled and State.WalkSpeedValue or State.WalkSpeed
-        end)
-        if State.InvisibleSavedPos then
-            pcall(function()
-                hrp.CFrame = CFrame.new(State.InvisibleSavedPos + Vector3.new(0,3,0))
-                hrp.AssemblyLinearVelocity = Vector3.zero
-            end)
-            State.InvisibleSavedPos = nil
+        for part, orig in pairs(invisibleSavedTransp) do
+            if part and part.Parent then
+                pcall(function()
+                    if part:IsA("BasePart") then
+                        part.LocalTransparencyModifier = 0
+                        part.Transparency = orig
+                        part.CanQuery = true
+                    elseif part:IsA("Decal") or part:IsA("Texture") then
+                        part.Transparency = orig
+                    end
+                end)
+            end
         end
+        invisibleSavedTransp = {}
         pcall(function()
             char:SetAttribute("Invisible", false)
             char:SetAttribute("Untargettable", false)
@@ -1102,26 +993,24 @@ local function SetInvisible(enable)
                 if g:IsA("BillboardGui") then pcall(function() g.Enabled = true end) end
             end
         end
-        State.InvisibleVoidPos = nil
         Notify("Invisible", "OFF", 2)
         return
     end
 
-    State.InvisibleSavedPos = hrp.Position
-    local voidPos = Vector3.new(hrp.Position.X, -5000, hrp.Position.Z)
-    State.InvisibleVoidPos = voidPos
+    invisibleSavedTransp = {}
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            invisibleSavedTransp[p] = p.Transparency
+            pcall(function()
+                p.LocalTransparencyModifier = 1
+                p.CanQuery = false
+            end)
+        elseif p:IsA("Decal") or p:IsA("Texture") then
+            invisibleSavedTransp[p] = p.Transparency
+            pcall(function() p.Transparency = 1 end)
+        end
+    end
 
-    pcall(function()
-        Camera.CameraType = Enum.CameraType.Scriptable
-        Camera.CFrame = CFrame.new(hrp.Position + Vector3.new(0,5,8), hrp.Position)
-    end)
-    pcall(function()
-        hum.PlatformStand = true; hum.AutoRotate = false
-    end)
-    pcall(function()
-        hrp.CFrame = CFrame.new(voidPos)
-        hrp.AssemblyLinearVelocity = Vector3.zero
-    end)
     pcall(function()
         char:SetAttribute("Invisible", true)
         char:SetAttribute("Untargettable", true)
@@ -1139,32 +1028,24 @@ local function SetInvisible(enable)
     State.InvisibleConn = RunService.RenderStepped:Connect(function()
         if not State.Invisible then return end
         local c = Char(); if not c then return end
-        local h = c:FindFirstChild("HumanoidRootPart")
-        local hn = c:FindFirstChildOfClass("Humanoid")
-        if not h or not hn then return end
-        if State.InvisibleVoidPos and (h.Position - State.InvisibleVoidPos).Magnitude > 20 then
-            pcall(function()
-                h.CFrame = CFrame.new(State.InvisibleVoidPos)
-                h.AssemblyLinearVelocity = Vector3.zero
-            end)
+        for _, p in ipairs(c:GetDescendants()) do
+            if p:IsA("BasePart") and p.LocalTransparencyModifier < 0.99 then
+                pcall(function()
+                    p.LocalTransparencyModifier = 1
+                    p.CanQuery = false
+                end)
+            end
         end
-        if State.InvisibleSavedPos then
-            local look = Camera.CFrame.LookVector
-            local camPos = State.InvisibleSavedPos + Vector3.new(0,5,0)
-            pcall(function() Camera.CFrame = CFrame.new(camPos, camPos + look) end)
-        end
-        pcall(function() hn.PlatformStand = true; hn.AutoRotate = false end)
         pcall(function()
             if c:GetAttribute("Invisible") ~= true then c:SetAttribute("Invisible", true) end
             if c:GetAttribute("Untargettable") ~= true then c:SetAttribute("Untargettable", true) end
         end)
     end)
-    Notify("Invisible", "ON", 2)
+
+    Notify("Invisible", "ON - You can move freely", 2)
 end
 
--- ═══════════════════════════════════════════
--- AUTO HEAL (H)
--- ═══════════════════════════════════════════
+-- AUTO HEAL
 local function DoHeal()
     local c = Char(); if not c then return end
     local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
@@ -1193,9 +1074,7 @@ local function SetAutoHeal(e)
     end)
 end
 
--- ═══════════════════════════════════════════
--- AUTO PARRY (R)
--- ═══════════════════════════════════════════
+-- AUTO PARRY
 local KILLER_SWING_ATTRS = {
     "InAttack","Attacking","SwingActive","IsSwinging","SwingCooldown",
     "WindingUp","AttackStarted","WeaponSwing","LungeActive","Charging",
@@ -1211,7 +1090,6 @@ local function DoParry(reason)
         char:SetAttribute("Blocking", true)
         char:SetAttribute("Iframes", true)
     end)
-    -- Fire parry key F
     for _, k in ipairs({Enum.KeyCode.F, Enum.KeyCode.Q}) do
         pcall(function() VirtualInputMgr:SendKeyEvent(true, k, false, game) end)
         task.delay(0.05, function()
@@ -1246,9 +1124,7 @@ local function SetAutoParry(e)
     end)
 end
 
--- ═══════════════════════════════════════════
 -- AUTO GEN RUSH
--- ═══════════════════════════════════════════
 local function SetAutoGenRush(enable)
     if enable then
         if not R.Gen.RepairEvent then Notify("Auto Gen","Missing remote",4); State.AutoGenRush=false; return end
@@ -1372,7 +1248,7 @@ local function SetRemoveSkillcheck(enable)
     end)
 end
 
--- AUTO ESCAPE (opens exit gate switch + walks through)
+-- AUTO ESCAPE
 local function SetAutoEscape(enable)
     if State.AutoEscapeConn then pcall(function() State.AutoEscapeConn:Disconnect() end); State.AutoEscapeConn=nil end
     if not enable then return end
@@ -1391,7 +1267,6 @@ local function SetAutoEscape(enable)
                     if d < 100 then
                         pcall(function() hrp.CFrame = sw.CFrame + Vector3.new(0,3,0) end)
                         task.wait(0.2)
-                        -- Fire remote or press E
                         if R.ExitGate then pcall(function() R.ExitGate:FireServer(exit) end) end
                         for _, r in ipairs(FindKW(Remotes,"gate")) do
                             pcall(function() r:FireServer(exit) end)
@@ -1422,9 +1297,7 @@ local function SetFastVault(e)
     end
 end
 
--- ═══════════════════════════════════════════
--- KILLER: AUTO HIT
--- ═══════════════════════════════════════════
+-- KILLER
 local function FireHit(target)
     local ch = target and target.Character
     if not ch then return end
@@ -1457,7 +1330,6 @@ local function SetAutoHit(enable)
     end)
 end
 
--- KILL AURA
 local function SetKillAura(enable)
     if State.KillAuraConn then pcall(function() State.KillAuraConn:Disconnect() end); State.KillAuraConn=nil end
     if not enable then return end
@@ -1478,7 +1350,6 @@ local function SetKillAura(enable)
     end)
 end
 
--- HITBOX EXPANDER
 local function SetHitboxExpander(enable)
     if State.HitboxConn then pcall(function() State.HitboxConn:Disconnect() end); State.HitboxConn=nil end
     if not enable then
@@ -1521,7 +1392,6 @@ local function SetHitboxExpander(enable)
     end)
 end
 
--- AUTO DAMAGE GEN
 local function SetAutoDamageGen(enable)
     if State.AutoDamageGenConn then pcall(function() State.AutoDamageGenConn:Disconnect() end); State.AutoDamageGenConn=nil end
     if not enable then return end
@@ -1545,7 +1415,6 @@ local function SetAutoDamageGen(enable)
     end)
 end
 
--- INSTANT BREAK PALLET
 local instantPalletConn = nil
 local function SetInstantBreakPallet(enable)
     if instantPalletConn then instantPalletConn:Disconnect(); instantPalletConn = nil end
@@ -1567,7 +1436,6 @@ local function SetInstantBreakPallet(enable)
     end)
 end
 
--- LUNGE DIST
 local function SetLungeDist(e)
     local ch = Char()
     if ch then
@@ -1578,7 +1446,6 @@ local function SetLungeDist(e)
     end
 end
 
--- NO STUN
 local function SetNoStun(e)
     if State.NoStunConn then pcall(function() State.NoStunConn:Disconnect() end); State.NoStunConn=nil end
     if not e then return end
@@ -1598,7 +1465,6 @@ local function SetNoStun(e)
     end)
 end
 
--- NO SLOWDOWN
 local function SetNoSlowdown(e)
     if State.NoSlowdownConn then pcall(function() State.NoSlowdownConn:Disconnect() end); State.NoSlowdownConn=nil end
     if not e then return end
@@ -1622,9 +1488,7 @@ local function SetNoSlowdown(e)
     end)
 end
 
--- ═══════════════════════════════════════════
 -- VISUALS
--- ═══════════════════════════════════════════
 local Vis = {}
 local LB = {}
 function Vis.Backup()
@@ -1677,7 +1541,6 @@ function Vis.SetCrosshair(e)
     dot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
     dot.BorderSizePixel = 0
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-    -- Lines
     for _, dir in ipairs({{"X",1,0},{"X",-1,0},{"Y",0,1},{"Y",0,-1}}) do
         local line = Instance.new("Frame", sg)
         line.BackgroundColor3 = Color3.fromRGB(255,255,255)
@@ -1693,7 +1556,6 @@ function Vis.SetCrosshair(e)
     State.CrosshairGui = sg
 end
 
--- FPS BOOST
 local function SetFPSBoost(e)
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke")
@@ -1717,7 +1579,6 @@ local function SetFPSBoost(e)
     end)
 end
 
--- SERVER HOP
 local function ServerHop()
     pcall(function()
         local raw = game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100")
@@ -1734,7 +1595,6 @@ local function ServerHop()
     end)
 end
 
--- ANTI AFK
 CM:Add(LocalPlayer.Idled, function()
     if State.AntiAFK then
         VirtualUser:CaptureController()
@@ -1742,7 +1602,6 @@ CM:Add(LocalPlayer.Idled, function()
     end
 end)
 
--- MATCH HOOKS
 if R.Game.RoundEnd then
     CM:Add(R.Game.RoundEnd.Event, function()
         State.CurrentTargetGen = nil
@@ -1756,9 +1615,7 @@ if R.Game.Start then
     end)
 end
 
--- ═══════════════════════════════════════════
--- WINDUI SETUP
--- ═══════════════════════════════════════════
+-- WINDUI
 local Window = WindUI:CreateWindow({
     Title = HUB.Name,
     Icon = "shield",
@@ -1780,63 +1637,100 @@ Window:EditOpenButton({
 })
 
 -- ═══════════════════════════════════════════
--- FLOATING LOGO
+-- FLOATING LOGO (ImageLabel + invisible click)
 -- ═══════════════════════════════════════════
 local function CreateFloatingLogo()
     if State.LogoGui then pcall(function() State.LogoGui:Destroy() end); State.LogoGui=nil end
 
     local sg = Instance.new("ScreenGui")
-    sg.Name = "X0_Logo"; sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true; sg.DisplayOrder = 1000
+    sg.Name = "X0_Logo"
+    sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 1000
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     sg.Parent = GuiParent()
 
-        local btn = Instance.new("ImageButton")
-    btn.Name = "LogoButton"
-    btn.Size = UDim2.new(0, 55, 0, 55)
-    btn.Position = UDim2.new(0, 20, 0, 100)
+    local container = Instance.new("Frame")
+    container.Name = "LogoContainer"
+    container.Size = UDim2.new(0, 60, 0, 60)
+    container.Position = UDim2.new(0, 20, 0, 100)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.Active = true
+    container.Parent = sg
+
+    local img = Instance.new("ImageLabel")
+    img.Name = "LogoImage"
+    img.Size = UDim2.new(1, 0, 1, 0)
+    img.Position = UDim2.new(0, 0, 0, 0)
+    img.BackgroundTransparency = 1
+    img.BorderSizePixel = 0
+    img.Image = HUB.LogoId
+    img.ImageTransparency = 0
+    img.ScaleType = Enum.ScaleType.Fit
+    img.ZIndex = 2
+    img.Parent = container
+
+    local btn = Instance.new("TextButton")
+    btn.Name = "LogoClickArea"
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
     btn.BackgroundTransparency = 1
-    btn.BorderSizePixel = 0
-    btn.Image = HUB.LogoId
-    btn.ScaleType = Enum.ScaleType.Fit
+    btn.Text = ""
     btn.AutoButtonColor = false
-    btn.Active = true
-    btn.Parent = sg
+    btn.ZIndex = 3
+    btn.Parent = container
 
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {
-            Size = UDim2.new(0, 65, 0, 65),
-            ImageTransparency = 0,
+        TweenService:Create(container, TweenInfo.new(0.15), {
+            Size = UDim2.new(0, 70, 0, 70),
         }):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {
-            Size = UDim2.new(0, 55, 0, 55),
-            ImageTransparency = 0,
+        TweenService:Create(container, TweenInfo.new(0.15), {
+            Size = UDim2.new(0, 60, 0, 60),
         }):Play()
     end)
 
-    local dragging, dragStart, startPos, moved = false, nil, nil, false
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    local moved = false
+
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = input.Position; startPos = btn.Position; moved = false
+            dragging = true
+            dragStart = input.Position
+            startPos = container.Position
+            moved = false
         end
     end)
+
     UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
            or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
             if delta.Magnitude > 5 then moved = true end
-            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+delta.X, startPos.Y.Scale, startPos.Y.Offset+delta.Y)
+            container.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
+
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
            or input.UserInputType == Enum.UserInputType.Touch then
             if dragging and not moved then
                 pcall(function()
-                    if State.UIOpen then Window:Close(); State.UIOpen = false
-                    else Window:Open(); State.UIOpen = true end
+                    if State.UIOpen then
+                        Window:Close()
+                        State.UIOpen = false
+                    else
+                        Window:Open()
+                        State.UIOpen = true
+                    end
                 end)
             end
             dragging = false
@@ -1844,13 +1738,12 @@ local function CreateFloatingLogo()
     end)
 
     State.LogoGui = sg
+    Log("Floating logo created")
     return sg
 end
 CreateFloatingLogo()
 
--- ═══════════════════════════════════════════
--- REGISTER KEYBINDS
--- ═══════════════════════════════════════════
+-- KEYBINDS
 KB.Register("WalkSpeed", Enum.KeyCode.V, function()
     State.WalkSpeedEnabled = not State.WalkSpeedEnabled
     Move.SetWalkSpeed(State.WalkSpeedEnabled)
@@ -1881,9 +1774,7 @@ KB.Register("ToggleUI", Enum.KeyCode.Insert, function()
     end)
 end, false)
 
--- ═══════════════════════════════════════════
 -- TABS
--- ═══════════════════════════════════════════
 local Tabs = {
     Main       = Window:Tab({ Title = "Main",       Icon = "house" }),
     ESP        = Window:Tab({ Title = "ESP",        Icon = "eye" }),
@@ -1897,7 +1788,7 @@ local Tabs = {
     Info       = Window:Tab({ Title = "Info",       Icon = "info" }),
 }
 
--- ═══════════ MAIN ═══════════
+-- MAIN
 Tabs.Main:Section({ Title = "Added in v"..HUB.Version })
 Tabs.Main:Paragraph({
     Title = "New Features",
@@ -1905,30 +1796,26 @@ Tabs.Main:Paragraph({
         .."- Auto Escape via exit gate switch\n"
         .."- Fast Vault\n"
         .."- Auto Parry with keybind R\n"
-        .."- Color-syncing ESP (survivor HP color, gen progress gradient)\n"
-        .."- Full config system (create/save/load/delete + auto-load)\n"
+        .."- Color-syncing ESP\n"
+        .."- Full config system\n"
         .."- Insert = toggle UI, floating logo",
 })
-
 Tabs.Main:Section({ Title = "Fixed" })
 Tabs.Main:Paragraph({
     Title = "Fixed Features",
-    Desc = "- Invisible now works via void TP (POV locked)\n"
-        .."- ESP labels moved above head\n"
-        .."- Full-map generator/pallet/vault scan\n"
-        .."- Keybinds blocked while typing\n"
-        .."- while+continue loop error resolved",
+    Desc = "- Invisible: character stays free to move (visual only)\n"
+        .."- Floating logo: uses ImageLabel wrapper (renders reliably)\n"
+        .."- Vault/Exit filter: rejects columns/walls/decorations\n"
+        .."- Duplicate GetExits removed\n"
+        .."- while+continue error resolved",
 })
-
 Tabs.Main:Section({ Title = "Deleted" })
 Tabs.Main:Paragraph({
     Title = "Removed Features",
-    Desc = "- Spike ESP (not in this game)\n"
-        .."- Hook ESP (rare usage)\n"
-        .."- Clone/Weapon ESP (unused)",
+    Desc = "- Spike ESP\n- Hook ESP\n- Clone/Weapon ESP",
 })
 
--- ═══════════ ESP ═══════════
+-- ESP
 Tabs.ESP:Section({ Title = "Players" })
 Tabs.ESP:Toggle({
     Title = "Player ESP", Desc = "Highlights all players",
@@ -1944,7 +1831,7 @@ Tabs.ESP:Toggle({
     end,
 })
 Tabs.ESP:Toggle({
-    Title = "Survivor ESP", Desc = "Color syncs with HP (green/yellow/red)",
+    Title = "Survivor ESP", Desc = "Color syncs with HP",
     Default = false,
     Callback = function(v)
         State.ESP_Survivor = v; Role.ResetKillerCache()
@@ -1983,17 +1870,17 @@ Tabs.ESP:Toggle({
 
 Tabs.ESP:Section({ Title = "Display" })
 Tabs.ESP:Toggle({
-    Title = "Health Bar ESP", Desc = "Green -> Yellow -> Red",
-    Default = true, Callback = function(v) State.ESP_HealthBar = v end,
+    Title = "Health Bar ESP", Default = true,
+    Callback = function(v) State.ESP_HealthBar = v end,
 })
 Tabs.ESP:Toggle({
-    Title = "Distance ESP", Desc = "Show distance in meters",
-    Default = true, Callback = function(v) State.ESP_Distance = v end,
+    Title = "Distance ESP", Default = true,
+    Callback = function(v) State.ESP_Distance = v end,
 })
 
 Tabs.ESP:Section({ Title = "Generators" })
 Tabs.ESP:Toggle({
-    Title = "Generator ESP", Desc = "Purple -> Yellow -> Green gradient",
+    Title = "Generator ESP", Desc = "Purple > Yellow > Green gradient",
     Default = false,
     Callback = function(v)
         State.ESP_Generator = v
@@ -2002,17 +1889,14 @@ Tabs.ESP:Toggle({
     end,
 })
 Tabs.ESP:Toggle({
-    Title = "Generator Progress ESP", Desc = "Big % above each gen (gradient)",
+    Title = "Generator Progress ESP", Desc = "Big % above each gen",
     Default = false,
-    Callback = function(v)
-        State.ESP_GenProgress = v; SetGenProgressGuis(v)
-    end,
+    Callback = function(v) State.ESP_GenProgress = v; SetGenProgressGuis(v) end,
 })
 
 Tabs.ESP:Section({ Title = "Map Objects" })
 Tabs.ESP:Toggle({
-    Title = "Exit Gate ESP", Desc = "White highlights",
-    Default = false,
+    Title = "Exit Gate ESP", Default = false,
     Callback = function(v)
         State.ESP_Exit = v
         if not v then for _, e in ipairs(GetExits()) do ESP.Remove(e) end
@@ -2020,8 +1904,7 @@ Tabs.ESP:Toggle({
     end,
 })
 Tabs.ESP:Toggle({
-    Title = "Vault ESP", Desc = "Purple highlights",
-    Default = false,
+    Title = "Vault ESP", Default = false,
     Callback = function(v)
         State.ESP_Vault = v
         if not v then for _, w in ipairs(GetVaults()) do ESP.Remove(w) end
@@ -2029,8 +1912,7 @@ Tabs.ESP:Toggle({
     end,
 })
 Tabs.ESP:Toggle({
-    Title = "Pallet ESP", Desc = "Orange highlights",
-    Default = false,
+    Title = "Pallet ESP", Default = false,
     Callback = function(v)
         State.ESP_Pallet = v
         if not v then for _, p in ipairs(GetPallets()) do ESP.Remove(p) end
@@ -2051,7 +1933,6 @@ end })
 Tabs.ESP:Button({ Title = "Clear All ESP", Callback = function()
     ESP.ClearAll(); Notify("ESP","Cleared",2)
 end })
-
 Tabs.ESP:Button({ Title = "Debug: Print Detected Objects", Callback = function()
     print("=== VAULTS ("..#GetVaults()..") ===")
     for _, v in ipairs(GetVaults()) do print("  "..v:GetFullName()) end
@@ -2062,7 +1943,7 @@ Tabs.ESP:Button({ Title = "Debug: Print Detected Objects", Callback = function()
     Notify("Debug","Check output console",3)
 end })
 
--- ═══════════ SURVIVOR ═══════════
+-- SURVIVOR
 Tabs.Survivor:Section({ Title = "Auto Gen Rush" })
 Tabs.Survivor:Slider({
     Title = "Killer Radius (stop if closer)",
@@ -2074,8 +1955,7 @@ Tabs.Survivor:Dropdown({
     Callback = function(v) State.AutoGenMode = v end,
 })
 Tabs.Survivor:Toggle({
-    Title = "Auto Gen Rush", Desc = "Repairs when killer is outside radius",
-    Default = false,
+    Title = "Auto Gen Rush", Default = false,
     Callback = function(v) State.AutoGenRush = v; SetAutoGenRush(v) end,
 })
 
@@ -2092,8 +1972,7 @@ Tabs.Survivor:Toggle({
     Callback = function(v) State.AutoSkillcheck = v; SetAutoSkillcheck(v) end,
 })
 Tabs.Survivor:Toggle({
-    Title = "Remove Skillcheck", Desc = "Hides skillcheck UI entirely",
-    Default = false,
+    Title = "Remove Skillcheck", Default = false,
     Callback = function(v) State.RemoveSkillcheck = v; SetRemoveSkillcheck(v) end,
 })
 
@@ -2121,8 +2000,7 @@ Tabs.Survivor:Toggle({
 
 Tabs.Survivor:Section({ Title = "Escape" })
 Tabs.Survivor:Toggle({
-    Title = "Auto Escape", Desc = "Opens gate switch + escapes",
-    Default = false,
+    Title = "Auto Escape", Default = false,
     Callback = function(v) State.AutoEscape = v; SetAutoEscape(v) end,
 })
 Tabs.Survivor:Toggle({
@@ -2151,14 +2029,15 @@ Tabs.Survivor:Toggle({
 Tabs.Survivor:Section({ Title = "Invisible (Double-tap G)" })
 Tabs.Survivor:Paragraph({
     Title = "How It Works",
-    Desc = "Character TP to void (Y=-5000). Camera stays at your last position. Others can't see or hit you.",
+    Desc = "Visual only - you can move around freely.\n"
+        .."Uses LocalTransparencyModifier + Untargettable attribute.",
 })
 Tabs.Survivor:Toggle({
     Title = "Invisible", Default = false,
     Callback = function(v) State.Invisible = v; SetInvisible(v) end,
 })
 
--- ═══════════ KILLER ═══════════
+-- KILLER
 Tabs.Killer:Section({ Title = "Auto Hit" })
 Tabs.Killer:Slider({
     Title = "Hit Range", Value = { Min = 5, Max = 40, Default = 12 },
@@ -2185,8 +2064,7 @@ Tabs.Killer:Slider({
     Callback = function(v) State.HitboxSize = tonumber(v) or 8 end,
 })
 Tabs.Killer:Toggle({
-    Title = "Hitbox Expander", Desc = "Enlarges survivor hitboxes",
-    Default = false,
+    Title = "Hitbox Expander", Default = false,
     Callback = function(v) State.HitboxExpander = v; SetHitboxExpander(v) end,
 })
 
@@ -2232,13 +2110,11 @@ Tabs.Killer:Toggle({
 
 Tabs.Killer:Section({ Title = "Immunity" })
 Tabs.Killer:Toggle({
-    Title = "No Stun", Desc = "Ignore pallet stuns",
-    Default = false,
+    Title = "No Stun", Default = false,
     Callback = function(v) State.NoStun = v; SetNoStun(v) end,
 })
 Tabs.Killer:Toggle({
-    Title = "No Slowdown", Desc = "No slowdown after attacking/breaking",
-    Default = false,
+    Title = "No Slowdown", Default = false,
     Callback = function(v) State.NoSlowdown = v; SetNoSlowdown(v) end,
 })
 
@@ -2248,7 +2124,7 @@ Tabs.Killer:Toggle({
     Callback = function(v) State.Invisible = v; SetInvisible(v) end,
 })
 
--- ═══════════ VISUALS ═══════════
+-- VISUALS
 Tabs.Visuals:Section({ Title = "Lighting" })
 Tabs.Visuals:Toggle({
     Title = "Full Bright", Default = false,
@@ -2269,12 +2145,11 @@ Tabs.Visuals:Toggle({
     Callback = function(v) State.UnlimitedZoom = v; Vis.UnlimitedZoom(v) end,
 })
 Tabs.Visuals:Toggle({
-    Title = "Crosshair", Desc = "Center-screen crosshair",
-    Default = false,
+    Title = "Crosshair", Default = false,
     Callback = function(v) State.Crosshair = v; Vis.SetCrosshair(v) end,
 })
 
--- ═══════════ MISC ═══════════
+-- MISC
 Tabs.Misc:Section({ Title = "Performance" })
 Tabs.Misc:Toggle({
     Title = "Anti AFK", Default = true,
@@ -2294,7 +2169,7 @@ Tabs.Misc:Button({
 })
 Tabs.Misc:Button({ Title = "Server Hop", Callback = ServerHop })
 
--- ═══════════ CONFIGS ═══════════
+-- CONFIGS
 local currentConfigName = ""
 Tabs.Configs:Section({ Title = "Create / Save" })
 Tabs.Configs:Input({
@@ -2352,7 +2227,7 @@ Tabs.Configs:Toggle({
     Callback = function(v) State.AutoLoadConfig = v end,
 })
 
--- ═══════════ KEYBINDS ═══════════
+-- KEYBINDS
 Tabs.Keybinds:Section({ Title = "Keybind List" })
 Tabs.Keybinds:Paragraph({
     Title = "Current Bindings",
@@ -2396,7 +2271,7 @@ Tabs.Keybinds:Slider({
     Callback = function(v) KB.DoubleTapWindow = (tonumber(v) or 7) * 0.05 end,
 })
 
--- ═══════════ SETTINGS ═══════════
+-- SETTINGS
 Tabs.Settings:Section({ Title = "Appearance" })
 Tabs.Settings:Dropdown({
     Title = "UI Theme",
@@ -2440,6 +2315,14 @@ Tabs.Settings:Toggle({
         else
             if State.LogoGui then State.LogoGui.Enabled = false end
         end
+    end,
+})
+
+Tabs.Settings:Button({
+    Title = "Force Recreate Floating Logo",
+    Callback = function()
+        CreateFloatingLogo()
+        Notify("Logo","Recreated at top-left",3)
     end,
 })
 
@@ -2489,13 +2372,12 @@ Tabs.Settings:Button({
     end,
 })
 
--- ═══════════ INFO ═══════════
+-- INFO
 Tabs.Info:Section({ Title = "About" })
 Tabs.Info:Paragraph({
     Title = HUB.Name.." v"..HUB.Version,
     Desc = "Game: "..HUB.Game.."\nDeveloper: "..HUB.Author,
 })
-
 Tabs.Info:Section({ Title = "Community" })
 Tabs.Info:Button({
     Title = "Discord Server", Callback = function()
@@ -2507,18 +2389,15 @@ Tabs.Info:Button({
         end
     end,
 })
-
 Tabs.Info:Section({ Title = "Developer" })
 Tabs.Info:Paragraph({
     Title = "Made By",
-    Desc = HUB.Author.."\n\nSpecial thanks to WindUI by Footagesus and God",
+    Desc = HUB.Author.."\n\nSpecial thanks to WindUI by Footagesus",
 })
 
--- ═══════════════════════════════════════════
 -- CHARACTER RESPAWN
--- ═══════════════════════════════════════════
 CM:Add(LocalPlayer.CharacterAdded, function()
-    State.InvisibleSavedPos = nil; State.InvisibleVoidPos = nil
+    invisibleSavedTransp = {}
     pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
     if State.Invisible then
         State.Invisible = false
@@ -2549,9 +2428,7 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.ESP_GenProgress then SetGenProgressGuis(true) end
 end)
 
--- ═══════════════════════════════════════════
 -- AUTO LOAD CONFIG
--- ═══════════════════════════════════════════
 task.spawn(function()
     task.wait(1)
     if State.AutoLoadConfig then
@@ -2563,9 +2440,7 @@ task.spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════
 -- GLOBAL INSTANCE
--- ═══════════════════════════════════════════
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
@@ -2598,4 +2473,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v"..HUB.Version.." | Insert=UI | V/G/H/R=double-tap", 5)
-Log("v0.7.0 fully loaded")
+Log("v0.7.1 fully loaded")
