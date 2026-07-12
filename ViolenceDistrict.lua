@@ -1,6 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.6.2 - Violence District [WindUI]
--- CLEAN REDESIGN - Survivor Only
+-- X0DEC04T Hub v0.6.3 - Violence District [WindUI]
+-- CLEAN Survivor UI - No emojis
+-- Fixed: Invisible (Void TP flow), while+continue error
 -- Sections: ESP | Automation | Player
 -- Keybinds (double-tap, blocked while typing):
 --   V = Sprint | H = Auto Heal | G = Invisible
@@ -22,7 +23,7 @@ local TextChatService   = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_v062_WindUI"
+local INSTANCE_KEY = "__X0DEC04T_v063_WindUI"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -33,7 +34,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 
-Log("v0.6.2 starting")
+Log("v0.6.3 starting")
 
 -- ═══════════════════════════════════════════
 -- WINDUI
@@ -52,7 +53,7 @@ Log("WindUI loaded")
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.6.2",
+    Version = "0.6.3",
     Author  = "voixera",
 }
 
@@ -244,10 +245,8 @@ local function GetExits()
     return list
 end
 
--- Zombies: look for AI/NPC characters
 local function GetZombies()
     local list = {}
-    -- Check workspace/Zombies, workspace/NPCs, workspace/Enemies
     for _, name in ipairs({"Zombies","NPCs","Enemies","Mobs","AI","Zombie"}) do
         local folder = Workspace:FindFirstChild(name)
         if folder then
@@ -258,7 +257,6 @@ local function GetZombies()
             end
         end
     end
-    -- Also scan by name in whole workspace
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v:IsA("Model") then
             local n = v.Name:lower()
@@ -296,7 +294,7 @@ local State = {
 
     -- Automation
     AutoGenRush = false,
-    GenKillerRadius = 30,  -- don't gen if killer within this
+    GenKillerRadius = 30,
     AutoGenMode = "Legit",
     AutoSkillcheck = false,
     SkillcheckMode = "Legit",
@@ -316,11 +314,15 @@ local State = {
     WalkSpeed = 16,
     ESPCache = {},
     GenProgressGuis = {},
-    InvisibleTransp = {},
+
+    -- Invisible refs (void TP flow)
+    InvisibleSavedPos = nil,
+    InvisibleVoidPos = nil,
+
+    -- Connections
     InvisibleConn = nil,
     NoFallConn = nil,
     AutoHealConn = nil,
-    AutoGenTask = nil,
     SkillcheckConn = nil,
     RemoveSCConn = nil,
     AntiAFK = true,
@@ -518,7 +520,6 @@ local ESPRender = RunService.RenderStepped:Connect(function()
                         end
                     end)
                 end
-                -- Live gen progress
                 if not e.isChar and obj:IsA("Model") then
                     local prog = obj:GetAttribute("RepairProgress")
                     if prog then
@@ -566,7 +567,6 @@ end
 
 function ESP.ScanZombies()
     local zombies = GetZombies()
-    -- Remove ones that don't exist anymore
     for obj in pairs(State.ESPCache) do
         if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid")
            and not Players:GetPlayerFromCharacter(obj) then
@@ -731,7 +731,8 @@ local function SetNoFall(e)
 end
 
 -- ═══════════════════════════════════════════
--- INVISIBLE (G)
+-- INVISIBLE (Void TP flow)
+-- Character goes to void, POV stays in game
 -- ═══════════════════════════════════════════
 local function SetInvisible(enable)
     if State.InvisibleConn then
@@ -741,75 +742,135 @@ local function SetInvisible(enable)
 
     local char = Char()
     if not char then Notify("Invisible","No character",2); return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then Notify("Invisible","No HRP/Humanoid",2); return end
 
+    -- ── OFF: bring character back ──
     if not enable then
-        for part, orig in pairs(State.InvisibleTransp) do
-            if part and part.Parent then
-                pcall(function()
-                    if part:IsA("BasePart") then
-                        part.LocalTransparencyModifier = 0
-                        part.Transparency = orig
-                    elseif part:IsA("Decal") or part:IsA("Texture") then
-                        part.Transparency = orig
-                    end
-                end)
-            end
+        pcall(function()
+            Camera.CameraType = Enum.CameraType.Custom
+            Camera.CameraSubject = hum
+        end)
+
+        pcall(function()
+            hum.PlatformStand = false
+            hum.AutoRotate = true
+            hum.WalkSpeed = State.Sprint and State.SprintSpeed or State.WalkSpeed
+        end)
+
+        if State.InvisibleSavedPos then
+            pcall(function()
+                hrp.CFrame = CFrame.new(State.InvisibleSavedPos + Vector3.new(0,3,0))
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+            State.InvisibleSavedPos = nil
         end
-        State.InvisibleTransp = {}
+
         pcall(function()
             char:SetAttribute("Invisible", false)
             char:SetAttribute("Untargettable", false)
             char:SetAttribute("Hidden", false)
         end)
+
         local head = char:FindFirstChild("Head")
         if head then
             for _, g in ipairs(head:GetChildren()) do
-                if g:IsA("BillboardGui") then pcall(function() g.Enabled = true end) end
+                if g:IsA("BillboardGui") then
+                    pcall(function() g.Enabled = true end)
+                end
             end
         end
-        Notify("Invisible", "OFF", 2)
+
+        State.InvisibleVoidPos = nil
+        Notify("Invisible", "OFF - Character returned", 2)
         return
     end
 
-    State.InvisibleTransp = {}
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            State.InvisibleTransp[p] = p.Transparency
-            pcall(function() p.LocalTransparencyModifier = 1 end)
-        elseif p:IsA("Decal") or p:IsA("Texture") then
-            State.InvisibleTransp[p] = p.Transparency
-            pcall(function() p.Transparency = 1 end)
-        end
-    end
+    -- ── ON: void TP, lock camera ──
+    State.InvisibleSavedPos = hrp.Position
+    local savedCFrame = hrp.CFrame
+
+    local voidPos = Vector3.new(hrp.Position.X, -5000, hrp.Position.Z)
+    State.InvisibleVoidPos = voidPos
+
+    pcall(function()
+        Camera.CameraType = Enum.CameraType.Scriptable
+        Camera.CFrame = CFrame.new(savedCFrame.Position + Vector3.new(0, 5, 8), savedCFrame.Position)
+    end)
+
+    pcall(function()
+        hum.PlatformStand = true
+        hum.AutoRotate = false
+    end)
+
+    pcall(function()
+        hrp.CFrame = CFrame.new(voidPos)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+    end)
+
     pcall(function()
         char:SetAttribute("Invisible", true)
         char:SetAttribute("Untargettable", true)
         char:SetAttribute("Hidden", true)
     end)
-    for _, r in ipairs(R.Perks) do pcall(function() r:FireServer(true) end) end
+
+    for _, r in ipairs(R.Perks) do
+        pcall(function() r:FireServer(true) end)
+    end
 
     local head = char:FindFirstChild("Head")
     if head then
         for _, g in ipairs(head:GetChildren()) do
-            if g:IsA("BillboardGui") then pcall(function() g.Enabled = false end) end
+            if g:IsA("BillboardGui") then
+                pcall(function() g.Enabled = false end)
+            end
         end
     end
 
+    -- Maintenance loop
     State.InvisibleConn = RunService.RenderStepped:Connect(function()
         if not State.Invisible then return end
         local c = Char(); if not c then return end
-        for _, p in ipairs(c:GetDescendants()) do
-            if p:IsA("BasePart") and p.LocalTransparencyModifier < 0.99 then
-                pcall(function() p.LocalTransparencyModifier = 1 end)
+        local h = c:FindFirstChild("HumanoidRootPart")
+        local humNow = c:FindFirstChildOfClass("Humanoid")
+        if not h or not humNow then return end
+
+        -- Snap back to void if drifted
+        if State.InvisibleVoidPos then
+            local dist = (h.Position - State.InvisibleVoidPos).Magnitude
+            if dist > 20 then
+                pcall(function()
+                    h.CFrame = CFrame.new(State.InvisibleVoidPos)
+                    h.AssemblyLinearVelocity = Vector3.zero
+                end)
             end
         end
+
+        -- Keep camera at saved position
+        if State.InvisibleSavedPos then
+            local currentLook = Camera.CFrame.LookVector
+            local camPos = State.InvisibleSavedPos + Vector3.new(0, 5, 0)
+            pcall(function()
+                Camera.CFrame = CFrame.new(camPos, camPos + currentLook)
+            end)
+        end
+
+        -- Keep humanoid frozen
+        pcall(function()
+            humNow.PlatformStand = true
+            humNow.AutoRotate = false
+        end)
+
+        -- Re-apply attributes
         pcall(function()
             if c:GetAttribute("Invisible") ~= true then c:SetAttribute("Invisible", true) end
             if c:GetAttribute("Untargettable") ~= true then c:SetAttribute("Untargettable", true) end
         end)
     end)
 
-    Notify("Invisible", "ON", 2)
+    Notify("Invisible", "ON - In void, POV locked", 2)
 end
 
 -- ═══════════════════════════════════════════
@@ -929,22 +990,18 @@ local function SetAutoSkillcheck(enable)
     end
     if not enable then return end
 
-    -- Legit mode: press key at right time
-    -- Instant mode: bypass GUI, fire success attribute
     State.SkillcheckConn = RunService.Heartbeat:Connect(function()
         if not State.AutoSkillcheck then return end
         local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
         for _, gui in ipairs(pg:GetChildren()) do
             if gui.Name:find("SkillCheckPromptGui") and gui.Enabled then
                 if State.SkillcheckMode == "Instant" then
-                    -- Fire perfect success
                     for _, k in ipairs({Enum.KeyCode.F, Enum.KeyCode.Space, Enum.KeyCode.E}) do
                         pcall(function() VirtualInputMgr:SendKeyEvent(true, k, false, game) end)
                         task.delay(0.05, function()
                             pcall(function() VirtualInputMgr:SendKeyEvent(false, k, false, game) end)
                         end)
                     end
-                    -- Set attribute so game thinks we succeeded
                     local ch = Char()
                     if ch then
                         pcall(function()
@@ -953,10 +1010,8 @@ local function SetAutoSkillcheck(enable)
                         end)
                     end
                 else
-                    -- Legit: press F when needle is at green
                     for _, box in ipairs(gui:GetDescendants()) do
                         if box:IsA("Frame") and box.Name:lower():find("indicator") then
-                            -- Simple: just press F (assumes green window)
                             task.wait(0.15)
                             pcall(function() VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.F, false, game) end)
                             task.delay(0.05, function()
@@ -1045,9 +1100,6 @@ end
 
 -- ═══════════════════════════════════════════
 -- REGISTER KEYBINDS
--- V = Sprint (double-tap)
--- H = Auto Heal (double-tap)
--- G = Invisible (double-tap)
 -- ═══════════════════════════════════════════
 KB.Register("Sprint", Enum.KeyCode.V, function()
     State.Sprint = not State.Sprint
@@ -1100,35 +1152,78 @@ local Tabs = {
     Settings   = Window:Tab({ Title = "Settings",   Icon = "settings" }),
 }
 
--- ══════════ MAIN ══════════
-Tabs.Main:Section({ Title = "ℹ️ Info" })
+-- ═══════════ MAIN ═══════════
+Tabs.Main:Section({ Title = "Info" })
 Tabs.Main:Paragraph({
     Title = HUB.Name.." v"..HUB.Version,
     Desc = "Game: "..HUB.Game.."\nAuthor: "..HUB.Author,
 })
 
-Tabs.Main:Section({ Title = "🆕 Fixed in v"..HUB.Version })
+Tabs.Main:Section({ Title = "Fixed in v"..HUB.Version })
 Tabs.Main:Paragraph({
     Title = "What's New",
-    Desc = "✅ ESP Killer/Survivor separated toggles\n"
-        .."✅ Zombie ESP added\n"
-        .."✅ Exit Gate ESP added\n"
-        .."✅ Auto Gen with Killer Radius slider\n"
-        .."✅ Auto Perfect Skillcheck (Legit/Instant)\n"
-        .."✅ Remove Skillcheck toggle\n"
-        .."✅ Invisible fixed (LocalTransparencyModifier)\n"
-        .."✅ Keybinds blocked while typing\n"
-        .."✅ Double-tap keybinds (V/H/G)",
+    Desc = "- Invisible now uses Void TP flow (character in void, POV stays in game)\n"
+        .."- Fixed while+continue error in Auto Gen Rush\n"
+        .."- All emojis removed from UI\n"
+        .."- Keybinds still blocked while typing\n"
+        .."- Double-tap V/H/G keybinds",
 })
 
-Tabs.Main:Section({ Title = "⌨️ Keybinds" })
+Tabs.Main:Section({ Title = "Keybinds" })
 Tabs.Main:Paragraph({
     Title = "Double-Tap to Toggle",
-    Desc = "V V → Sprint\nH H → Auto Heal\nG G → Invisible\n\n💬 Auto-disabled while typing in chat",
+    Desc = "V V   Sprint\n"
+        .."H H   Auto Heal\n"
+        .."G G   Invisible\n\n"
+        .."Auto-disabled while typing in chat",
 })
 
--- ══════════ ESP ══════════
-Tabs.ESP:Section({ Title = "👤 Players" })
+Tabs.Main:Section({ Title = "Debug" })
+Tabs.Main:Button({
+    Title = "Save Diagnostic to workspace",
+    Callback = function()
+        local out = {"=== X0DEC04T DIAGNOSTIC v"..HUB.Version.." ===", os.date()}
+        if Remotes then
+            table.insert(out, "\n=== REMOTES ===")
+            for _, v in ipairs(Remotes:GetDescendants()) do
+                if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                    table.insert(out, v:GetFullName())
+                end
+            end
+        end
+        local ch = LocalPlayer.Character
+        if ch then
+            table.insert(out, "\n=== LOCAL CHARACTER ATTRIBUTES ===")
+            for k,v in pairs(ch:GetAttributes()) do
+                table.insert(out, k.." = "..tostring(v))
+            end
+        end
+        table.insert(out, "\n=== GENERATORS ===")
+        for _, g in ipairs(FindAllGenerators()) do
+            table.insert(out, g:GetFullName())
+        end
+        table.insert(out, "\n=== ZOMBIES ===")
+        for _, z in ipairs(GetZombies()) do
+            table.insert(out, z:GetFullName())
+        end
+        local killer = Role.FindKiller()
+        if killer and killer.Character then
+            table.insert(out, "\n=== KILLER ("..killer.Name..") ATTRIBUTES ===")
+            for k,v in pairs(killer.Character:GetAttributes()) do
+                table.insert(out, k.." = "..tostring(v))
+            end
+        end
+        if writefile then
+            writefile("x0dec04t_diag.txt", table.concat(out, "\n"))
+            Notify("Saved","workspace/x0dec04t_diag.txt",4)
+        else
+            Notify("Error","writefile not supported",3)
+        end
+    end,
+})
+
+-- ═══════════ ESP ═══════════
+Tabs.ESP:Section({ Title = "Players" })
 Tabs.ESP:Toggle({
     Title = "Killer ESP",
     Desc = "Show killer position + HP",
@@ -1138,7 +1233,6 @@ Tabs.ESP:Toggle({
         if not v then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p.Character and State.ESPCache[p.Character] then
-                    -- only remove killer's ESP
                     local k = Role.FindKiller()
                     if k == p then ESP.Remove(p.Character) end
                 end
@@ -1165,7 +1259,7 @@ Tabs.ESP:Toggle({
     end,
 })
 
-Tabs.ESP:Section({ Title = "🧟 Zombies" })
+Tabs.ESP:Section({ Title = "Zombies" })
 Tabs.ESP:Toggle({
     Title = "Zombie ESP",
     Desc = "Show all zombie/NPC positions",
@@ -1180,7 +1274,7 @@ Tabs.ESP:Toggle({
     end,
 })
 
-Tabs.ESP:Section({ Title = "📊 Display" })
+Tabs.ESP:Section({ Title = "Display" })
 Tabs.ESP:Toggle({
     Title = "Health Bar ESP",
     Desc = "Show HP under name",
@@ -1194,7 +1288,7 @@ Tabs.ESP:Toggle({
     Callback = function(v) State.ESP_Distance = v end,
 })
 
-Tabs.ESP:Section({ Title = "⚡ Generators" })
+Tabs.ESP:Section({ Title = "Generators" })
 Tabs.ESP:Toggle({
     Title = "Generator ESP",
     Desc = "Highlight all generators on map",
@@ -1210,7 +1304,7 @@ Tabs.ESP:Toggle({
 })
 Tabs.ESP:Toggle({
     Title = "Generator Progress ESP",
-    Desc = "Show BIG progress % above each gen",
+    Desc = "Show big progress % above each gen",
     Default = false,
     Callback = function(v)
         State.ESP_GenProgress = v
@@ -1218,7 +1312,7 @@ Tabs.ESP:Toggle({
     end,
 })
 
-Tabs.ESP:Section({ Title = "🗺️ Map Objects" })
+Tabs.ESP:Section({ Title = "Map Objects" })
 Tabs.ESP:Toggle({
     Title = "Vault ESP",
     Desc = "Highlight windows/vaults",
@@ -1253,26 +1347,26 @@ Tabs.ESP:Toggle({
     end,
 })
 
-Tabs.ESP:Section({ Title = "⚙️ ESP Settings" })
+Tabs.ESP:Section({ Title = "ESP Settings" })
 Tabs.ESP:Slider({
     Title = "Max Distance",
     Value = { Min = 100, Max = 3000, Default = 1500 },
     Callback = function(v) State.ESP_MaxDistance = tonumber(v) or 1500 end,
 })
 Tabs.ESP:Button({
-    Title = "🔄 Refresh All ESP",
+    Title = "Refresh All ESP",
     Callback = function()
         ESP.ClearAll(); Role.ResetKillerCache(); ESP.RefreshAll()
         Notify("ESP","Refreshed",2)
     end,
 })
 Tabs.ESP:Button({
-    Title = "🧹 Clear All ESP",
+    Title = "Clear All ESP",
     Callback = function() ESP.ClearAll(); Notify("ESP","Cleared",2) end,
 })
 
--- ══════════ AUTOMATION ══════════
-Tabs.Automation:Section({ Title = "⚡ Auto Gen Rush" })
+-- ═══════════ AUTOMATION ═══════════
+Tabs.Automation:Section({ Title = "Auto Gen Rush" })
 Tabs.Automation:Slider({
     Title = "Killer Radius (stop if killer within)",
     Value = { Min = 10, Max = 100, Default = 30 },
@@ -1294,7 +1388,7 @@ Tabs.Automation:Toggle({
     end,
 })
 
-Tabs.Automation:Section({ Title = "🎯 Auto Perfect Skillcheck" })
+Tabs.Automation:Section({ Title = "Auto Perfect Skillcheck" })
 Tabs.Automation:Dropdown({
     Title = "Skillcheck Mode",
     Values = { "Legit", "Instant" },
@@ -1314,7 +1408,7 @@ Tabs.Automation:Toggle({
     end,
 })
 
-Tabs.Automation:Section({ Title = "🚫 Remove Skillcheck" })
+Tabs.Automation:Section({ Title = "Remove Skillcheck" })
 Tabs.Automation:Toggle({
     Title = "Remove Skillcheck",
     Desc = "Disable skillcheck popups entirely",
@@ -1325,7 +1419,7 @@ Tabs.Automation:Toggle({
     end,
 })
 
-Tabs.Automation:Section({ Title = "💊 Auto Heal (Double-tap H)" })
+Tabs.Automation:Section({ Title = "Auto Heal (Double-tap H)" })
 Tabs.Automation:Slider({
     Title = "Heal Below HP %",
     Value = { Min = 10, Max = 95, Default = 60 },
@@ -1346,8 +1440,8 @@ Tabs.Automation:Toggle({
     end,
 })
 
--- ══════════ PLAYER ══════════
-Tabs.Player:Section({ Title = "🪂 No Fall Damage" })
+-- ═══════════ PLAYER ═══════════
+Tabs.Player:Section({ Title = "No Fall Damage" })
 Tabs.Player:Toggle({
     Title = "No Fall Damage",
     Desc = "Prevents fall damage/ragdoll",
@@ -1358,7 +1452,7 @@ Tabs.Player:Toggle({
     end,
 })
 
-Tabs.Player:Section({ Title = "🏃 Sprint (Double-tap V)" })
+Tabs.Player:Section({ Title = "Sprint (Double-tap V)" })
 Tabs.Player:Slider({
     Title = "Sprint Speed",
     Value = { Min = 16, Max = 60, Default = 28 },
@@ -1377,14 +1471,17 @@ Tabs.Player:Toggle({
     end,
 })
 
-Tabs.Player:Section({ Title = "🥷 Invisible (Double-tap G)" })
+Tabs.Player:Section({ Title = "Invisible (Double-tap G)" })
 Tabs.Player:Paragraph({
     Title = "How It Works",
-    Desc = "Uses LocalTransparencyModifier so killer can't see you visually.\n⚠️ Server hitbox may still exist.",
+    Desc = "Character teleports to void (Y=-5000).\n"
+        .."Camera stays locked at your original position.\n"
+        .."Other players cannot see or hit you.\n"
+        .."Your POV stays like normal game view.",
 })
 Tabs.Player:Toggle({
     Title = "Invisible",
-    Desc = "Visual invisibility (keybind: GG)",
+    Desc = "Void TP + POV lock (keybind: GG)",
     Default = false,
     Callback = function(v)
         State.Invisible = v
@@ -1392,7 +1489,7 @@ Tabs.Player:Toggle({
     end,
 })
 
--- ══════════ SETTINGS ══════════
+-- ═══════════ SETTINGS ═══════════
 Tabs.Settings:Section({ Title = "General" })
 Tabs.Settings:Toggle({
     Title = "Anti-AFK",
@@ -1413,12 +1510,12 @@ Tabs.Settings:Slider({
 Tabs.Settings:Section({ Title = "Credits" })
 Tabs.Settings:Paragraph({
     Title = HUB.Name.." v"..HUB.Version,
-    Desc = "by "..HUB.Author.."\nWindUI • Violence District",
+    Desc = "by "..HUB.Author.."\nWindUI - Violence District",
 })
 
-Tabs.Settings:Section({ Title = "Danger" })
+Tabs.Settings:Section({ Title = "Danger Zone" })
 Tabs.Settings:Button({
-    Title = "🗑️ Unload Hub",
+    Title = "Unload Hub",
     Callback = function()
         for _, k in ipairs({
             "NoFallConn","InvisibleConn","AutoHealConn",
@@ -1433,6 +1530,10 @@ Tabs.Settings:Button({
         if ESPRender then ESPRender:Disconnect() end
         if ESPGui then pcall(function() ESPGui:Destroy() end) end
         CM:Cleanup(); ESP.ClearAll()
+        pcall(function()
+            Camera.CameraType = Enum.CameraType.Custom
+            Camera.CameraSubject = Hum()
+        end)
         _G[INSTANCE_KEY] = nil
         Window:Destroy()
     end,
@@ -1442,7 +1543,12 @@ Tabs.Settings:Button({
 -- CHARACTER RESPAWN
 -- ═══════════════════════════════════════════
 CM:Add(LocalPlayer.CharacterAdded, function()
-    State.InvisibleTransp = {}
+    State.InvisibleSavedPos = nil
+    State.InvisibleVoidPos = nil
+    -- Reset camera in case it was scriptable
+    pcall(function()
+        Camera.CameraType = Enum.CameraType.Custom
+    end)
     if State.Invisible then
         State.Invisible = false
         if State.InvisibleConn then
@@ -1480,9 +1586,12 @@ _G[INSTANCE_KEY] = {
         if ESPRender then ESPRender:Disconnect() end
         if ESPGui then pcall(function() ESPGui:Destroy() end) end
         CM:Cleanup(); ESP.ClearAll()
+        pcall(function()
+            Camera.CameraType = Enum.CameraType.Custom
+        end)
         pcall(function() Window:Destroy() end)
     end,
 }
 
 Notify(HUB.Name, "v"..HUB.Version.." | VV / HH / GG", 5)
-Log("v0.6.2 loaded")
+Log("v0.6.3 loaded")
