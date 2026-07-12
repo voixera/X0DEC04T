@@ -1673,32 +1673,29 @@ local function CreateFloatingLogo()
     sg.IgnoreGuiInset = true; sg.DisplayOrder = 1000
     sg.Parent = GuiParent()
 
-    local btn = Instance.new("ImageButton")
+        local btn = Instance.new("ImageButton")
     btn.Name = "LogoButton"
     btn.Size = UDim2.new(0, 55, 0, 55)
     btn.Position = UDim2.new(0, 20, 0, 100)
-    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    btn.BackgroundTransparency = 0.2; btn.BorderSizePixel = 0
+    btn.BackgroundTransparency = 1
+    btn.BorderSizePixel = 0
     btn.Image = HUB.LogoId
     btn.ScaleType = Enum.ScaleType.Fit
-    btn.AutoButtonColor = false; btn.Active = true
+    btn.AutoButtonColor = false
+    btn.Active = true
     btn.Parent = sg
 
-    local corner = Instance.new("UICorner", btn); corner.CornerRadius = UDim.new(1,0)
-    local stroke = Instance.new("UIStroke", btn)
-    stroke.Color = Color3.fromRGB(100, 180, 255)
-    stroke.Thickness = 2; stroke.Transparency = 0.2
-    local pad = Instance.new("UIPadding", btn)
-    pad.PaddingTop = UDim.new(0,4); pad.PaddingBottom = UDim.new(0,4)
-    pad.PaddingLeft = UDim.new(0,4); pad.PaddingRight = UDim.new(0,4)
-
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {Size = UDim2.new(0,62,0,62), BackgroundTransparency = 0}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.15), {Thickness = 3, Transparency = 0}):Play()
+        TweenService:Create(btn, TweenInfo.new(0.15), {
+            Size = UDim2.new(0, 65, 0, 65),
+            ImageTransparency = 0,
+        }):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {Size = UDim2.new(0,55,0,55), BackgroundTransparency = 0.2}):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.15), {Thickness = 2, Transparency = 0.2}):Play()
+        TweenService:Create(btn, TweenInfo.new(0.15), {
+            Size = UDim2.new(0, 55, 0, 55),
+            ImageTransparency = 0,
+        }):Play()
     end)
 
     local dragging, dragStart, startPos, moved = false, nil, nil, false
@@ -1771,7 +1768,7 @@ end, false)
 -- TABS
 -- ═══════════════════════════════════════════
 local Tabs = {
-    Main       = Window:Tab({ Title = "Main",       Icon = "home" }),
+    Main       = Window:Tab({ Title = "Main",       Icon = "house" }),
     ESP        = Window:Tab({ Title = "ESP",        Icon = "eye" }),
     Survivor   = Window:Tab({ Title = "Survivor",   Icon = "shield" }),
     Killer     = Window:Tab({ Title = "Killer",     Icon = "sword" }),
