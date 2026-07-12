@@ -53,7 +53,7 @@ local HUB = {
     Game    = "Violence District",
     Version = "0.7.0",
     Author  = "voixera",
-    LogoId  = "rbxassetid://91626851418651",
+    LogoId  = "https://www.roblox.com/asset/?id=91626851418651",
     Discord = "discord.gg/x0dec04t",
     ConfigFolder = "X0DEC04T/Configs",
 }
@@ -255,18 +255,135 @@ local function FindByName(names, mustBeModel)
     return list
 end
 
-local function GetPallets() return FindByName({"palletwrong","pallet"}, true) end
-local function GetVaults() return FindByName({"window","vault"}, true) end
+-- ═══════════════════════════════════════════
+-- STRICT SCANNERS - only real interactive objects
+-- ═══════════════════════════════════════════
+
+-- Blacklist: anything containing these words is NOT a real vault/exit
+local FALSE_KEYWORDS = {
+    "column", "stone", "concrete", "wall", "floor", "roof",
+    "frame", "beam", "railing", "fence", "post", "pillar",
+    "driveway", "decoration", "trim", "asset", "prop",
+    "static", "detail", "brick", "wood", "metal",
+}
+
+local function IsFalseObject(name)
+    local n = name:lower()
+    for _, kw in ipairs(FALSE_KEYWORDS) do
+        if n:find(kw) then return true end
+    end
+    return false
+end
+
+-- PALLETS: exact match "Palletwrong" (this game's actual name)
+local function GetPallets()
+    local list = {}
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("Model") then
+            local n = v.Name
+            -- Exact matches for real pallets in this game
+            if n == "Palletwrong" or n == "Pallet" then
+                if not IsFalseObject(n) then
+                    table.insert(list, v)
+                end
+            end
+        end
+    end
+    return list
+end
+
+-- VAULTS: exact name "Window" model with a HitBox or interactable
+local function GetVaults()
+    local list = {}
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("Model") then
+            local n = v.Name
+            -- Exact matches only
+            if n == "Window" or n == "Vault" then
+                if not IsFalseObject(n) then
+                    -- Verify it's a real vault: has hitbox OR interactable OR is small enough
+                    local hasHitbox = v:FindFirstChild("HitBox")
+                    local hasClick = v:FindFirstChildWhichIsA("ClickDetector", true)
+                    local hasProximity = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    local isInteractable = v:GetAttribute("Interactable")
+                        or v:GetAttribute("Vault")
+                        or v:GetAttribute("IsVault")
+                    if hasHitbox or hasClick or hasProximity or isInteractable then
+                        table.insert(list, v)
+                    end
+                end
+            end
+        end
+    end
+    return list
+end
+
+-- EXIT GATES: strict — must be ExitGate/Gate model with switch/lever
 local function GetExits()
     local list = {}
     for _, v in ipairs(Workspace:GetDescendants()) do
-        local n = v.Name:lower()
-        if v:IsA("Model") or v:IsA("BasePart") then
-            if n:find("exit") or n:find("gate") or n:find("escape") then
+        if v:IsA("Model") then
+            local n = v.Name
+            local nl = n:lower()
+
+            -- Reject false matches (Driveway_Gate_Column, etc.)
+            if IsFalseObject(n) then continue end
+
+            -- Only accept exact/prefix matches
+            local isExit = false
+
+            -- Exact name match
+            if n == "ExitGate" or n == "Exit" or n == "EscapeGate"
+               or n == "Gate" or n == "Escape" then
+                isExit = true
+            end
+
+            -- Or has exit-specific attributes
+            if v:GetAttribute("IsExit") ~= nil
+               or v:GetAttribute("ExitGate") ~= nil
+               or v:GetAttribute("EscapeGate") ~= nil then
+                isExit = true
+            end
+
+            -- Or contains a Switch/Lever child (real exit gates have these)
+            if isExit then
+                local hasSwitch = v:FindFirstChild("Switch")
+                    or v:FindFirstChild("Lever")
+                    or v:FindFirstChild("Handle")
+                    or v:FindFirstChild("Button")
+                    or v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if not hasSwitch then
+                    -- Fallback: must be a small model (real gates aren't huge structures)
+                    local size = 0
+                    for _, p in ipairs(v:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            size = size + 1
+                            if size > 15 then break end
+                        end
+                    end
+                    if size > 15 then isExit = false end
+                end
+            end
+
+            if isExit then
                 table.insert(list, v)
             end
         end
     end
+
+    -- Also try dedicated ExitGate folder
+    local gateFolder = Workspace:FindFirstChild("ExitGates")
+        or Workspace:FindFirstChild("Exits")
+        or (WS.Map and WS.Map:FindFirstChild("ExitGates"))
+        or (WS.Map and WS.Map:FindFirstChild("Exits"))
+    if gateFolder then
+        for _, g in ipairs(gateFolder:GetChildren()) do
+            local dup = false
+            for _, e in ipairs(list) do if e == g then dup = true; break end end
+            if not dup then table.insert(list, g) end
+        end
+    end
+
     return list
 end
 local function GetZombies()
@@ -1935,6 +2052,16 @@ Tabs.ESP:Button({ Title = "Clear All ESP", Callback = function()
     ESP.ClearAll(); Notify("ESP","Cleared",2)
 end })
 
+Tabs.ESP:Button({ Title = "Debug: Print Detected Objects", Callback = function()
+    print("=== VAULTS ("..#GetVaults()..") ===")
+    for _, v in ipairs(GetVaults()) do print("  "..v:GetFullName()) end
+    print("=== EXITS ("..#GetExits()..") ===")
+    for _, v in ipairs(GetExits()) do print("  "..v:GetFullName()) end
+    print("=== PALLETS ("..#GetPallets()..") ===")
+    for _, v in ipairs(GetPallets()) do print("  "..v:GetFullName()) end
+    Notify("Debug","Check output console",3)
+end })
+
 -- ═══════════ SURVIVOR ═══════════
 Tabs.Survivor:Section({ Title = "Auto Gen Rush" })
 Tabs.Survivor:Slider({
@@ -2384,7 +2511,7 @@ Tabs.Info:Button({
 Tabs.Info:Section({ Title = "Developer" })
 Tabs.Info:Paragraph({
     Title = "Made By",
-    Desc = HUB.Author.."\n\nSpecial thanks to WindUI by Footagesus",
+    Desc = HUB.Author.."\n\nSpecial thanks to WindUI by Footagesus and God",
 })
 
 -- ═══════════════════════════════════════════
