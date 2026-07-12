@@ -1,10 +1,9 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.7.1 - Violence District [WindUI]
--- Fixes: Invisible (free to move), Logo (ImageLabel), Vault/Exit filter,
---        Duplicate GetExits removed, while+continue removed
--- Keybinds (double-tap V/G/H/R, single Insert):
---   V=WalkSpeed | G=Invisible | H=AutoHeal | R=AutoParry
---   Insert=Toggle UI
+-- X0DEC04T Hub v0.7.2 - Violence District [WindUI]
+-- Fixed: Skillcheck (uses SkillCheckResultEvent + Space key)
+-- Fixed: Remove Skillcheck disables both scripts
+-- Fixed: Auto Heal fires healing skillcheck for perfect
+-- English UI text only
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -20,11 +19,19 @@ local TeleportService   = game:GetService("TeleportService")
 local VirtualInputMgr   = game:GetService("VirtualInputManager")
 local TextChatService   = game:GetService("TextChatService")
 local TweenService      = game:GetService("TweenService")
+local LocalizationService = game:GetService("LocalizationService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_v071"
+-- Force English locale for UI
+pcall(function()
+    if LocalizationService then
+        LocalizationService.RobloxLocaleId = "en-us"
+    end
+end)
+
+local INSTANCE_KEY = "__X0DEC04T_v072"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -35,7 +42,7 @@ end
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
 
-Log("v0.7.1 starting")
+Log("v0.7.2 starting")
 
 -- WINDUI
 local WindUI = nil
@@ -51,11 +58,10 @@ if not WindUI then warn("WindUI failed"); return end
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.7.1",
+    Version = "0.7.2",
     Author  = "voixera",
     LogoId  = "rbxassetid://91626851418651",
     Discord = "discord.gg/x0dec04t",
-    ConfigFolder = "X0DEC04T/Configs",
 }
 
 -- CONNECTION MANAGER
@@ -155,6 +161,16 @@ local R = {
     Vault = GR("Vault","VaultEvent") or FindDeep(Remotes,"VaultEvent") or FindDeep(Remotes,"Vault"),
     ExitGate = GR("ExitGate","Open") or FindDeep(Remotes,"ExitGate") or FindDeep(Remotes,"OpenExit"),
 
+    -- Skillcheck remotes (confirmed from diagnostic)
+    SkillCheck = {
+        GenResult   = GR("Generator","SkillCheckResultEvent"),
+        GenEvent    = GR("Generator","SkillCheckEvent"),
+        GenFail     = GR("Generator","SkillCheckFailEvent"),
+        HealResult  = GR("Healing","SkillCheckResultEvent"),
+        HealEvent   = GR("Healing","SkillCheckEvent"),
+        HealFail    = GR("Healing","SkillCheckFailEvent"),
+    },
+
     Pallet = {
         SlideAnim = GR("Pallet","PalletSlideAnim"),
         SlideEvent = GR("Pallet","PalletSlideEvent"),
@@ -200,9 +216,8 @@ for _, kw in ipairs({"invis","hidden","stealth","cloak","perk"}) do
     for _, r in ipairs(FindKW(Remotes,kw)) do table.insert(R.Perks, r) end
 end
 
-Log("Heal:"..(R.Heal and "y" or "n").." | Vault:"..(R.Vault and "y" or "n")
-    .." | Attack:"..(R.Attacks.Basic and "y" or "n")
-    .." | Break:"..(R.GenBreak.Event and "y" or "n"))
+Log("Heal:"..(R.Heal and "y" or "n").." | SkillCheck:"..(R.SkillCheck.GenResult and "y" or "n")
+    .." | Attack:"..(R.Attacks.Basic and "y" or "n"))
 
 -- WORKSPACE
 local WS = {
@@ -211,9 +226,7 @@ local WS = {
     FakeChars = Workspace:FindFirstChild("FakeCharacters"),
 }
 
--- ═══════════════════════════════════════════
 -- SCANNERS
--- ═══════════════════════════════════════════
 local function FindAllGenerators()
     local list, seen = {}, {}
     if WS.Map then
@@ -239,7 +252,6 @@ local function FindAllGenerators()
     return list
 end
 
--- STRICT FILTERS
 local FALSE_KEYWORDS = {
     "column", "stone", "concrete", "wall", "floor", "roof",
     "frame", "beam", "railing", "fence", "post", "pillar",
@@ -546,9 +558,7 @@ function Config.Save(name)
     local data = {}
     for k, v in pairs(State) do
         local t = type(v)
-        if t == "boolean" or t == "number" or t == "string" then
-            data[k] = v
-        end
+        if t == "boolean" or t == "number" or t == "string" then data[k] = v end
     end
     local ok, json = pcall(HttpService.JSONEncode, HttpService, data)
     if ok then
@@ -590,9 +600,7 @@ function Config.GetLastLoaded()
     return nil
 end
 
--- ═══════════════════════════════════════════
 -- ESP
--- ═══════════════════════════════════════════
 local ESP = {}
 local ESPGui
 do
@@ -889,7 +897,7 @@ end
 for _, p in ipairs(Players:GetPlayers()) do HookPlayer(p) end
 CM:Add(Players.PlayerAdded, HookPlayer)
 
--- GEN PROGRESS BILLBOARDS
+-- GEN PROGRESS
 local function SetGenProgressGuis(enable)
     for _, g in pairs(State.GenProgressGuis) do pcall(function() g:Destroy() end) end
     State.GenProgressGuis = {}
@@ -954,11 +962,8 @@ local function SetNoFall(e)
     end
 end
 
--- ═══════════════════════════════════════════
--- INVISIBLE (visual only, character can move)
--- ═══════════════════════════════════════════
+-- INVISIBLE (visual only)
 local invisibleSavedTransp = {}
-
 local function SetInvisible(enable)
     if State.InvisibleConn then
         pcall(function() State.InvisibleConn:Disconnect() end)
@@ -1010,7 +1015,6 @@ local function SetInvisible(enable)
             pcall(function() p.Transparency = 1 end)
         end
     end
-
     pcall(function()
         char:SetAttribute("Invisible", true)
         char:SetAttribute("Untargettable", true)
@@ -1041,11 +1045,10 @@ local function SetInvisible(enable)
             if c:GetAttribute("Untargettable") ~= true then c:SetAttribute("Untargettable", true) end
         end)
     end)
-
     Notify("Invisible", "ON - You can move freely", 2)
 end
 
--- AUTO HEAL
+-- AUTO HEAL (fires healing skillcheck perfect)
 local function DoHeal()
     local c = Char(); if not c then return end
     local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
@@ -1055,6 +1058,11 @@ local function DoHeal()
     State.LastHealTime = tick()
     if R.Heal then pcall(function() R.Heal:FireServer() end) end
     for _, r in ipairs(R.HealAlts) do pcall(function() r:FireServer() end) end
+    -- Fire healing skillcheck perfect result
+    if R.SkillCheck and R.SkillCheck.HealResult then
+        pcall(function() R.SkillCheck.HealResult:FireServer("Perfect") end)
+        pcall(function() R.SkillCheck.HealResult:FireServer(true) end)
+    end
     pcall(function()
         c:SetAttribute("IsHealing", true); c:SetAttribute("Healing", true)
     end)
@@ -1187,63 +1195,134 @@ local function SetAutoGenRush(enable)
     end
 end
 
--- AUTO SKILLCHECK
+-- AUTO SKILLCHECK (uses exact remotes from diagnostic)
 local function SetAutoSkillcheck(enable)
     if State.SkillcheckConn then pcall(function() State.SkillcheckConn:Disconnect() end); State.SkillcheckConn=nil end
     if not enable then return end
+
     State.SkillcheckConn = RunService.Heartbeat:Connect(function()
         if not State.AutoSkillcheck then return end
         local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
+
+        -- Check for visible skillcheck GUI
+        local scVisible = false
         for _, gui in ipairs(pg:GetChildren()) do
-            if gui.Name:find("SkillCheckPromptGui") and gui.Enabled then
-                if State.SkillcheckMode == "Instant" then
-                    for _, k in ipairs({Enum.KeyCode.F, Enum.KeyCode.Space}) do
-                        pcall(function() VirtualInputMgr:SendKeyEvent(true, k, false, game) end)
-                        task.delay(0.05, function()
-                            pcall(function() VirtualInputMgr:SendKeyEvent(false, k, false, game) end)
-                        end)
-                    end
-                    local ch = Char()
-                    if ch then pcall(function()
-                        ch:SetAttribute("SkillcheckPerfect", true)
-                        ch:SetAttribute("SkillcheckSuccess", true)
-                    end) end
-                else
-                    task.wait(0.15)
-                    pcall(function() VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.F, false, game) end)
-                    task.delay(0.05, function()
-                        pcall(function() VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.F, false, game) end)
-                    end)
+            if (gui.Name == "SkillCheckPromptGui" or gui.Name == "SkillCheckPromptGui-con")
+               and gui.Enabled then
+                scVisible = true; break
+            end
+        end
+        if not scVisible then return end
+
+        if State.SkillcheckMode == "Instant" then
+            -- Fire result remote directly with perfect result
+            if R.SkillCheck.GenResult then
+                pcall(function() R.SkillCheck.GenResult:FireServer("Perfect") end)
+                pcall(function() R.SkillCheck.GenResult:FireServer(true) end)
+                pcall(function() R.SkillCheck.GenResult:FireServer("perfect") end)
+                pcall(function() R.SkillCheck.GenResult:FireServer(1) end)
+                pcall(function() R.SkillCheck.GenResult:FireServer() end)
+            end
+            if R.SkillCheck.HealResult then
+                pcall(function() R.SkillCheck.HealResult:FireServer("Perfect") end)
+                pcall(function() R.SkillCheck.HealResult:FireServer(true) end)
+                pcall(function() R.SkillCheck.HealResult:FireServer("perfect") end)
+                pcall(function() R.SkillCheck.HealResult:FireServer(1) end)
+                pcall(function() R.SkillCheck.HealResult:FireServer() end)
+            end
+            local ch = Char()
+            if ch then
+                pcall(function()
+                    ch:SetAttribute("SkillcheckPerfect", true)
+                    ch:SetAttribute("SkillcheckSuccess", true)
+                end)
+            end
+            for _, gui in ipairs(pg:GetChildren()) do
+                if gui.Name == "SkillCheckPromptGui" or gui.Name == "SkillCheckPromptGui-con" then
+                    pcall(function() gui.Enabled = false end)
                 end
             end
+            task.wait(0.2)
+        else
+            -- Legit: press Space
+            pcall(function()
+                VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            end)
+            task.delay(0.05, function()
+                pcall(function()
+                    VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                end)
+            end)
+            task.wait(0.1)
         end
     end)
 end
 
--- REMOVE SKILLCHECK
+-- REMOVE SKILLCHECK (disables Skillcheck-gen + Skillcheck-player)
 local function SetRemoveSkillcheck(enable)
     if State.RemoveSCConn then pcall(function() State.RemoveSCConn:Disconnect() end); State.RemoveSCConn=nil end
+
     if not enable then
         local ch = Char()
         if ch then
-            local sc = ch:FindFirstChild("Skillcheck-gen")
-            if sc then pcall(function() sc.Disabled = false end) end
+            local scGen = ch:FindFirstChild("Skillcheck-gen")
+            local scPlayer = ch:FindFirstChild("Skillcheck-player")
+            if scGen then pcall(function() scGen.Disabled = false end) end
+            if scPlayer then pcall(function() scPlayer.Disabled = false end) end
+            pcall(function()
+                ch:SetAttribute("skillcheckfrequency", 1)
+                ch:SetAttribute("skillcheckspeed", 1)
+            end)
+        end
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, gui in ipairs(pg:GetChildren()) do
+                if gui.Name == "SkillCheckPromptGui" or gui.Name == "SkillCheckPromptGui-con" then
+                    pcall(function() gui.Enabled = true end)
+                end
+            end
         end
         return
     end
+
+    local function disableAll()
+        local ch = Char(); if not ch then return end
+        local scGen = ch:FindFirstChild("Skillcheck-gen")
+        local scPlayer = ch:FindFirstChild("Skillcheck-player")
+        if scGen then pcall(function() scGen.Disabled = true end) end
+        if scPlayer then pcall(function() scPlayer.Disabled = true end) end
+        pcall(function()
+            ch:SetAttribute("skillcheckfrequency", 0)
+            ch:SetAttribute("skillcheckspeed", 0)
+        end)
+    end
+    disableAll()
+
     State.RemoveSCConn = RunService.Heartbeat:Connect(function()
         if not State.RemoveSkillcheck then return end
         local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
         for _, gui in ipairs(pg:GetChildren()) do
-            if gui.Name:find("SkillCheckPromptGui") and gui.Enabled then
+            if (gui.Name == "SkillCheckPromptGui" or gui.Name == "SkillCheckPromptGui-con")
+               and gui.Enabled then
                 pcall(function() gui.Enabled = false end)
             end
         end
         local ch = Char()
         if ch then
-            local sc = ch:FindFirstChild("Skillcheck-gen")
-            if sc and not sc.Disabled then pcall(function() sc.Disabled = true end) end
-            pcall(function() ch:SetAttribute("skillcheckfrequency", 0) end)
+            local scGen = ch:FindFirstChild("Skillcheck-gen")
+            local scPlayer = ch:FindFirstChild("Skillcheck-player")
+            if scGen and not scGen.Disabled then
+                pcall(function() scGen.Disabled = true end)
+            end
+            if scPlayer and not scPlayer.Disabled then
+                pcall(function() scPlayer.Disabled = true end)
+            end
+            if ch:GetAttribute("skillcheckfrequency") ~= 0 then
+                pcall(function() ch:SetAttribute("skillcheckfrequency", 0) end)
+            end
+            if ch:GetAttribute("skillcheckspeed") ~= 0 then
+                pcall(function() ch:SetAttribute("skillcheckspeed", 0) end)
+            end
         end
     end)
 end
@@ -1615,7 +1694,7 @@ if R.Game.Start then
     end)
 end
 
--- WINDUI
+-- WINDUI (English locale forced)
 local Window = WindUI:CreateWindow({
     Title = HUB.Name,
     Icon = "shield",
@@ -1628,6 +1707,7 @@ local Window = WindUI:CreateWindow({
     HideSearchBar = false,
     ScrollBarEnabled = true,
     KeySystem = false,
+    Language = "en",
 })
 
 Window:EditOpenButton({
@@ -1636,17 +1716,12 @@ Window:EditOpenButton({
     Enabled = false, Draggable = true,
 })
 
--- ═══════════════════════════════════════════
--- FLOATING LOGO (ImageLabel + invisible click)
--- ═══════════════════════════════════════════
+-- FLOATING LOGO
 local function CreateFloatingLogo()
     if State.LogoGui then pcall(function() State.LogoGui:Destroy() end); State.LogoGui=nil end
-
     local sg = Instance.new("ScreenGui")
-    sg.Name = "X0_Logo"
-    sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    sg.DisplayOrder = 1000
+    sg.Name = "X0_Logo"; sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true; sg.DisplayOrder = 1000
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     sg.Parent = GuiParent()
 
@@ -1662,11 +1737,9 @@ local function CreateFloatingLogo()
     local img = Instance.new("ImageLabel")
     img.Name = "LogoImage"
     img.Size = UDim2.new(1, 0, 1, 0)
-    img.Position = UDim2.new(0, 0, 0, 0)
     img.BackgroundTransparency = 1
     img.BorderSizePixel = 0
     img.Image = HUB.LogoId
-    img.ImageTransparency = 0
     img.ScaleType = Enum.ScaleType.Fit
     img.ZIndex = 2
     img.Parent = container
@@ -1674,7 +1747,6 @@ local function CreateFloatingLogo()
     local btn = Instance.new("TextButton")
     btn.Name = "LogoClickArea"
     btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
     btn.BackgroundTransparency = 1
     btn.Text = ""
     btn.AutoButtonColor = false
@@ -1682,55 +1754,34 @@ local function CreateFloatingLogo()
     btn.Parent = container
 
     btn.MouseEnter:Connect(function()
-        TweenService:Create(container, TweenInfo.new(0.15), {
-            Size = UDim2.new(0, 70, 0, 70),
-        }):Play()
+        TweenService:Create(container, TweenInfo.new(0.15), {Size = UDim2.new(0, 70, 0, 70)}):Play()
     end)
     btn.MouseLeave:Connect(function()
-        TweenService:Create(container, TweenInfo.new(0.15), {
-            Size = UDim2.new(0, 60, 0, 60),
-        }):Play()
+        TweenService:Create(container, TweenInfo.new(0.15), {Size = UDim2.new(0, 60, 0, 60)}):Play()
     end)
 
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-    local moved = false
-
+    local dragging, dragStart, startPos, moved = false, nil, nil, false
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = container.Position
-            moved = false
+            dragging = true; dragStart = input.Position; startPos = container.Position; moved = false
         end
     end)
-
     UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
            or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
             if delta.Magnitude > 5 then moved = true end
-            container.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+            container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+delta.X, startPos.Y.Scale, startPos.Y.Offset+delta.Y)
         end
     end)
-
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
            or input.UserInputType == Enum.UserInputType.Touch then
             if dragging and not moved then
                 pcall(function()
-                    if State.UIOpen then
-                        Window:Close()
-                        State.UIOpen = false
-                    else
-                        Window:Open()
-                        State.UIOpen = true
-                    end
+                    if State.UIOpen then Window:Close(); State.UIOpen = false
+                    else Window:Open(); State.UIOpen = true end
                 end)
             end
             dragging = false
@@ -1738,7 +1789,6 @@ local function CreateFloatingLogo()
     end)
 
     State.LogoGui = sg
-    Log("Floating logo created")
     return sg
 end
 CreateFloatingLogo()
@@ -1749,24 +1799,20 @@ KB.Register("WalkSpeed", Enum.KeyCode.V, function()
     Move.SetWalkSpeed(State.WalkSpeedEnabled)
     Notify("Walk Speed (VV)", State.WalkSpeedEnabled and "ON" or "OFF", 1.5)
 end, true)
-
 KB.Register("AutoHeal", Enum.KeyCode.H, function()
     State.AutoHeal = not State.AutoHeal
     SetAutoHeal(State.AutoHeal)
     Notify("Auto Heal (HH)", State.AutoHeal and "ON" or "OFF", 1.5)
 end, true)
-
 KB.Register("Invisible", Enum.KeyCode.G, function()
     State.Invisible = not State.Invisible
     SetInvisible(State.Invisible)
 end, true)
-
 KB.Register("AutoParry", Enum.KeyCode.R, function()
     State.AutoParry = not State.AutoParry
     SetAutoParry(State.AutoParry)
     Notify("Auto Parry (RR)", State.AutoParry and "ON" or "OFF", 1.5)
 end, true)
-
 KB.Register("ToggleUI", Enum.KeyCode.Insert, function()
     pcall(function()
         if State.UIOpen then Window:Close(); State.UIOpen = false
@@ -1792,24 +1838,25 @@ local Tabs = {
 Tabs.Main:Section({ Title = "Added in v"..HUB.Version })
 Tabs.Main:Paragraph({
     Title = "New Features",
-    Desc = "- Full Killer tab (Auto Hit, Kill Aura, Hitbox, Break, Stun/Slow)\n"
+    Desc = "- Full Killer tab\n"
         .."- Auto Escape via exit gate switch\n"
         .."- Fast Vault\n"
         .."- Auto Parry with keybind R\n"
         .."- Color-syncing ESP\n"
-        .."- Full config system\n"
+        .."- Config system\n"
         .."- Insert = toggle UI, floating logo",
 })
-Tabs.Main:Section({ Title = "Fixed" })
+Tabs.Main:Section({ Title = "Fixed in v"..HUB.Version })
 Tabs.Main:Paragraph({
     Title = "Fixed Features",
-    Desc = "- Invisible: character stays free to move (visual only)\n"
-        .."- Floating logo: uses ImageLabel wrapper (renders reliably)\n"
-        .."- Vault/Exit filter: rejects columns/walls/decorations\n"
-        .."- Duplicate GetExits removed\n"
-        .."- while+continue error resolved",
+    Desc = "- Auto Perfect Skillcheck: uses SkillCheckResultEvent (Instant) + Space (Legit)\n"
+        .."- Remove Skillcheck: disables Skillcheck-gen + Skillcheck-player scripts\n"
+        .."- Auto Heal: fires healing skillcheck for perfect result\n"
+        .."- English UI text forced\n"
+        .."- Invisible visual only (character free to move)\n"
+        .."- Floating logo: uses ImageLabel wrapper",
 })
-Tabs.Main:Section({ Title = "Deleted" })
+Tabs.Main:Section({ Title = "Removed" })
 Tabs.Main:Paragraph({
     Title = "Removed Features",
     Desc = "- Spike ESP\n- Hook ESP\n- Clone/Weapon ESP",
@@ -1933,15 +1980,6 @@ end })
 Tabs.ESP:Button({ Title = "Clear All ESP", Callback = function()
     ESP.ClearAll(); Notify("ESP","Cleared",2)
 end })
-Tabs.ESP:Button({ Title = "Debug: Print Detected Objects", Callback = function()
-    print("=== VAULTS ("..#GetVaults()..") ===")
-    for _, v in ipairs(GetVaults()) do print("  "..v:GetFullName()) end
-    print("=== EXITS ("..#GetExits()..") ===")
-    for _, v in ipairs(GetExits()) do print("  "..v:GetFullName()) end
-    print("=== PALLETS ("..#GetPallets()..") ===")
-    for _, v in ipairs(GetPallets()) do print("  "..v:GetFullName()) end
-    Notify("Debug","Check output console",3)
-end })
 
 -- SURVIVOR
 Tabs.Survivor:Section({ Title = "Auto Gen Rush" })
@@ -1961,18 +1999,27 @@ Tabs.Survivor:Toggle({
 
 Tabs.Survivor:Section({ Title = "Skillcheck" })
 Tabs.Survivor:Dropdown({
-    Title = "Skillcheck Mode", Values = { "Legit", "Instant" }, Value = "Legit",
+    Title = "Skillcheck Mode",
+    Values = { "Legit", "Instant" },
+    Value = "Legit",
     Callback = function(v)
         State.SkillcheckMode = v
         if State.AutoSkillcheck then SetAutoSkillcheck(true) end
     end,
+})
+Tabs.Survivor:Paragraph({
+    Title = "Mode Info",
+    Desc = "Legit: Presses Space when skillcheck appears.\n"
+        .."Instant: Fires SkillCheckResultEvent directly for perfect hit.",
 })
 Tabs.Survivor:Toggle({
     Title = "Auto Perfect Skillcheck", Default = false,
     Callback = function(v) State.AutoSkillcheck = v; SetAutoSkillcheck(v) end,
 })
 Tabs.Survivor:Toggle({
-    Title = "Remove Skillcheck", Default = false,
+    Title = "Remove Skillcheck",
+    Desc = "Disables Skillcheck-gen + Skillcheck-player scripts",
+    Default = false,
     Callback = function(v) State.RemoveSkillcheck = v; SetRemoveSkillcheck(v) end,
 })
 
@@ -2029,7 +2076,7 @@ Tabs.Survivor:Toggle({
 Tabs.Survivor:Section({ Title = "Invisible (Double-tap G)" })
 Tabs.Survivor:Paragraph({
     Title = "How It Works",
-    Desc = "Visual only - you can move around freely.\n"
+    Desc = "Visual only - you can move freely.\n"
         .."Uses LocalTransparencyModifier + Untargettable attribute.",
 })
 Tabs.Survivor:Toggle({
@@ -2322,7 +2369,7 @@ Tabs.Settings:Button({
     Title = "Force Recreate Floating Logo",
     Callback = function()
         CreateFloatingLogo()
-        Notify("Logo","Recreated at top-left",3)
+        Notify("Logo","Recreated",3)
     end,
 })
 
@@ -2355,8 +2402,7 @@ Tabs.Settings:Button({
         SetInvisible(false); SetGenProgressGuis(false); SetAutoHeal(false)
         SetAutoSkillcheck(false); SetRemoveSkillcheck(false); SetAutoParry(false)
         SetHitboxExpander(false); SetKillAura(false); SetAutoHit(false)
-        SetNoStun(false); SetNoSlowdown(false); Vis.SetCrosshair(false)
-        Vis.Restore()
+        SetNoStun(false); SetNoSlowdown(false); Vis.SetCrosshair(false); Vis.Restore()
         pcall(function()
             Camera.CameraType = Enum.CameraType.Custom
             Camera.CameraSubject = Hum()
@@ -2473,4 +2519,4 @@ _G[INSTANCE_KEY] = {
 }
 
 Notify(HUB.Name, "v"..HUB.Version.." | Insert=UI | V/G/H/R=double-tap", 5)
-Log("v0.7.1 fully loaded")
+Log("v0.7.2 fully loaded")
