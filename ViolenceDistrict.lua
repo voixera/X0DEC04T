@@ -1,9 +1,9 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.5.6 - Violence District
--- FIXED: Removed all `continue` statements (linter-safe)
--- FIXED: ESP freeze (manual RenderStepped CFrame sync)
--- FIXED: Auto Parry (multi-layer trigger)
--- ADDED: Auto Self Heal
+-- X0DEC04T Hub v0.5.7 - Violence District
+-- FIXED: Auto Parry (proximity + damage + remote spam)
+-- FIXED: All features now have keybind support
+-- ADDED: Keybind manager for every major feature
+-- ADDED: Parry force-fire on killer swing detection
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -21,7 +21,7 @@ local VirtualInputMgr   = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
-local INSTANCE_KEY = "__X0DEC04T_v056_INSTANCE"
+local INSTANCE_KEY = "__X0DEC04T_v057_INSTANCE"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -33,7 +33,7 @@ local _logStart = os.clock()
 local function Log(msg) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_logStart, tostring(msg))) end
 local function Err(msg,d) warn(string.format("[X0DEC04T][+%.2fs] ERROR: %s | %s", os.clock()-_logStart, tostring(msg), tostring(d or ""))) end
 
-Log("v0.5.6 starting")
+Log("v0.5.7 starting")
 
 local Rayfield = nil
 for _, url in ipairs({
@@ -45,9 +45,11 @@ for _, url in ipairs({
 end
 if not Rayfield then Err("Rayfield failed"); return end
 
-local HUB = { Name="X0DEC04T Hub", Game="Violence District", Version="0.5.6", Author="voixera" }
+local HUB = { Name="X0DEC04T Hub", Game="Violence District", Version="0.5.7", Author="voixera" }
 
+-- ═══════════════════════════════════════════
 -- CONNECTION MANAGER
+-- ═══════════════════════════════════════════
 local CM = { _list = {} }
 function CM:Add(sig, cb, label)
     if not sig then return end
@@ -59,7 +61,73 @@ function CM:Cleanup()
     self._list = {}
 end
 
+-- ═══════════════════════════════════════════
+-- KEYBIND MANAGER
+-- ═══════════════════════════════════════════
+local KB = {
+    _binds = {},
+    -- Default keybinds for every feature
+    Keys = {
+        Invisible       = Enum.KeyCode.X,
+        AutoParry       = Enum.KeyCode.P,
+        AutoHeal        = Enum.KeyCode.H,
+        GodMode         = Enum.KeyCode.G,
+        NoClip          = Enum.KeyCode.N,
+        InfJump         = Enum.KeyCode.J,
+        SpeedBoost      = Enum.KeyCode.B,
+        FleeKiller      = Enum.KeyCode.F,
+        FullBright      = Enum.KeyCode.L,
+        Freecam         = Enum.KeyCode.V,
+        AutoGenRush     = Enum.KeyCode.R,
+        AutoSkillcheck  = Enum.KeyCode.K,
+        GenProgress     = Enum.KeyCode.O,
+        OwnHP           = Enum.KeyCode.U,
+        PanicClearESP   = Enum.KeyCode.End,
+        ForceParry      = Enum.KeyCode.Q,
+        ForceHeal       = Enum.KeyCode.Y,
+        ServerHop       = Enum.KeyCode.M,
+        KillerESP       = Enum.KeyCode.F1,
+        SurvivorESP     = Enum.KeyCode.F2,
+        GeneratorESP    = Enum.KeyCode.F3,
+        PalletESP       = Enum.KeyCode.F4,
+        VaultESP        = Enum.KeyCode.F5,
+        HookESP         = Enum.KeyCode.F6,
+        NoFog           = Enum.KeyCode.F7,
+        NoShadows       = Enum.KeyCode.F8,
+    }
+}
+
+function KB.Register(name, defaultKey, callback)
+    KB._binds[name] = {
+        key      = defaultKey or Enum.KeyCode.Unknown,
+        callback = callback,
+        enabled  = true,
+    }
+end
+
+function KB.SetKey(name, keyCode)
+    if KB._binds[name] then
+        KB._binds[name].key = keyCode
+    end
+end
+
+function KB.SetEnabled(name, v)
+    if KB._binds[name] then KB._binds[name].enabled = v end
+end
+
+-- Global key handler
+CM:Add(UserInputService.InputBegan, function(inp, gpe)
+    if gpe then return end
+    for name, bind in pairs(KB._binds) do
+        if bind.enabled and bind.key == inp.KeyCode then
+            pcall(bind.callback)
+        end
+    end
+end, "KB_Global")
+
+-- ═══════════════════════════════════════════
 -- REMOTES
+-- ═══════════════════════════════════════════
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 local function GetRemote(...)
     if not Remotes then return nil end
@@ -104,25 +172,41 @@ local R = {
         RoundEnd    = GetRemote("Game","RoundEnd"),
     },
     Items = {
-        ParryDagger = GetRemote("Items","Parrying Dagger","parry"),
+        ParryDagger = GetRemote("Items","Parrying Dagger","parry")
+                   or GetRemote("Items","Parrying Dagger","Parry")
+                   or GetRemote("Items","ParryingDagger","parry"),
         Heal        = GetRemote("Items","Medkit","heal")
                    or FindRemoteDeep(Remotes,"HealEvent")
                    or FindRemoteDeep(Remotes,"heal"),
     },
     Parry = {},
+    Heal  = {},
 }
 
+-- Aggressive remote discovery
 do
     if not R.Items.ParryDagger then
-        for _, name in ipairs({"parry","Parry","ParryEvent","block","Block"}) do
+        for _, name in ipairs({"parry","Parry","ParryEvent","block","Block","parryevent"}) do
             local f = FindRemoteDeep(Remotes, name)
             if f then R.Items.ParryDagger = f; break end
         end
     end
-    for _, r in ipairs(FindRemotesByKeyword(Remotes,"parry")) do table.insert(R.Parry,r) end
-    for _, r in ipairs(FindRemotesByKeyword(Remotes,"block")) do table.insert(R.Parry,r) end
+
+    for _, r in ipairs(FindRemotesByKeyword(Remotes,"parry")) do
+        table.insert(R.Parry, r)
+    end
+    for _, r in ipairs(FindRemotesByKeyword(Remotes,"block")) do
+        table.insert(R.Parry, r)
+    end
+    for _, r in ipairs(FindRemotesByKeyword(Remotes,"dodge")) do
+        table.insert(R.Parry, r)
+    end
+
     if not R.Items.Heal then
-        for _, name in ipairs({"HealEvent","heal","Heal","MedkitHeal","selfheal","SelfHeal","Medkit"}) do
+        for _, name in ipairs({
+            "HealEvent","heal","Heal","MedkitHeal","selfheal",
+            "SelfHeal","Medkit","UseItem","useitem",
+        }) do
             local f = FindRemoteDeep(Remotes, name)
             if f then R.Items.Heal = f; break end
         end
@@ -131,12 +215,20 @@ do
             if #h > 0 then R.Items.Heal = h[1] end
         end
     end
+
+    for _, r in ipairs(FindRemotesByKeyword(Remotes,"heal")) do
+        table.insert(R.Heal, r)
+    end
 end
 
 Log("Parry remote: "..(R.Items.ParryDagger and R.Items.ParryDagger:GetFullName() or "nil"))
-Log("Heal remote: "..(R.Items.Heal and R.Items.Heal:GetFullName() or "nil"))
+Log("Heal remote:  "..(R.Items.Heal and R.Items.Heal:GetFullName() or "nil"))
+Log("Parry remotes found: "..#R.Parry)
+Log("Heal remotes found:  "..#R.Heal)
 
+-- ═══════════════════════════════════════════
 -- WORKSPACE REFS
+-- ═══════════════════════════════════════════
 local WS = {
     Map        = Workspace:FindFirstChild("Map"),
     Generators = nil,
@@ -149,30 +241,41 @@ if WS.Map then WS.Generators = WS.Map:FindFirstChild("Generators") end
 local function GetPallets()
     local list = {}
     if not WS.Map then return list end
-    for _,v in ipairs(WS.Map:GetChildren()) do
-        if v:IsA("Model") and v.Name=="Palletwrong" then table.insert(list,v) end
-    end
-    return list
-end
-local function GetVaults()
-    local list = {}
-    if not WS.Map then return list end
-    for _,v in ipairs(WS.Map:GetChildren()) do
-        if v:IsA("Model") and v.Name=="Window" then table.insert(list,v) end
-    end
-    return list
-end
-local function GetHooks()
-    local list = {}
-    if not WS.Map then return list end
-    for _,v in ipairs(WS.Map:GetChildren()) do
-        if v:IsA("Model") and v.Name=="Hook" then table.insert(list,v) end
+    for _, v in ipairs(WS.Map:GetChildren()) do
+        if v:IsA("Model") and v.Name == "Palletwrong" then
+            table.insert(list, v)
+        end
     end
     return list
 end
 
+local function GetVaults()
+    local list = {}
+    if not WS.Map then return list end
+    for _, v in ipairs(WS.Map:GetChildren()) do
+        if v:IsA("Model") and v.Name == "Window" then
+            table.insert(list, v)
+        end
+    end
+    return list
+end
+
+local function GetHooks()
+    local list = {}
+    if not WS.Map then return list end
+    for _, v in ipairs(WS.Map:GetChildren()) do
+        if v:IsA("Model") and v.Name == "Hook" then
+            table.insert(list, v)
+        end
+    end
+    return list
+end
+
+-- ═══════════════════════════════════════════
 -- STATE
+-- ═══════════════════════════════════════════
 local State = {
+    -- ESP
     ESP_Generators=false, ESP_Killer=false, ESP_Survivors=false,
     ESP_Items=false, ESP_Weapons=false, ESP_Clones=false,
     ESP_Pallets=false, ESP_Vaults=false, ESP_Hooks=false,
@@ -189,60 +292,86 @@ local State = {
     Color_Vault     = Color3.fromRGB(0,255,200),
     Color_Hook      = Color3.fromRGB(200,100,100),
 
+    -- Movement
     WalkSpeed=16, JumpPower=50, NoClip=false, InfJump=false,
 
+    -- Visuals
     FullBright=false, NoFog=false, NoShadows=false, ClearWeather=false,
     LowGraphics=false, FOV=70, ClockTime=14,
     RemoveBlur=false, RemoveCC=false, Freecam=false, HideName=false,
     NoSound=false, MuteBGMusic=false, NoParticles=false,
 
+    -- Misc
     AutoRejoin=false, AntiAFK=true,
 
+    -- Survivor
     Invisible=false, InvisibleHotkey=Enum.KeyCode.X,
     SurvSpeedBoost=false, SurvSpeedValue=24,
 
+    -- Auto Parry
     AutoParry=false, ParryRange=20, ParryMode="Remote+Key",
-    ParryCooldown=0.35, ParryOnHit=true,
+    ParryCooldown=0.25,
+    ParryOnHit=true,
     ShowParryRing=false, ParryRingColor="Red", ParryDebug=false,
+    ParryFireRate=0.08,
 
+    -- Auto Heal
     AutoHeal=false, AutoHealThreshold=60,
     AutoHealDelay=1.5, AutoHealMethod="All",
 
+    -- Combat
     NoFallDamage=false, FleeKiller=false, FleeDistance=40,
-    GodMode=false, AutoGenRush=false, AutoGenMode="Instant",
-    AutoSkillcheck=false, ShowGenProgress=false, ShowOwnHP=false,
+    GodMode=false,
 
+    -- Gen
+    AutoGenRush=false, AutoGenMode="Instant",
+    AutoSkillcheck=false, ShowGenProgress=false,
+
+    -- HP
+    ShowOwnHP=false,
+
+    -- Match
     IsKiller=false, MatchActive=false,
+
+    -- Caches
     ESPCache={},
     LightBackup={}, MutedSounds={},
     SavedTransparencies={},
 
+    -- Connections
     NoClipConn=nil, InfJumpConn=nil, FreecamConn=nil,
     NoFallConn=nil, FleeConn=nil, GodModeConn=nil,
     AutoParryConn=nil, AutoParryHitConn=nil,
     AutoHealConn=nil, InvisibleConn=nil,
     SkillcheckGUIConn=nil,
+    ParryKillerWatchConn=nil,
 
+    -- Timers
+    LastParryTime=0, LastHealTime=0, HealCount=0,
+
+    -- Misc references
     GenProgressGuis={}, ParryRing=nil, HPGui=nil,
     HPText=nil, HPBar=nil,
     CachedKiller=nil, KillerCacheTime=0,
     CurrentTargetGen=nil,
-    LastParryTime=0, LastHealTime=0, HealCount=0,
 }
 
+-- ═══════════════════════════════════════════
+-- HELPERS
+-- ═══════════════════════════════════════════
 local function GuiParent()
     local p = CoreGui
     pcall(function() if gethui then p = gethui() end end)
     return p
 end
 
-local function Notify(t,c,d)
+local function Notify(t, c, d)
     pcall(function()
         Rayfield:Notify({
-            Title=tostring(t or ""),
-            Content=tostring(c or ""),
-            Duration=tonumber(d) or 4,
-            Image=4483345998
+            Title    = tostring(t or ""),
+            Content  = tostring(c or ""),
+            Duration = tonumber(d) or 4,
+            Image    = 4483345998,
         })
     end)
 end
@@ -256,6 +385,7 @@ local KILLER_ATTRS = {
     "SuspenseRadius","CarriedSurvivorId","IsCarrying",
     "killercarry","killerhook","survivorcarry","survivorhook",
     "kings_scourge","AbyssalCovenant",
+    "InAttack","Attacking","SwingActive","SwingCooldown",
 }
 
 function Role.IsKillerChar(char)
@@ -264,7 +394,7 @@ function Role.IsKillerChar(char)
     for _, attr in ipairs(KILLER_ATTRS) do
         if char:GetAttribute(attr) ~= nil then count = count + 1 end
     end
-    return count >= 3
+    return count >= 2
 end
 
 function Role.IsFake(char)
@@ -304,7 +434,7 @@ function Role.ResetKillerCache()
 end
 
 -- ═══════════════════════════════════════════
--- ESP v2 — Manual RenderStepped sync (no continues)
+-- ESP v2
 -- ═══════════════════════════════════════════
 local ESP = {}
 
@@ -370,44 +500,29 @@ local function MakeESPEntry(obj, label, color, isChar)
 
     local nameL = Instance.new("TextLabel", bb)
     nameL.Name = "NameL"
-    nameL.Size = UDim2.new(1, 0, 0, 22)
-    nameL.Position = UDim2.new(0, 0, 0, 0)
-    nameL.BackgroundTransparency = 1
-    nameL.Text = label
-    nameL.TextColor3 = color
-    nameL.TextStrokeTransparency = 0.4
-    nameL.TextStrokeColor3 = Color3.new(0,0,0)
-    nameL.Font = Enum.Font.GothamBold
-    nameL.TextSize = 14
-    nameL.Visible = State.ESP_ShowName
+    nameL.Size = UDim2.new(1,0,0,22); nameL.Position = UDim2.new(0,0,0,0)
+    nameL.BackgroundTransparency = 1; nameL.Text = label
+    nameL.TextColor3 = color; nameL.TextStrokeTransparency = 0.4
+    nameL.TextStrokeColor3 = Color3.new(0,0,0); nameL.Font = Enum.Font.GothamBold
+    nameL.TextSize = 14; nameL.Visible = State.ESP_ShowName
 
     local distL = Instance.new("TextLabel", bb)
     distL.Name = "DistL"
-    distL.Size = UDim2.new(1, 0, 0, 16)
-    distL.Position = UDim2.new(0, 0, 0, 22)
-    distL.BackgroundTransparency = 1
-    distL.Text = "0m"
-    distL.TextColor3 = Color3.fromRGB(220,220,220)
-    distL.TextStrokeTransparency = 0.4
-    distL.TextStrokeColor3 = Color3.new(0,0,0)
-    distL.Font = Enum.Font.Gotham
-    distL.TextSize = 12
-    distL.Visible = State.ESP_ShowDistance
+    distL.Size = UDim2.new(1,0,0,16); distL.Position = UDim2.new(0,0,0,22)
+    distL.BackgroundTransparency = 1; distL.Text = "0m"
+    distL.TextColor3 = Color3.fromRGB(220,220,220); distL.TextStrokeTransparency = 0.4
+    distL.TextStrokeColor3 = Color3.new(0,0,0); distL.Font = Enum.Font.Gotham
+    distL.TextSize = 12; distL.Visible = State.ESP_ShowDistance
 
     local hpL = nil
     if isChar then
         hpL = Instance.new("TextLabel", bb)
         hpL.Name = "HPL"
-        hpL.Size = UDim2.new(1, 0, 0, 16)
-        hpL.Position = UDim2.new(0, 0, 0, 38)
-        hpL.BackgroundTransparency = 1
-        hpL.Text = "[HP] ?"
-        hpL.TextColor3 = Color3.fromRGB(255,100,100)
-        hpL.TextStrokeTransparency = 0.4
-        hpL.TextStrokeColor3 = Color3.new(0,0,0)
-        hpL.Font = Enum.Font.GothamBold
-        hpL.TextSize = 12
-        hpL.Visible = State.ESP_ShowHP
+        hpL.Size = UDim2.new(1,0,0,16); hpL.Position = UDim2.new(0,0,0,38)
+        hpL.BackgroundTransparency = 1; hpL.Text = "[HP] ?"
+        hpL.TextColor3 = Color3.fromRGB(255,100,100); hpL.TextStrokeTransparency = 0.4
+        hpL.TextStrokeColor3 = Color3.new(0,0,0); hpL.Font = Enum.Font.GothamBold
+        hpL.TextSize = 12; hpL.Visible = State.ESP_ShowHP
     end
 
     return {
@@ -428,9 +543,7 @@ function ESP.Add(obj, label, color, isChar)
     if not obj or not obj.Parent then return end
     if State.ESPCache[obj] then ESP.Remove(obj) end
     local entry = MakeESPEntry(obj, label, color, isChar or false)
-    if entry then
-        State.ESPCache[obj] = entry
-    end
+    if entry then State.ESPCache[obj] = entry end
 end
 
 function ESP.Remove(obj)
@@ -452,8 +565,7 @@ local function StartESPRender()
         local localChar = LocalPlayer.Character
         local localHRP  = localChar and localChar:FindFirstChild("HumanoidRootPart")
         local localPos  = localHRP and localHRP.Position or Vector3.zero
-
-        local toRemove = {}
+        local toRemove  = {}
 
         for obj, e in pairs(State.ESPCache) do
             if not obj or not obj.Parent then
@@ -465,13 +577,13 @@ local function StartESPRender()
                 else
                     if e.rootPart ~= rp then
                         e.rootPart = rp
-                        if e.bb then pcall(function() e.bb.Adornee = rp end) end
+                        if e.bb      then pcall(function() e.bb.Adornee = rp end) end
                         if e.highlight then pcall(function() e.highlight.Adornee = obj end) end
                     end
 
                     if e.bb then
                         pcall(function()
-                            e.bb.Adornee = rp
+                            e.bb.Adornee    = rp
                             e.bb.MaxDistance = State.ESP_MaxDistance
                         end)
                     end
@@ -479,17 +591,17 @@ local function StartESPRender()
                         pcall(function() e.highlight.Adornee = obj end)
                     end
 
-                    local dist = (rp.Position - localPos).Magnitude
+                    local dist    = (rp.Position - localPos).Magnitude
+                    local visible = dist <= State.ESP_MaxDistance
+
                     if e.distLabel then
                         pcall(function()
-                            e.distLabel.Text = math.floor(dist) .. "m"
+                            e.distLabel.Text    = math.floor(dist) .. "m"
                             e.distLabel.Visible = State.ESP_ShowDistance
                         end)
                     end
-
-                    local visible = dist <= State.ESP_MaxDistance
-                    if e.bb then pcall(function() e.bb.Enabled = visible end) end
-                    if e.highlight then pcall(function() e.highlight.Enabled = visible end) end
+                    if e.bb        then pcall(function() e.bb.Enabled        = visible end) end
+                    if e.highlight then pcall(function() e.highlight.Enabled  = visible end) end
 
                     if e.isChar and e.hpLabel then
                         pcall(function()
@@ -497,7 +609,7 @@ local function StartESPRender()
                             if hum then
                                 local hp  = math.floor(hum.Health)
                                 local max = math.floor(hum.MaxHealth)
-                                e.hpLabel.Text = "[HP] " .. hp .. "/" .. max
+                                e.hpLabel.Text = "[HP] "..hp.."/"..max
                                 local pct = (max > 0) and (hp/max) or 0
                                 if pct > 0.6 then
                                     e.hpLabel.TextColor3 = Color3.fromRGB(60,220,60)
@@ -510,7 +622,6 @@ local function StartESPRender()
                             end
                         end)
                     end
-
                     if e.nameLabel then
                         pcall(function() e.nameLabel.Visible = State.ESP_ShowName end)
                     end
@@ -518,26 +629,19 @@ local function StartESPRender()
             end
         end
 
-        for _, obj in ipairs(toRemove) do
-            ESP.Remove(obj)
-        end
+        for _, obj in ipairs(toRemove) do ESP.Remove(obj) end
     end)
 end
 
 StartESPRender()
 
--- SCAN
 function ESP.ScanPlayers()
     local killer = Role.FindKiller()
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer
-           and p.Character
-           and p.Character.Parent
+        if p ~= LocalPlayer and p.Character and p.Character.Parent
            and not Role.IsFake(p.Character) then
-
             local char = p.Character
             local isK  = (p == killer)
-
             if isK then
                 if State.ESP_Killer then
                     if not State.ESPCache[char] then
@@ -650,20 +754,13 @@ function ESP.ScanItems()
 end
 
 function ESP.RefreshAll()
-    ESP.ScanPlayers()
-    ESP.ScanGens()
-    ESP.ScanWeapons()
-    ESP.ScanClones()
-    ESP.ScanPallets()
-    ESP.ScanVaults()
-    ESP.ScanHooks()
-    ESP.ScanItems()
+    ESP.ScanPlayers(); ESP.ScanGens(); ESP.ScanWeapons()
+    ESP.ScanClones();  ESP.ScanPallets(); ESP.ScanVaults()
+    ESP.ScanHooks();   ESP.ScanItems()
 end
 
 task.spawn(function()
-    while task.wait(1.5) do
-        pcall(ESP.RefreshAll)
-    end
+    while task.wait(1.5) do pcall(ESP.RefreshAll) end
 end)
 
 CM:Add(Players.PlayerRemoving, function(p)
@@ -673,14 +770,12 @@ end, "PR")
 
 local function HookPlayer(p)
     if p == LocalPlayer then return end
-    CM:Add(p.CharacterAdded, function(char)
+    CM:Add(p.CharacterAdded, function()
         Role.ResetKillerCache()
-        task.wait(0.5)
-        ESP.RefreshAll()
+        task.wait(0.5); ESP.RefreshAll()
     end, "CA:"..p.Name)
     CM:Add(p.CharacterRemoving, function(char)
-        ESP.Remove(char)
-        Role.ResetKillerCache()
+        ESP.Remove(char); Role.ResetKillerCache()
     end, "CR:"..p.Name)
 end
 
@@ -693,10 +788,7 @@ task.spawn(function()
             local prev = State.CachedKiller
             Role.ResetKillerCache()
             local new = Role.FindKiller()
-            if new ~= prev then
-                ESP.ClearAll()
-                ESP.RefreshAll()
-            end
+            if new ~= prev then ESP.ClearAll(); ESP.RefreshAll() end
         end
     end
 end)
@@ -714,8 +806,7 @@ function Move.GetHRP()
     return ch and ch:FindFirstChild("HumanoidRootPart")
 end
 function Move.Speed()
-    local h = Move.GetHuman()
-    if h then h.WalkSpeed = State.WalkSpeed end
+    local h = Move.GetHuman(); if h then h.WalkSpeed = State.WalkSpeed end
 end
 function Move.Jump()
     local h = Move.GetHuman()
@@ -723,7 +814,10 @@ function Move.Jump()
 end
 
 function Move.SetNoClip(e)
-    if State.NoClipConn then pcall(function() State.NoClipConn:Disconnect() end); State.NoClipConn=nil end
+    if State.NoClipConn then
+        pcall(function() State.NoClipConn:Disconnect() end)
+        State.NoClipConn = nil
+    end
     if e then
         State.NoClipConn = RunService.Stepped:Connect(function()
             local ch = LocalPlayer.Character
@@ -737,7 +831,10 @@ function Move.SetNoClip(e)
 end
 
 function Move.SetInfJump(e)
-    if State.InfJumpConn then pcall(function() State.InfJumpConn:Disconnect() end); State.InfJumpConn=nil end
+    if State.InfJumpConn then
+        pcall(function() State.InfJumpConn:Disconnect() end)
+        State.InfJumpConn = nil
+    end
     if e then
         State.InfJumpConn = UserInputService.JumpRequest:Connect(function()
             local h = Move.GetHuman()
@@ -762,19 +859,23 @@ function Move.NearestGen()
 end
 
 function Move.ToPlayer()
-    if tpTarget=="" then Notify("TP","Enter name",3); return end
+    if tpTarget == "" then Notify("TP","Enter name",3); return end
     local t = Players:FindFirstChild(tpTarget)
     if not t or not t.Character then Notify("TP","Not found",3); return end
     local hrp  = Move.GetHRP()
     local thrp = t.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and thrp then hrp.CFrame = thrp.CFrame + Vector3.new(0,0,3); Notify("TP","Done",3) end
+    if hrp and thrp then
+        hrp.CFrame = thrp.CFrame + Vector3.new(0,0,3)
+        Notify("TP","Done",3)
+    end
 end
 
 function Move.NearestExit()
     local hrp = Move.GetHRP(); if not hrp then return end
     local best, bd = nil, math.huge
     for _, o in ipairs(Workspace:GetDescendants()) do
-        if o:IsA("BasePart") and (o.Name:lower():find("exit") or o.Name:lower():find("gate")) then
+        if o:IsA("BasePart") and
+           (o.Name:lower():find("exit") or o.Name:lower():find("gate")) then
             local d = (o.Position-hrp.Position).Magnitude
             if d < bd then bd=d; best=o end
         end
@@ -799,7 +900,7 @@ function Vis.BackupLight()
     }
 end
 function Vis.RestoreLight()
-    for k, v in pairs(State.LightBackup) do pcall(function() Lighting[k]=v end) end
+    for k, v in pairs(State.LightBackup) do pcall(function() Lighting[k] = v end) end
 end
 function Vis.FullBright(e)
     Vis.BackupLight()
@@ -892,7 +993,10 @@ function Vis.MuteBG(e)
     end
 end
 function Vis.Freecam(e)
-    if State.FreecamConn then pcall(function() State.FreecamConn:Disconnect() end); State.FreecamConn=nil end
+    if State.FreecamConn then
+        pcall(function() State.FreecamConn:Disconnect() end)
+        State.FreecamConn = nil
+    end
     if e then
         Camera.CameraType = Enum.CameraType.Scriptable
         local pos = Camera.CFrame.Position
@@ -900,10 +1004,10 @@ function Vis.Freecam(e)
             local look  = Camera.CFrame.LookVector
             local right = Camera.CFrame.RightVector
             local mv    = Vector3.zero
-            if UserInputService:IsKeyDown(Enum.KeyCode.W)           then mv = mv + look  end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S)           then mv = mv - look  end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A)           then mv = mv - right end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D)           then mv = mv + right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + look  end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv - look  end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv - right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + right end
             if UserInputService:IsKeyDown(Enum.KeyCode.Space)       then mv = mv + Vector3.new(0,1,0) end
             if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then mv = mv - Vector3.new(0,1,0) end
             pos = pos + mv * 2
@@ -942,11 +1046,11 @@ function HP.Create()
     sg.Name = "X0_HP"; sg.ResetOnSpawn = false
     sg.IgnoreGuiInset = true; sg.Parent = GuiParent()
     local frame = Instance.new("Frame", sg)
-    frame.Size = UDim2.new(0, 220, 0, 55)
-    frame.Position = UDim2.new(0, 15, 0.5, -25)
+    frame.Size = UDim2.new(0,220,0,55)
+    frame.Position = UDim2.new(0,15,0.5,-25)
     frame.BackgroundColor3 = Color3.fromRGB(20,20,25)
     frame.BackgroundTransparency = 0.3; frame.BorderSizePixel = 0
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0,6)
     local st = Instance.new("UIStroke", frame)
     st.Color = Color3.fromRGB(255,100,100); st.Thickness = 1.5
     local title = Instance.new("TextLabel", frame)
@@ -962,11 +1066,11 @@ function HP.Create()
     local barBg = Instance.new("Frame", frame)
     barBg.Size = UDim2.new(1,-10,0,12); barBg.Position = UDim2.new(0,5,1,-17)
     barBg.BackgroundColor3 = Color3.fromRGB(40,40,45); barBg.BorderSizePixel = 0
-    Instance.new("UICorner", barBg).CornerRadius = UDim.new(0, 3)
+    Instance.new("UICorner", barBg).CornerRadius = UDim.new(0,3)
     local barFill = Instance.new("Frame", barBg)
     barFill.Size = UDim2.new(1,0,1,0)
     barFill.BackgroundColor3 = Color3.fromRGB(60,220,60); barFill.BorderSizePixel = 0
-    Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 3)
+    Instance.new("UICorner", barFill).CornerRadius = UDim.new(0,3)
     State.HPGui = sg; State.HPText = hpText; State.HPBar = barFill
 end
 
@@ -980,7 +1084,7 @@ function HP.Update()
         local pct = (max > 0) and (hp/max) or 0
         if State.HPText then State.HPText.Text = hp.."/"..max end
         if State.HPBar then
-            State.HPBar.Size = UDim2.new(pct, 0, 1, 0)
+            State.HPBar.Size = UDim2.new(pct,0,1,0)
             if pct > 0.6 then
                 State.HPBar.BackgroundColor3 = Color3.fromRGB(60,220,60)
             elseif pct > 0.3 then
@@ -1002,7 +1106,9 @@ function HP.SetVisible(v)
     end
 end
 
-CM:Add(RunService.Heartbeat, function() if State.ShowOwnHP then pcall(HP.Update) end end, "HP.HB")
+CM:Add(RunService.Heartbeat, function()
+    if State.ShowOwnHP then pcall(HP.Update) end
+end, "HP.HB")
 
 -- ═══════════════════════════════════════════
 -- SURVIVOR ABILITIES
@@ -1073,7 +1179,10 @@ function Surv.SetSpeedBoost(enable)
 end
 
 function Surv.SetNoFall(enable)
-    if State.NoFallConn then pcall(function() State.NoFallConn:Disconnect() end); State.NoFallConn=nil end
+    if State.NoFallConn then
+        pcall(function() State.NoFallConn:Disconnect() end)
+        State.NoFallConn = nil
+    end
     local char = LocalPlayer.Character
     if char then
         local h = char:FindFirstChildOfClass("Humanoid")
@@ -1089,15 +1198,18 @@ function Surv.SetNoFall(enable)
 end
 
 function Surv.SetGodMode(enable)
-    if State.GodModeConn then pcall(function() State.GodModeConn:Disconnect() end); State.GodModeConn=nil end
+    if State.GodModeConn then
+        pcall(function() State.GodModeConn:Disconnect() end)
+        State.GodModeConn = nil
+    end
     if enable then
         State.GodModeConn = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character; if not char then return end
             pcall(function()
-                char:SetAttribute("Iframes", true)
+                char:SetAttribute("Iframes",      true)
                 char:SetAttribute("Untargettable", true)
-                char:SetAttribute("Knocked", false)
-                char:SetAttribute("Parry", true)
+                char:SetAttribute("Knocked",       false)
+                char:SetAttribute("Parry",         true)
             end)
             local h = char:FindFirstChildOfClass("Humanoid")
             if h and h.Health < h.MaxHealth then
@@ -1108,16 +1220,19 @@ function Surv.SetGodMode(enable)
         local char = LocalPlayer.Character
         if char then
             pcall(function()
-                char:SetAttribute("Iframes", false)
+                char:SetAttribute("Iframes",      false)
                 char:SetAttribute("Untargettable", false)
-                char:SetAttribute("Parry", false)
+                char:SetAttribute("Parry",         false)
             end)
         end
     end
 end
 
 function Surv.SetFleeKiller(enable)
-    if State.FleeConn then pcall(function() State.FleeConn:Disconnect() end); State.FleeConn=nil end
+    if State.FleeConn then
+        pcall(function() State.FleeConn:Disconnect() end)
+        State.FleeConn = nil
+    end
     if enable then
         local lastFlee = 0
         State.FleeConn = RunService.Heartbeat:Connect(function()
@@ -1144,7 +1259,10 @@ function Surv.SetFleeKiller(enable)
 end
 
 function Surv.UpdateParryRing()
-    if State.ParryRing then pcall(function() State.ParryRing:Destroy() end); State.ParryRing=nil end
+    if State.ParryRing then
+        pcall(function() State.ParryRing:Destroy() end)
+        State.ParryRing = nil
+    end
     if not State.ShowParryRing then return end
     local ring = Instance.new("Part")
     ring.Name = "ParryRing"
@@ -1166,60 +1284,79 @@ function Surv.UpdateParryRing()
             local h = Move.GetHRP()
             if h then
                 ring.CFrame = CFrame.new(h.Position - Vector3.new(0,2.5,0))
-                    * CFrame.Angles(0, 0, math.rad(90))
+                           * CFrame.Angles(0,0,math.rad(90))
             end
             task.wait()
         end
     end)
 end
 
--- AUTO PARRY
-local function DoParry()
+-- ═══════════════════════════════════════════
+-- AUTO PARRY — Fixed & Aggressive
+-- ═══════════════════════════════════════════
+local function FireParryRemotes()
+    -- Primary parry remote
+    if R.Items.ParryDagger then
+        pcall(function() R.Items.ParryDagger:FireServer() end)
+    end
+    -- All discovered parry/block remotes
+    for _, remote in ipairs(R.Parry) do
+        pcall(function() remote:FireServer() end)
+    end
+end
+
+local function FireParryKeys()
+    for _, key in ipairs({
+        Enum.KeyCode.F, Enum.KeyCode.E,
+        Enum.KeyCode.Q, Enum.KeyCode.R,
+    }) do
+        pcall(function()
+            VirtualInputMgr:SendKeyEvent(true,  key, false, game)
+        end)
+        task.delay(State.ParryFireRate, function()
+            pcall(function()
+                VirtualInputMgr:SendKeyEvent(false, key, false, game)
+            end)
+        end)
+    end
+end
+
+local function SetParryAttribute(v)
+    local char = LocalPlayer.Character; if not char then return end
+    pcall(function()
+        char:SetAttribute("Parry",      v)
+        char:SetAttribute("IsParrying", v)
+        char:SetAttribute("Blocking",   v)
+        char:SetAttribute("Iframes",    v)
+    end)
+end
+
+local function DoParry(reason)
     local now = tick()
     if now - State.LastParryTime < State.ParryCooldown then return end
     State.LastParryTime = now
-    local char = LocalPlayer.Character; if not char then return end
-
-    if State.ParryMode ~= "Key Only" then
-        if R.Items.ParryDagger then
-            pcall(function() R.Items.ParryDagger:FireServer() end)
-        end
-        for _, remote in ipairs(R.Parry) do
-            pcall(function() remote:FireServer() end)
-        end
-        pcall(function()
-            char:SetAttribute("Parry", true)
-            char:SetAttribute("IsParrying", true)
-            char:SetAttribute("Blocking", true)
-        end)
-        task.delay(0.2, function()
-            pcall(function()
-                char:SetAttribute("Parry", false)
-                char:SetAttribute("IsParrying", false)
-                char:SetAttribute("Blocking", false)
-            end)
-        end)
-    end
-
-    if State.ParryMode ~= "Remote Only" then
-        for _, key in ipairs({Enum.KeyCode.F, Enum.KeyCode.E}) do
-            pcall(function()
-                VirtualInputMgr:SendKeyEvent(true, key, false, game)
-            end)
-            task.delay(0.08, function()
-                pcall(function()
-                    VirtualInputMgr:SendKeyEvent(false, key, false, game)
-                end)
-            end)
-        end
-    end
 
     if State.ParryDebug then
-        Log("Parry fired at t="..string.format("%.2f", now))
+        Log("Parry fired | reason="..tostring(reason).." t="..string.format("%.3f",now))
+    end
+
+    -- Attribute parry (instant, server-side)
+    SetParryAttribute(true)
+    task.delay(0.25, function() SetParryAttribute(false) end)
+
+    -- Remote fire
+    if State.ParryMode ~= "Key Only" then
+        FireParryRemotes()
+    end
+
+    -- Key simulation
+    if State.ParryMode ~= "Remote Only" then
+        task.spawn(FireParryKeys)
     end
 end
 
 function Surv.SetAutoParry(enable)
+    -- Disconnect all previous parry connections
     if State.AutoParryConn then
         pcall(function() State.AutoParryConn:Disconnect() end)
         State.AutoParryConn = nil
@@ -1228,8 +1365,14 @@ function Surv.SetAutoParry(enable)
         pcall(function() State.AutoParryHitConn:Disconnect() end)
         State.AutoParryHitConn = nil
     end
+    if State.ParryKillerWatchConn then
+        pcall(function() State.ParryKillerWatchConn:Disconnect() end)
+        State.ParryKillerWatchConn = nil
+    end
+
     if not enable then return end
 
+    -- Layer 1: Proximity + swing attribute watcher (Heartbeat)
     State.AutoParryConn = RunService.Heartbeat:Connect(function()
         if not State.AutoParry then return end
         local hrp = Move.GetHRP(); if not hrp then return end
@@ -1237,33 +1380,80 @@ function Surv.SetAutoParry(enable)
         if not killer or not killer.Character then return end
         local khrp = killer.Character:FindFirstChild("HumanoidRootPart")
         if not khrp then return end
+
         local dist = (khrp.Position - hrp.Position).Magnitude
-        if dist <= State.ParryRange then DoParry() end
+
+        -- Proximity trigger
+        if dist <= State.ParryRange then
+            DoParry("proximity")
+        end
+
+        -- Swing attribute trigger (wider range)
         local isAtk = killer.Character:GetAttribute("InAttack")
                    or killer.Character:GetAttribute("Attacking")
                    or killer.Character:GetAttribute("SwingActive")
-        if isAtk and dist <= State.ParryRange * 1.5 then DoParry() end
+                   or killer.Character:GetAttribute("IsSwinging")
+                   or killer.Character:GetAttribute("Chasing")
+        if isAtk and dist <= State.ParryRange * 2 then
+            State.LastParryTime = 0 -- force immediate fire on swing
+            DoParry("swing_attr")
+        end
     end)
 
+    -- Layer 2: On damage received
     if State.ParryOnHit then
+        local function HookHumanoid(hum)
+            if not hum then return end
+            local prevHP = hum.Health
+            if State.AutoParryHitConn then
+                pcall(function() State.AutoParryHitConn:Disconnect() end)
+            end
+            State.AutoParryHitConn = hum.HealthChanged:Connect(function(newHP)
+                if newHP < prevHP then
+                    State.LastParryTime = 0 -- bypass cooldown on real hit
+                    DoParry("health_drop")
+                    task.delay(0.1, function() DoParry("health_drop_retry") end)
+                end
+                prevHP = newHP
+            end)
+        end
         local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                local prevHP = hum.Health
-                State.AutoParryHitConn = hum.HealthChanged:Connect(function(newHP)
-                    if newHP < prevHP then
-                        State.LastParryTime = 0
-                        DoParry()
+        if char then HookHumanoid(char:FindFirstChildOfClass("Humanoid")) end
+        -- Re-hook after respawn (handled in CharacterAdded)
+        State._hookHumanoid = HookHumanoid
+    end
+
+    -- Layer 3: Watch killer for attribute changes via GetPropertyChangedSignal workaround
+    task.spawn(function()
+        while State.AutoParry do
+            task.wait(0.05)
+            local killer = Role.FindKiller()
+            if killer and killer.Character then
+                local kchar = killer.Character
+                local hrp   = Move.GetHRP()
+                local khrp  = kchar:FindFirstChild("HumanoidRootPart")
+                if hrp and khrp then
+                    local dist = (khrp.Position - hrp.Position).Magnitude
+                    if dist <= State.ParryRange * 1.8 then
+                        for _, attrName in ipairs({
+                            "InAttack","Attacking","SwingActive","SwingCooldown",
+                            "IsSwinging","hitlag","HitStop",
+                        }) do
+                            local v = kchar:GetAttribute(attrName)
+                            if v == true then
+                                DoParry("poll_"..attrName)
+                            end
+                        end
                     end
-                    prevHP = newHP
-                end)
+                end
             end
         end
-    end
+    end)
 end
 
--- AUTO HEAL
+-- ═══════════════════════════════════════════
+-- AUTO HEAL — Fixed
+-- ═══════════════════════════════════════════
 local function DoHeal()
     local char = LocalPlayer.Character; if not char then return end
     local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
@@ -1275,30 +1465,36 @@ local function DoHeal()
 
     if State.AutoHealMethod == "Remote" or State.AutoHealMethod == "All" then
         if R.Items.Heal then pcall(function() R.Items.Heal:FireServer() end) end
-        for _, r in ipairs(FindRemotesByKeyword(Remotes,"heal")) do
+        for _, r in ipairs(R.Heal) do
             pcall(function() r:FireServer() end)
         end
     end
+
     if State.AutoHealMethod == "Attribute" or State.AutoHealMethod == "All" then
         pcall(function()
             char:SetAttribute("IsHealing", true)
-            char:SetAttribute("Healing", true)
+            char:SetAttribute("Healing",   true)
         end)
         task.delay(1, function()
             pcall(function()
                 char:SetAttribute("IsHealing", false)
-                char:SetAttribute("Healing", false)
+                char:SetAttribute("Healing",   false)
             end)
         end)
     end
+
     if State.AutoHealMethod == "All" then
         pcall(function() hum.Health = math.min(hum.Health+25, hum.MaxHealth) end)
-        pcall(function() VirtualInputMgr:SendKeyEvent(true, Enum.KeyCode.H, false, game) end)
-        task.delay(0.08, function()
-            pcall(function() VirtualInputMgr:SendKeyEvent(false, Enum.KeyCode.H, false, game) end)
-        end)
+        for _, key in ipairs({Enum.KeyCode.H, Enum.KeyCode.Z}) do
+            pcall(function() VirtualInputMgr:SendKeyEvent(true,  key, false, game) end)
+            task.delay(0.08, function()
+                pcall(function() VirtualInputMgr:SendKeyEvent(false, key, false, game) end)
+            end)
+        end
     end
-    Log(string.format("Heal #%d | HP %.0f/%.0f (%.0f%%)", State.HealCount, hum.Health, hum.MaxHealth, pct))
+
+    Log(string.format("Heal #%d | HP %.0f/%.0f (%.0f%%)",
+        State.HealCount, hum.Health, hum.MaxHealth, pct))
 end
 
 function Surv.SetAutoHeal(enable)
@@ -1343,7 +1539,7 @@ function Surv.SetAutoSkillcheck(enable)
         if sc then pcall(function() sc.Disabled = true end) end
         pcall(function()
             char:SetAttribute("skillcheckfrequency", 0)
-            char:SetAttribute("skillcheckspeed", 0)
+            char:SetAttribute("skillcheckspeed",     0)
         end)
     end
     disableScript()
@@ -1351,8 +1547,8 @@ function Surv.SetAutoSkillcheck(enable)
         if not State.AutoSkillcheck then return end
         local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
         for _, gui in ipairs(pg:GetChildren()) do
-            if gui.Name:find("SkillCheckPromptGui") then
-                if gui.Enabled then pcall(function() gui.Enabled = false end) end
+            if gui.Name:find("SkillCheckPromptGui") and gui.Enabled then
+                pcall(function() gui.Enabled = false end)
             end
         end
         local char = LocalPlayer.Character
@@ -1366,7 +1562,7 @@ function Surv.SetAutoSkillcheck(enable)
     end)
 end
 
--- AUTO GEN RUSH (no continues)
+-- AUTO GEN RUSH
 function Surv.SetAutoGenRush(enable)
     if enable then
         if not R.Gen.RepairEvent then
@@ -1408,10 +1604,14 @@ function Surv.SetAutoGenRush(enable)
                                 if hb and (hb.Position-hrp.Position).Magnitude > 6 then
                                     pcall(function() hrp.CFrame = hb.CFrame + Vector3.new(0,3,0) end)
                                 end
-                                pcall(function() R.Gen.RepairEvent:FireServer(State.CurrentTargetGen, point) end)
+                                pcall(function()
+                                    R.Gen.RepairEvent:FireServer(State.CurrentTargetGen, point)
+                                end)
                             else
                                 if hb and (hb.Position-hrp.Position).Magnitude <= 8 then
-                                    pcall(function() R.Gen.RepairEvent:FireServer(State.CurrentTargetGen, point) end)
+                                    pcall(function()
+                                        R.Gen.RepairEvent:FireServer(State.CurrentTargetGen, point)
+                                    end)
                                 end
                             end
                         end
@@ -1448,11 +1648,9 @@ function Surv.SetGenProgress(enable)
                     local prog    = gen:GetAttribute("RepairProgress") or 0
                     local players = gen:GetAttribute("PlayersRepairingCount") or 0
                     lbl.Text = string.format("[GEN] %d%% [%d]", math.floor(prog), players)
-                    if prog >= 100 then
-                        lbl.TextColor3 = Color3.fromRGB(60,255,60)
-                    else
-                        lbl.TextColor3 = Color3.fromRGB(255,220,60)
-                    end
+                    lbl.TextColor3 = (prog >= 100)
+                        and Color3.fromRGB(60,255,60)
+                        or  Color3.fromRGB(255,220,60)
                     task.wait(0.5)
                 end
             end)
@@ -1466,31 +1664,25 @@ end
 if R.Game.RoundEnd then
     CM:Add(R.Game.RoundEnd.Event, function()
         State.MatchActive = false
-        ESP.ClearAll()
-        Role.ResetKillerCache()
+        ESP.ClearAll(); Role.ResetKillerCache()
         State.CurrentTargetGen = nil
     end, "RoundReset")
 end
 if R.Game.Start then
     CM:Add(R.Game.Start.Event, function()
-        State.MatchActive = true
-        State.IsKiller    = false
-        Role.ResetKillerCache()
-        ESP.ClearAll()
+        State.MatchActive = true; State.IsKiller = false
+        Role.ResetKillerCache(); ESP.ClearAll()
         task.spawn(function()
             for i = 1, 15 do
                 task.wait(1); Role.ResetKillerCache()
-                if State.ESP_Killer or State.ESP_Survivors then
-                    ESP.RefreshAll()
-                end
+                if State.ESP_Killer or State.ESP_Survivors then ESP.RefreshAll() end
             end
         end)
     end, "MatchStart")
 end
 if R.Game.KillerMorph then
     CM:Add(R.Game.KillerMorph.Event, function()
-        State.IsKiller = true
-        Role.ResetKillerCache()
+        State.IsKiller = true; Role.ResetKillerCache()
     end, "KMorph")
 end
 
@@ -1500,6 +1692,175 @@ CM:Add(LocalPlayer.Idled, function()
         VirtualUser:ClickButton2(Vector2.zero)
     end
 end, "AntiAFK")
+
+-- Periodic lighting refresh
+task.spawn(function()
+    while task.wait(5) do
+        if State.FullBright then pcall(Vis.FullBright, true) end
+        if State.NoFog      then pcall(Vis.NoFog, true)      end
+    end
+end)
+
+-- ═══════════════════════════════════════════
+-- REGISTER ALL KEYBINDS
+-- ═══════════════════════════════════════════
+KB.Register("Invisible", KB.Keys.Invisible, function()
+    State.Invisible = not State.Invisible
+    Surv.SetInvisible(State.Invisible)
+    Notify("Invisible", State.Invisible and "ON" or "OFF", 2)
+end)
+
+KB.Register("AutoParry", KB.Keys.AutoParry, function()
+    State.AutoParry = not State.AutoParry
+    Surv.SetAutoParry(State.AutoParry)
+    Notify("Auto Parry", State.AutoParry and "ON" or "OFF", 2)
+end)
+
+KB.Register("AutoHeal", KB.Keys.AutoHeal, function()
+    State.AutoHeal = not State.AutoHeal
+    Surv.SetAutoHeal(State.AutoHeal)
+    Notify("Auto Heal", State.AutoHeal and "ON" or "OFF", 2)
+end)
+
+KB.Register("GodMode", KB.Keys.GodMode, function()
+    State.GodMode = not State.GodMode
+    Surv.SetGodMode(State.GodMode)
+    Notify("God Mode", State.GodMode and "ON" or "OFF", 2)
+end)
+
+KB.Register("NoClip", KB.Keys.NoClip, function()
+    State.NoClip = not State.NoClip
+    Move.SetNoClip(State.NoClip)
+    Notify("NoClip", State.NoClip and "ON" or "OFF", 2)
+end)
+
+KB.Register("InfJump", KB.Keys.InfJump, function()
+    State.InfJump = not State.InfJump
+    Move.SetInfJump(State.InfJump)
+    Notify("Inf Jump", State.InfJump and "ON" or "OFF", 2)
+end)
+
+KB.Register("SpeedBoost", KB.Keys.SpeedBoost, function()
+    State.SurvSpeedBoost = not State.SurvSpeedBoost
+    Surv.SetSpeedBoost(State.SurvSpeedBoost)
+    Notify("Speed Boost", State.SurvSpeedBoost and "ON" or "OFF", 2)
+end)
+
+KB.Register("FleeKiller", KB.Keys.FleeKiller, function()
+    State.FleeKiller = not State.FleeKiller
+    Surv.SetFleeKiller(State.FleeKiller)
+    Notify("Flee Killer", State.FleeKiller and "ON" or "OFF", 2)
+end)
+
+KB.Register("FullBright", KB.Keys.FullBright, function()
+    State.FullBright = not State.FullBright
+    Vis.FullBright(State.FullBright)
+    Notify("FullBright", State.FullBright and "ON" or "OFF", 2)
+end)
+
+KB.Register("Freecam", KB.Keys.Freecam, function()
+    State.Freecam = not State.Freecam
+    Vis.Freecam(State.Freecam)
+    Notify("Freecam", State.Freecam and "ON" or "OFF", 2)
+end)
+
+KB.Register("AutoGenRush", KB.Keys.AutoGenRush, function()
+    State.AutoGenRush = not State.AutoGenRush
+    Surv.SetAutoGenRush(State.AutoGenRush)
+    Notify("Auto Gen Rush", State.AutoGenRush and "ON" or "OFF", 2)
+end)
+
+KB.Register("AutoSkillcheck", KB.Keys.AutoSkillcheck, function()
+    State.AutoSkillcheck = not State.AutoSkillcheck
+    Surv.SetAutoSkillcheck(State.AutoSkillcheck)
+    Notify("Auto Skillcheck", State.AutoSkillcheck and "ON" or "OFF", 2)
+end)
+
+KB.Register("GenProgress", KB.Keys.GenProgress, function()
+    State.ShowGenProgress = not State.ShowGenProgress
+    Surv.SetGenProgress(State.ShowGenProgress)
+    Notify("Gen Progress", State.ShowGenProgress and "ON" or "OFF", 2)
+end)
+
+KB.Register("OwnHP", KB.Keys.OwnHP, function()
+    HP.SetVisible(not State.ShowOwnHP)
+    Notify("HP Bar", State.ShowOwnHP and "ON" or "OFF", 2)
+end)
+
+KB.Register("PanicClearESP", KB.Keys.PanicClearESP, function()
+    State.ESP_Killer=false; State.ESP_Survivors=false
+    State.ESP_Generators=false; State.ESP_Items=false
+    State.ESP_Weapons=false; State.ESP_Clones=false
+    State.ESP_Pallets=false; State.ESP_Vaults=false; State.ESP_Hooks=false
+    ESP.ClearAll()
+    Notify("Panic","ESP cleared",3)
+end)
+
+KB.Register("ForceParry", KB.Keys.ForceParry, function()
+    State.LastParryTime = 0
+    DoParry("manual_key")
+    Notify("Parry","Fired!",1)
+end)
+
+KB.Register("ForceHeal", KB.Keys.ForceHeal, function()
+    State.LastHealTime = 0
+    pcall(DoHeal)
+    Notify("Heal","Manual triggered",2)
+end)
+
+KB.Register("ServerHop", KB.Keys.ServerHop, function()
+    Vis.ServerHop()
+end)
+
+-- ESP toggles via keys
+KB.Register("KillerESP", KB.Keys.KillerESP, function()
+    State.ESP_Killer = not State.ESP_Killer
+    Role.ResetKillerCache()
+    ESP.RefreshAll()
+    Notify("Killer ESP", State.ESP_Killer and "ON" or "OFF", 2)
+end)
+
+KB.Register("SurvivorESP", KB.Keys.SurvivorESP, function()
+    State.ESP_Survivors = not State.ESP_Survivors
+    ESP.RefreshAll()
+    Notify("Survivor ESP", State.ESP_Survivors and "ON" or "OFF", 2)
+end)
+
+KB.Register("GeneratorESP", KB.Keys.GeneratorESP, function()
+    State.ESP_Generators = not State.ESP_Generators
+    ESP.RefreshAll()
+    Notify("Generator ESP", State.ESP_Generators and "ON" or "OFF", 2)
+end)
+
+KB.Register("PalletESP", KB.Keys.PalletESP, function()
+    State.ESP_Pallets = not State.ESP_Pallets
+    ESP.RefreshAll()
+    Notify("Pallet ESP", State.ESP_Pallets and "ON" or "OFF", 2)
+end)
+
+KB.Register("VaultESP", KB.Keys.VaultESP, function()
+    State.ESP_Vaults = not State.ESP_Vaults
+    ESP.RefreshAll()
+    Notify("Vault ESP", State.ESP_Vaults and "ON" or "OFF", 2)
+end)
+
+KB.Register("HookESP", KB.Keys.HookESP, function()
+    State.ESP_Hooks = not State.ESP_Hooks
+    ESP.RefreshAll()
+    Notify("Hook ESP", State.ESP_Hooks and "ON" or "OFF", 2)
+end)
+
+KB.Register("NoFog", KB.Keys.NoFog, function()
+    State.NoFog = not State.NoFog
+    Vis.NoFog(State.NoFog)
+    Notify("No Fog", State.NoFog and "ON" or "OFF", 2)
+end)
+
+KB.Register("NoShadows", KB.Keys.NoShadows, function()
+    State.NoShadows = not State.NoShadows
+    Vis.NoShadows(State.NoShadows)
+    Notify("No Shadows", State.NoShadows and "ON" or "OFF", 2)
+end)
 
 -- ═══════════════════════════════════════════
 -- UI
@@ -1521,26 +1882,36 @@ for _, def in ipairs({
     {key="Movement", name="Movement", icon="footprints"},
     {key="Visuals",  name="Visuals",  icon="sun"},
     {key="Misc",     name="Misc",     icon="wrench"},
+    {key="Keybinds", name="Keybinds", icon="keyboard"},
     {key="Settings", name="Settings", icon="settings"},
 }) do
     local ok, tab = pcall(function() return Window:CreateTab(def.name, def.icon) end)
     if ok and tab then Tabs[def.key] = tab end
 end
 
+-- ════════════════
 -- MAIN TAB
+-- ════════════════
 if Tabs.Main then
     local T = Tabs.Main
     T:CreateSection("Info")
     T:CreateLabel(HUB.Name .. " v" .. HUB.Version)
-    T:CreateLabel("Game: " .. HUB.Game .. " | Author: " .. HUB.Author)
+    T:CreateLabel("Game: "..HUB.Game.." | Author: "..HUB.Author)
     T:CreateSection("Status")
-    T:CreateLabel("Generators: " .. (WS.Generators and #WS.Generators:GetChildren() or 0))
-    T:CreateLabel("Pallets: " .. #GetPallets() .. " | Vaults: " .. #GetVaults())
-    T:CreateLabel("Parry Remote: " .. (R.Items.ParryDagger and "Found" or "Missing"))
-    T:CreateLabel("Heal Remote: " .. (R.Items.Heal and "Found" or "Missing"))
-    T:CreateSection("Keybinds")
-    T:CreateLabel("End = Panic (Clear ESP)")
-    T:CreateLabel("X = Toggle Invisible")
+    T:CreateLabel("Generators: "..(WS.Generators and #WS.Generators:GetChildren() or 0))
+    T:CreateLabel("Pallets: "..#GetPallets().." | Vaults: "..#GetVaults())
+    T:CreateLabel("Parry Remote: "..(R.Items.ParryDagger and "Found" or "Missing"))
+    T:CreateLabel("Heal Remote:  "..(R.Items.Heal and "Found" or "Missing"))
+    T:CreateLabel("Parry Remotes: "..#R.Parry.." | Heal Remotes: "..#R.Heal)
+    T:CreateSection("Quick Keys Reference")
+    T:CreateLabel("P = Auto Parry | H = Auto Heal | G = God Mode")
+    T:CreateLabel("N = NoClip | J = Inf Jump | B = Speed Boost")
+    T:CreateLabel("X = Invisible | F = Flee Killer | L = FullBright")
+    T:CreateLabel("V = Freecam | R = Auto Gen | K = Auto Skillcheck")
+    T:CreateLabel("Q = Force Parry | Y = Force Heal | M = Server Hop")
+    T:CreateLabel("F1=KillerESP F2=SurvESP F3=GenESP F4=PalletESP")
+    T:CreateLabel("F5=VaultESP F6=HookESP F7=NoFog F8=NoShadows")
+    T:CreateLabel("End = Panic (Clear all ESP)")
     T:CreateSection("Debug")
     T:CreateButton({Name="Force Re-Detect Killer", Callback=function()
         Role.ResetKillerCache(); ESP.ClearAll(); ESP.RefreshAll()
@@ -1562,27 +1933,28 @@ if Tabs.Main then
         ESP.ClearAll(); Role.ResetKillerCache(); ESP.RefreshAll()
         Notify("ESP","Refreshed",3)
     end})
+    T:CreateButton({Name="Force Test Parry", Callback=function()
+        State.LastParryTime = 0
+        DoParry("test")
+        Notify("Parry","Test fired!",2)
+    end})
 end
 
+-- ════════════════
 -- SURVIVOR TAB
+-- ════════════════
 if Tabs.Survivor then
     local T = Tabs.Survivor
 
     T:CreateSection("Health Display")
-    T:CreateToggle({Name="Show Own HP Bar", CurrentValue=false, Flag="OwnHP",
+    T:CreateToggle({Name="Show Own HP Bar [U]", CurrentValue=false, Flag="OwnHP",
         Callback=function(v) HP.SetVisible(v) end})
 
-    T:CreateSection("Invisible")
+    T:CreateSection("Invisible [X]")
     T:CreateToggle({Name="Invisible", CurrentValue=false, Flag="Inv",
         Callback=function(v) State.Invisible=v; Surv.SetInvisible(v) end})
-    T:CreateKeybind({Name="Invisible Hotkey", CurrentKeybind="X",
-        HoldToInteract=false, Flag="InvKey",
-        Callback=function(k)
-            local ok, key = pcall(function() return Enum.KeyCode[k] end)
-            if ok and key then State.InvisibleHotkey = key end
-        end})
 
-    T:CreateSection("Speed")
+    T:CreateSection("Speed [B]")
     T:CreateToggle({Name="Speed Boost", CurrentValue=false, Flag="SB",
         Callback=function(v) State.SurvSpeedBoost=v; Surv.SetSpeedBoost(v) end})
     T:CreateSlider({Name="Speed Value", Range={16,60}, Increment=1, CurrentValue=24, Flag="SBVal",
@@ -1591,17 +1963,21 @@ if Tabs.Survivor then
             if State.SurvSpeedBoost then Surv.SetSpeedBoost(true) end
         end})
 
-    T:CreateSection("Auto Parry")
+    T:CreateSection("Auto Parry [P] | Force: [Q]")
     T:CreateToggle({Name="Enable Auto Parry", CurrentValue=false, Flag="AP",
         Callback=function(v) State.AutoParry=v; Surv.SetAutoParry(v) end})
-    T:CreateSlider({Name="Parry Range (studs)", Range={5,60}, Increment=1, CurrentValue=20, Flag="PR",
+    T:CreateSlider({Name="Parry Trigger Range (studs)", Range={5,80}, Increment=1, CurrentValue=20, Flag="PR",
         Callback=function(v)
             State.ParryRange = tonumber(v) or 20
             if State.ShowParryRing then Surv.UpdateParryRing() end
         end})
-    T:CreateSlider({Name="Parry Cooldown (x0.1s)", Range={1,20}, Increment=1, CurrentValue=4, Flag="PCD",
+    T:CreateSlider({Name="Parry Cooldown (x0.05s)", Range={1,20}, Increment=1, CurrentValue=5, Flag="PCD",
         Callback=function(v)
-            State.ParryCooldown = (tonumber(v) or 4) * 0.1
+            State.ParryCooldown = (tonumber(v) or 5) * 0.05
+        end})
+    T:CreateSlider({Name="Key Fire Delay (x0.01s)", Range={1,20}, Increment=1, CurrentValue=8, Flag="PFR",
+        Callback=function(v)
+            State.ParryFireRate = (tonumber(v) or 8) * 0.01
         end})
     T:CreateDropdown({Name="Parry Mode",
         Options={"Remote+Key","Remote Only","Key Only"},
@@ -1626,8 +2002,12 @@ if Tabs.Survivor then
             State.ParryRingColor = (type(v)=="table" and v[1]) or v
             if State.ShowParryRing then Surv.UpdateParryRing() end
         end})
+    T:CreateButton({Name="Force Parry NOW", Callback=function()
+        State.LastParryTime = 0; DoParry("manual_btn")
+        Notify("Parry","Fired!",1)
+    end})
 
-    T:CreateSection("Auto Self Heal")
+    T:CreateSection("Auto Self Heal [H] | Force: [Y]")
     T:CreateToggle({Name="Enable Auto Heal", CurrentValue=false, Flag="AH",
         Callback=function(v) State.AutoHeal=v; Surv.SetAutoHeal(v) end})
     T:CreateSlider({Name="Heal Below HP %", Range={10,95}, Increment=5, CurrentValue=60, Flag="AHT",
@@ -1640,39 +2020,41 @@ if Tabs.Survivor then
         Callback=function(v) State.AutoHealMethod = (type(v)=="table" and v[1]) or v end})
     T:CreateButton({Name="Manual Heal Now", Callback=function()
         State.LastHealTime = 0; pcall(DoHeal)
-        Notify("Heal","Manual triggered",3)
+        Notify("Heal","Manual triggered",2)
     end})
 
     T:CreateSection("Utility")
     T:CreateToggle({Name="No Fall Damage", CurrentValue=false, Flag="NF",
         Callback=function(v) State.NoFallDamage=v; Surv.SetNoFall(v) end})
-    T:CreateToggle({Name="Flee Killer", CurrentValue=false, Flag="FK",
+    T:CreateToggle({Name="Flee Killer [F]", CurrentValue=false, Flag="FK",
         Callback=function(v) State.FleeKiller=v; Surv.SetFleeKiller(v) end})
     T:CreateSlider({Name="Flee Distance", Range={10,100}, Increment=5, CurrentValue=40, Flag="FD",
         Callback=function(v) State.FleeDistance = tonumber(v) or 40 end})
-    T:CreateToggle({Name="God Mode", CurrentValue=false, Flag="GM",
+    T:CreateToggle({Name="God Mode [G]", CurrentValue=false, Flag="GM",
         Callback=function(v) State.GodMode=v; Surv.SetGodMode(v) end})
 
-    T:CreateSection("Auto Generator Rush")
+    T:CreateSection("Auto Generator Rush [R]")
     T:CreateDropdown({Name="Gen Mode", Options={"Instant","Legit"}, CurrentOption={"Instant"}, Flag="AGM",
         Callback=function(v) State.AutoGenMode = (type(v)=="table" and v[1]) or v end})
     T:CreateToggle({Name="Enable Auto Gen Rush", CurrentValue=false, Flag="AGR",
         Callback=function(v) State.AutoGenRush=v; Surv.SetAutoGenRush(v) end})
 
-    T:CreateSection("Auto Skillcheck")
+    T:CreateSection("Auto Skillcheck [K]")
     T:CreateToggle({Name="Disable Skillchecks", CurrentValue=false, Flag="ASC",
         Callback=function(v) State.AutoSkillcheck=v; Surv.SetAutoSkillcheck(v) end})
 
-    T:CreateSection("Generator Info")
+    T:CreateSection("Generator Info [O]")
     T:CreateToggle({Name="Show Progress Above Gens", CurrentValue=false, Flag="GP",
         Callback=function(v) State.ShowGenProgress=v; Surv.SetGenProgress(v) end})
 end
 
+-- ════════════════
 -- ESP TAB
+-- ════════════════
 if Tabs.ESP then
     local T = Tabs.ESP
     T:CreateSection("Player ESP")
-    T:CreateToggle({Name="Killer ESP (Red)", CurrentValue=false, Flag="E1",
+    T:CreateToggle({Name="Killer ESP [F1]", CurrentValue=false, Flag="E1",
         Callback=function(v)
             State.ESP_Killer = v; Role.ResetKillerCache()
             if not v then
@@ -1682,7 +2064,7 @@ if Tabs.ESP then
             end
             ESP.RefreshAll()
         end})
-    T:CreateToggle({Name="Survivor ESP (Blue)", CurrentValue=false, Flag="E2",
+    T:CreateToggle({Name="Survivor ESP [F2]", CurrentValue=false, Flag="E2",
         Callback=function(v)
             State.ESP_Survivors = v; Role.ResetKillerCache()
             if not v then
@@ -1696,24 +2078,24 @@ if Tabs.ESP then
         Callback=function(v) State.ESP_ShowHP = v end})
 
     T:CreateSection("Object ESP")
-    T:CreateToggle({Name="Generator ESP", CurrentValue=false, Flag="E3",
+    T:CreateToggle({Name="Generator ESP [F3]", CurrentValue=false, Flag="E3",
         Callback=function(v)
             State.ESP_Generators = v
             if not v and WS.Generators then
                 for _, g in ipairs(WS.Generators:GetChildren()) do ESP.Remove(g) end
             end
         end})
-    T:CreateToggle({Name="Pallet ESP", CurrentValue=false, Flag="E4",
+    T:CreateToggle({Name="Pallet ESP [F4]", CurrentValue=false, Flag="E4",
         Callback=function(v)
             State.ESP_Pallets = v
             if not v then for _, p in ipairs(GetPallets()) do ESP.Remove(p) end end
         end})
-    T:CreateToggle({Name="Vault ESP", CurrentValue=false, Flag="E5",
+    T:CreateToggle({Name="Vault ESP [F5]", CurrentValue=false, Flag="E5",
         Callback=function(v)
             State.ESP_Vaults = v
             if not v then for _, w in ipairs(GetVaults()) do ESP.Remove(w) end end
         end})
-    T:CreateToggle({Name="Hook ESP", CurrentValue=false, Flag="E5H",
+    T:CreateToggle({Name="Hook ESP [F6]", CurrentValue=false, Flag="E5H",
         Callback=function(v)
             State.ESP_Hooks = v
             if not v then for _, h in ipairs(GetHooks()) do ESP.Remove(h) end end
@@ -1748,13 +2130,14 @@ if Tabs.ESP then
         ESP.ClearAll(); Role.ResetKillerCache(); ESP.RefreshAll()
         Notify("ESP","Refreshed",3)
     end})
-    T:CreateButton({Name="Clear All ESP", Callback=function()
-        ESP.ClearAll()
-        Notify("ESP","Cleared",3)
+    T:CreateButton({Name="Clear All ESP [End]", Callback=function()
+        ESP.ClearAll(); Notify("ESP","Cleared",3)
     end})
 end
 
+-- ════════════════
 -- MOVEMENT TAB
+-- ════════════════
 if Tabs.Movement then
     local T = Tabs.Movement
     T:CreateSection("Speed & Jump")
@@ -1765,39 +2148,45 @@ if Tabs.Movement then
         end})
     T:CreateSlider({Name="Jump Power", Range={50,300}, Increment=5, CurrentValue=50, Flag="M2",
         Callback=function(v) State.JumpPower = tonumber(v) or 50; Move.Jump() end})
+
     T:CreateSection("Advanced")
-    T:CreateToggle({Name="NoClip", CurrentValue=false, Flag="M3",
+    T:CreateToggle({Name="NoClip [N]", CurrentValue=false, Flag="M3",
         Callback=function(v) State.NoClip=v; Move.SetNoClip(v) end})
-    T:CreateToggle({Name="Infinite Jump", CurrentValue=false, Flag="M4",
+    T:CreateToggle({Name="Infinite Jump [J]", CurrentValue=false, Flag="M4",
         Callback=function(v) State.InfJump=v; Move.SetInfJump(v) end})
+
     T:CreateSection("Teleport")
     T:CreateButton({Name="TP Nearest Generator", Callback=Move.NearestGen})
-    T:CreateButton({Name="TP Nearest Exit", Callback=Move.NearestExit})
+    T:CreateButton({Name="TP Nearest Exit",       Callback=Move.NearestExit})
     T:CreateInput({Name="Player Name", PlaceholderText="Name...",
         RemoveTextAfterFocusLost=false,
         Callback=function(v) tpTarget = tostring(v or "") end})
     T:CreateButton({Name="TP to Player", Callback=Move.ToPlayer})
 end
 
+-- ════════════════
 -- VISUALS TAB
+-- ════════════════
 if Tabs.Visuals then
     local T = Tabs.Visuals
     T:CreateSection("Lighting")
-    T:CreateToggle({Name="FullBright", CurrentValue=false, Flag="V1",
+    T:CreateToggle({Name="FullBright [L]", CurrentValue=false, Flag="V1",
         Callback=function(v) State.FullBright=v; Vis.FullBright(v) end})
-    T:CreateToggle({Name="No Fog", CurrentValue=false, Flag="V2",
+    T:CreateToggle({Name="No Fog [F7]", CurrentValue=false, Flag="V2",
         Callback=function(v) State.NoFog=v; Vis.NoFog(v) end})
-    T:CreateToggle({Name="No Shadows", CurrentValue=false, Flag="V3",
+    T:CreateToggle({Name="No Shadows [F8]", CurrentValue=false, Flag="V3",
         Callback=function(v) State.NoShadows=v; Vis.NoShadows(v) end})
     T:CreateToggle({Name="Clear Weather", CurrentValue=false, Flag="V4",
         Callback=function(v) State.ClearWeather=v; Vis.ClearWx(v) end})
     T:CreateSlider({Name="Time of Day", Range={0,24}, Increment=1, CurrentValue=14, Flag="V5",
         Callback=function(v) State.ClockTime=tonumber(v) or 14; Vis.SetClock(State.ClockTime) end})
+
     T:CreateSection("Camera")
     T:CreateSlider({Name="FOV", Range={30,120}, Increment=5, CurrentValue=70, Flag="V6",
         Callback=function(v) State.FOV=tonumber(v) or 70; Vis.SetFOV(State.FOV) end})
-    T:CreateToggle({Name="Freecam", CurrentValue=false, Flag="V7",
+    T:CreateToggle({Name="Freecam [V]", CurrentValue=false, Flag="V7",
         Callback=function(v) State.Freecam=v; Vis.Freecam(v) end})
+
     T:CreateSection("Post FX")
     T:CreateToggle({Name="Remove Blur/Bloom", CurrentValue=false, Flag="V8",
         Callback=function(v) State.RemoveBlur=v; Vis.PostFX(v) end})
@@ -1805,12 +2194,15 @@ if Tabs.Visuals then
         Callback=function(v) State.RemoveCC=v; Vis.ColorCorr(v) end})
     T:CreateToggle({Name="No Particles", CurrentValue=false, Flag="V10",
         Callback=function(v) State.NoParticles=v; Vis.Particles(v) end})
+
     T:CreateSection("Performance")
     T:CreateToggle({Name="Low Graphics", CurrentValue=false, Flag="V11",
         Callback=function(v) State.LowGraphics=v; Vis.LowGfx(v) end})
 end
 
+-- ════════════════
 -- MISC TAB
+-- ════════════════
 if Tabs.Misc then
     local T = Tabs.Misc
     T:CreateSection("Audio")
@@ -1818,10 +2210,12 @@ if Tabs.Misc then
         Callback=function(v) State.NoSound=v; Vis.MuteAll(v) end})
     T:CreateToggle({Name="Mute BG Music", CurrentValue=false, Flag="X2",
         Callback=function(v) State.MuteBGMusic=v; Vis.MuteBG(v) end})
+
     T:CreateSection("Character")
     T:CreateToggle({Name="Hide Own Name", CurrentValue=false, Flag="X3",
         Callback=function(v) State.HideName=v; Vis.HideName(v) end})
-    T:CreateSection("Server")
+
+    T:CreateSection("Server [M]")
     T:CreateButton({Name="Server Hop", Callback=Vis.ServerHop})
     T:CreateButton({Name="Rejoin", Callback=function()
         pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
@@ -1829,38 +2223,219 @@ if Tabs.Misc then
     T:CreateButton({Name="Copy Job ID", Callback=function()
         if setclipboard then setclipboard(tostring(game.JobId)); Notify("Copied","Job ID",3) end
     end})
+
     T:CreateSection("Utility")
     T:CreateToggle({Name="Auto Rejoin on Kick", CurrentValue=false, Flag="X4",
         Callback=function(v) State.AutoRejoin=v end})
 end
 
+-- ════════════════
+-- KEYBINDS TAB
+-- ════════════════
+if Tabs.Keybinds then
+    local T = Tabs.Keybinds
+
+    T:CreateSection("Combat")
+    T:CreateKeybind({Name="Auto Parry Toggle", CurrentKeybind="P",
+        HoldToInteract=false, Flag="KB_AutoParry",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("AutoParry", key) end
+        end})
+    T:CreateKeybind({Name="Force Parry (Manual)", CurrentKeybind="Q",
+        HoldToInteract=false, Flag="KB_ForceParry",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("ForceParry", key) end
+        end})
+    T:CreateKeybind({Name="Auto Heal Toggle", CurrentKeybind="H",
+        HoldToInteract=false, Flag="KB_AutoHeal",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("AutoHeal", key) end
+        end})
+    T:CreateKeybind({Name="Force Heal (Manual)", CurrentKeybind="Y",
+        HoldToInteract=false, Flag="KB_ForceHeal",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("ForceHeal", key) end
+        end})
+    T:CreateKeybind({Name="God Mode Toggle", CurrentKeybind="G",
+        HoldToInteract=false, Flag="KB_GodMode",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("GodMode", key) end
+        end})
+    T:CreateKeybind({Name="Flee Killer Toggle", CurrentKeybind="F",
+        HoldToInteract=false, Flag="KB_Flee",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("FleeKiller", key) end
+        end})
+
+    T:CreateSection("Character")
+    T:CreateKeybind({Name="Invisible Toggle", CurrentKeybind="X",
+        HoldToInteract=false, Flag="KB_Invisible",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("Invisible", key) end
+        end})
+    T:CreateKeybind({Name="Speed Boost Toggle", CurrentKeybind="B",
+        HoldToInteract=false, Flag="KB_SpeedBoost",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("SpeedBoost", key) end
+        end})
+
+    T:CreateSection("Movement")
+    T:CreateKeybind({Name="NoClip Toggle", CurrentKeybind="N",
+        HoldToInteract=false, Flag="KB_NoClip",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("NoClip", key) end
+        end})
+    T:CreateKeybind({Name="Infinite Jump Toggle", CurrentKeybind="J",
+        HoldToInteract=false, Flag="KB_InfJump",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("InfJump", key) end
+        end})
+
+    T:CreateSection("Generators")
+    T:CreateKeybind({Name="Auto Gen Rush Toggle", CurrentKeybind="R",
+        HoldToInteract=false, Flag="KB_GenRush",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("AutoGenRush", key) end
+        end})
+    T:CreateKeybind({Name="Auto Skillcheck Toggle", CurrentKeybind="K",
+        HoldToInteract=false, Flag="KB_Skillcheck",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("AutoSkillcheck", key) end
+        end})
+    T:CreateKeybind({Name="Gen Progress Toggle", CurrentKeybind="O",
+        HoldToInteract=false, Flag="KB_GenProgress",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("GenProgress", key) end
+        end})
+
+    T:CreateSection("Visuals")
+    T:CreateKeybind({Name="FullBright Toggle", CurrentKeybind="L",
+        HoldToInteract=false, Flag="KB_FullBright",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("FullBright", key) end
+        end})
+    T:CreateKeybind({Name="Freecam Toggle", CurrentKeybind="V",
+        HoldToInteract=false, Flag="KB_Freecam",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("Freecam", key) end
+        end})
+    T:CreateKeybind({Name="HP Bar Toggle", CurrentKeybind="U",
+        HoldToInteract=false, Flag="KB_OwnHP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("OwnHP", key) end
+        end})
+    T:CreateKeybind({Name="No Fog Toggle", CurrentKeybind="F7",
+        HoldToInteract=false, Flag="KB_NoFog",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("NoFog", key) end
+        end})
+    T:CreateKeybind({Name="No Shadows Toggle", CurrentKeybind="F8",
+        HoldToInteract=false, Flag="KB_NoShadows",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("NoShadows", key) end
+        end})
+
+    T:CreateSection("ESP")
+    T:CreateKeybind({Name="Killer ESP Toggle", CurrentKeybind="F1",
+        HoldToInteract=false, Flag="KB_KillerESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("KillerESP", key) end
+        end})
+    T:CreateKeybind({Name="Survivor ESP Toggle", CurrentKeybind="F2",
+        HoldToInteract=false, Flag="KB_SurvESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("SurvivorESP", key) end
+        end})
+    T:CreateKeybind({Name="Generator ESP Toggle", CurrentKeybind="F3",
+        HoldToInteract=false, Flag="KB_GenESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("GeneratorESP", key) end
+        end})
+    T:CreateKeybind({Name="Pallet ESP Toggle", CurrentKeybind="F4",
+        HoldToInteract=false, Flag="KB_PalletESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("PalletESP", key) end
+        end})
+    T:CreateKeybind({Name="Vault ESP Toggle", CurrentKeybind="F5",
+        HoldToInteract=false, Flag="KB_VaultESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("VaultESP", key) end
+        end})
+    T:CreateKeybind({Name="Hook ESP Toggle", CurrentKeybind="F6",
+        HoldToInteract=false, Flag="KB_HookESP",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("HookESP", key) end
+        end})
+
+    T:CreateSection("Misc")
+    T:CreateKeybind({Name="Server Hop", CurrentKeybind="M",
+        HoldToInteract=false, Flag="KB_ServerHop",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("ServerHop", key) end
+        end})
+    T:CreateKeybind({Name="Panic Clear ESP", CurrentKeybind="End",
+        HoldToInteract=false, Flag="KB_Panic",
+        Callback=function(k)
+            local ok, key = pcall(function() return Enum.KeyCode[k] end)
+            if ok and key then KB.SetKey("PanicClearESP", key) end
+        end})
+end
+
+-- ════════════════
 -- SETTINGS TAB
+-- ════════════════
 if Tabs.Settings then
     local T = Tabs.Settings
     T:CreateSection("Anti-AFK")
     T:CreateToggle({Name="Anti-AFK", CurrentValue=true, Flag="S1",
         Callback=function(v) State.AntiAFK=v end})
     T:CreateSection("Credits")
-    T:CreateLabel(HUB.Name .. " v" .. HUB.Version .. " by " .. HUB.Author)
+    T:CreateLabel(HUB.Name.." v"..HUB.Version.." by "..HUB.Author)
     T:CreateSection("Danger Zone")
     T:CreateButton({Name="Unload Hub", Callback=function()
         for _, key in ipairs({
             "NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn",
             "FleeConn","AutoParryConn","AutoParryHitConn","AutoHealConn",
-            "SkillcheckGUIConn","InvisibleConn",
+            "SkillcheckGUIConn","InvisibleConn","ParryKillerWatchConn",
         }) do
             if State[key] then pcall(function() State[key]:Disconnect() end) end
         end
         State.AutoGenRush=false; State.ShowGenProgress=false
-        State.ShowOwnHP=false; State.AutoHeal=false
+        State.ShowOwnHP=false; State.AutoHeal=false; State.AutoParry=false
         Surv.SetGenProgress(false); Surv.SetInvisible(false)
         Surv.SetAutoSkillcheck(false); Surv.SetAutoHeal(false)
+        Surv.SetAutoParry(false)
         if State.ParryRing then pcall(function() State.ParryRing:Destroy() end) end
-        if State.HPGui then pcall(function() State.HPGui:Destroy() end) end
-        if ESPRenderConn then ESPRenderConn:Disconnect() end
-        if ESPGui then pcall(function() ESPGui:Destroy() end) end
+        if State.HPGui     then pcall(function() State.HPGui:Destroy() end)    end
+        if ESPRenderConn   then ESPRenderConn:Disconnect() end
+        if ESPGui          then pcall(function() ESPGui:Destroy() end) end
         CM:Cleanup(); Vis.RestoreLight()
-        pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        pcall(function() Camera.CameraType  = Enum.CameraType.Custom end)
         pcall(function() Camera.FieldOfView = 70 end)
         ESP.ClearAll()
         _G[INSTANCE_KEY] = nil
@@ -1868,42 +2443,27 @@ if Tabs.Settings then
     end})
 end
 
--- KEYBINDS
-CM:Add(UserInputService.InputBegan, function(inp, gpe)
-    if gpe then return end
-    if inp.KeyCode == Enum.KeyCode.End then
-        State.ESP_Killer=false; State.ESP_Survivors=false
-        State.ESP_Generators=false; State.ESP_Items=false
-        State.ESP_Weapons=false; State.ESP_Clones=false
-        State.ESP_Pallets=false; State.ESP_Vaults=false; State.ESP_Hooks=false
-        ESP.ClearAll()
-        Notify("Panic","ESP cleared",3)
-    elseif inp.KeyCode == State.InvisibleHotkey then
-        State.Invisible = not State.Invisible
-        Surv.SetInvisible(State.Invisible)
-        Notify("Invisible", State.Invisible and "ON" or "OFF", 2)
-    end
-end, "Keybinds")
-
--- CHARACTER RESPAWN
+-- ═══════════════════════════════════════════
+-- CHARACTER RESPAWN — re-hook everything
+-- ═══════════════════════════════════════════
 CM:Add(LocalPlayer.CharacterAdded, function()
     State.SavedTransparencies = {}
     task.wait(1.5)
     Role.ResetKillerCache()
     pcall(Move.Speed); pcall(Move.Jump)
-    if State.NoClip         then pcall(Move.SetNoClip, true) end
+    if State.NoClip         then pcall(Move.SetNoClip,  true) end
     if State.InfJump        then pcall(Move.SetInfJump, true) end
-    if State.FullBright     then pcall(Vis.FullBright, true) end
-    if State.NoFog          then pcall(Vis.NoFog, true) end
-    if State.HideName       then pcall(Vis.HideName, true) end
-    if State.FOV ~= 70      then pcall(Vis.SetFOV, State.FOV) end
-    if State.Invisible      then pcall(Surv.SetInvisible, true) end
-    if State.SurvSpeedBoost then pcall(Surv.SetSpeedBoost, true) end
-    if State.NoFallDamage   then pcall(Surv.SetNoFall, true) end
-    if State.GodMode        then pcall(Surv.SetGodMode, true) end
-    if State.FleeKiller     then pcall(Surv.SetFleeKiller, true) end
-    if State.AutoParry      then pcall(Surv.SetAutoParry, true) end
-    if State.AutoHeal       then pcall(Surv.SetAutoHeal, true) end
+    if State.FullBright     then pcall(Vis.FullBright,  true) end
+    if State.NoFog          then pcall(Vis.NoFog,       true) end
+    if State.HideName       then pcall(Vis.HideName,    true) end
+    if State.FOV ~= 70      then pcall(Vis.SetFOV,  State.FOV) end
+    if State.Invisible      then pcall(Surv.SetInvisible,   true) end
+    if State.SurvSpeedBoost then pcall(Surv.SetSpeedBoost,  true) end
+    if State.NoFallDamage   then pcall(Surv.SetNoFall,      true) end
+    if State.GodMode        then pcall(Surv.SetGodMode,     true) end
+    if State.FleeKiller     then pcall(Surv.SetFleeKiller,  true) end
+    if State.AutoParry      then pcall(Surv.SetAutoParry,   true) end
+    if State.AutoHeal       then pcall(Surv.SetAutoHeal,    true) end
     if State.AutoSkillcheck then pcall(Surv.SetAutoSkillcheck, true) end
     if State.ShowOwnHP      then pcall(HP.Create) end
     task.wait(0.5)
@@ -1917,15 +2477,9 @@ CM:Add(LocalPlayer.OnTeleport, function(ts)
     end
 end, "Teleport")
 
--- Periodic lighting refresh
-task.spawn(function()
-    while task.wait(5) do
-        if State.FullBright then pcall(Vis.FullBright, true) end
-        if State.NoFog      then pcall(Vis.NoFog, true) end
-    end
-end)
-
+-- ═══════════════════════════════════════════
 -- GLOBAL INSTANCE
+-- ═══════════════════════════════════════════
 _G[INSTANCE_KEY] = {
     version   = HUB.Version,
     timestamp = os.time(),
@@ -1933,25 +2487,26 @@ _G[INSTANCE_KEY] = {
         for _, key in ipairs({
             "NoClipConn","InfJumpConn","FreecamConn","NoFallConn","GodModeConn",
             "FleeConn","AutoParryConn","AutoParryHitConn","AutoHealConn",
-            "SkillcheckGUIConn","InvisibleConn",
+            "SkillcheckGUIConn","InvisibleConn","ParryKillerWatchConn",
         }) do
             if State[key] then pcall(function() State[key]:Disconnect() end) end
         end
         State.AutoGenRush=false; State.ShowGenProgress=false
-        State.ShowOwnHP=false; State.AutoHeal=false
+        State.ShowOwnHP=false; State.AutoHeal=false; State.AutoParry=false
         Surv.SetGenProgress(false); Surv.SetInvisible(false)
         Surv.SetAutoSkillcheck(false); Surv.SetAutoHeal(false)
+        Surv.SetAutoParry(false)
         if State.ParryRing then pcall(function() State.ParryRing:Destroy() end) end
-        if State.HPGui then pcall(function() State.HPGui:Destroy() end) end
-        if ESPRenderConn then ESPRenderConn:Disconnect() end
-        if ESPGui then pcall(function() ESPGui:Destroy() end) end
+        if State.HPGui     then pcall(function() State.HPGui:Destroy() end)    end
+        if ESPRenderConn   then ESPRenderConn:Disconnect() end
+        if ESPGui          then pcall(function() ESPGui:Destroy() end) end
         CM:Cleanup(); Vis.RestoreLight()
-        pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+        pcall(function() Camera.CameraType  = Enum.CameraType.Custom end)
         pcall(function() Camera.FieldOfView = 70 end)
         ESP.ClearAll()
         pcall(function() Rayfield:Destroy() end)
     end,
 }
 
-Notify(HUB.Name, "v"..HUB.Version.." ready!", 5)
-Log("Ready — ESP render loop active")
+Notify(HUB.Name, "v"..HUB.Version.." ready! | "..#R.Parry.." parry remotes found", 5)
+Log("Ready — v0.5.7 fully loaded")
