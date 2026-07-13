@@ -1,39 +1,30 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v1.0 - Drag Drive Simulator [WindUI]
--- Semi-Auto Turbo (safe from anti-cheat)
+-- X0DEC04T Hub v1.1 - Drag Drive Simulator [WindUI]
+-- COURIER AUTOFARM EDITION
+-- 100% Anti-Cheat Safe (uses only fireproximityprompt)
 -- Tabs: Info | Automation | Utility
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
-local HttpService       = game:GetService("HttpService")
 local Workspace         = game:GetService("Workspace")
 local CoreGui           = game:GetService("CoreGui")
 local TweenService      = game:GetService("TweenService")
-local SoundService      = game:GetService("SoundService")
 local LocalizationService = game:GetService("LocalizationService")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera      = Workspace.CurrentCamera
 
 pcall(function()
     LocalizationService.RobloxLocaleId = "en-us"
-    LocalizationService.SystemLocaleId = "en-us"
 end)
 
-local INSTANCE_KEY = "__X0DEC04T_DDS_v1"
+local INSTANCE_KEY = "__X0DEC04T_DDS_v11"
 if _G[INSTANCE_KEY] then
-    local prev = _G[INSTANCE_KEY]
-    if type(prev.destroy) == "function" then pcall(prev.destroy) end
+    pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
     task.wait(0.15)
 end
-
-local _t0 = os.clock()
-local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
-Log("v1.0 DDS starting")
 
 -- WINDUI
 local WindUI = nil
@@ -51,7 +42,7 @@ pcall(function() if WindUI.SetLanguage then WindUI:SetLanguage("en") end end)
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Drag Drive Simulator",
-    Version = "1.0",
+    Version = "1.1",
     Author  = "voixera",
     LogoId  = "rbxassetid://91626851418651",
     Discord = "discord.gg/x0dec04t",
@@ -61,29 +52,24 @@ local HUB = {
 -- STATE
 -- ═══════════════════════════════════════════
 local State = {
-    -- Quiz Helper
-    QuizHelperEnabled = false,
-    QuizHighlightColor = Color3.fromRGB(0, 255, 128),
-    ShowTopBanner = true,
-    ShowMegaButton = true,
-    SoundAlert = true,
-    PulseSpeed = 0.5,
-    HighlightThickness = 8,
+    -- Courier Autofarm
+    AutoCourier = false,
+    CourierMode = "Instant",  -- Instant / Fast / Legit
+    CourierDelay = 0.5,
+    AutoEquipBox = true,
 
     -- Stats
-    JobsSolved = 0,
+    DeliveriesDone = 0,
     SessionMoney = 0,
     LastMoneyRaw = 0,
     SessionStartTime = tick(),
+    CurrentStatus = "Idle",
 
     -- Utility
     WalkSpeedEnabled = false,
-    WalkSpeedValue = 25,
+    WalkSpeedValue = 30,
     DefaultWalkSpeed = 16,
-
-    -- Auto Run To PC
-    AutoRunToPC = false,
-    PCPosition = nil,
+    NoclipEnabled = false,
 
     -- Anti AFK
     AntiAFK = true,
@@ -93,13 +79,14 @@ local State = {
     UIOpen = true,
     LogoGui = nil,
 
-    -- Connections
-    QuizOverlay = nil,
-    MegaButtonGui = nil,
-    Highlights = {},
-    QuizLoopRunning = false,
+    -- Runtime
+    CourierRunning = false,
+    NoclipConn = nil,
 }
 
+-- ═══════════════════════════════════════════
+-- UTIL
+-- ═══════════════════════════════════════════
 local function GuiParent()
     local p = CoreGui
     pcall(function() if gethui then p = gethui() end end)
@@ -132,11 +119,10 @@ LocalPlayer.Idled:Connect(function()
 end)
 
 -- ═══════════════════════════════════════════
--- MONEY DETECTION (passive read)
+-- MONEY DETECTION
 -- ═══════════════════════════════════════════
 local function ParseMoney(str)
     if not str then return 0 end
-    -- "Rp. 165 129 757" or "Rp. 500.000"
     local clean = str:gsub("Rp%.?", ""):gsub("[^%d]", "")
     return tonumber(clean) or 0
 end
@@ -146,7 +132,6 @@ local function FindMoneyLabel()
     if not pg then return nil end
     for _, d in ipairs(pg:GetDescendants()) do
         if d:IsA("TextLabel") and d.Text:find("Rp") then
-            -- Skip job salary, quiz answers etc - money is usually big number
             local val = ParseMoney(d.Text)
             if val > 1000 then
                 return d
@@ -157,299 +142,229 @@ local function FindMoneyLabel()
 end
 
 -- ═══════════════════════════════════════════
--- SOUND ALERTS
+-- COURIER SYSTEM
 -- ═══════════════════════════════════════════
-local function PlayBeep()
-    if not State.SoundAlert then return end
-    pcall(function()
-        local s = Instance.new("Sound")
-        s.SoundId = "rbxassetid://5852063"  -- short beep
-        s.Volume = 0.3
-        s.Parent = SoundService
-        s:Play()
-        task.delay(1, function() s:Destroy() end)
-    end)
+local function GetLivrason()
+    return Workspace:FindFirstChild("Livrason")
 end
 
--- ═══════════════════════════════════════════
--- QUIZ SOLVER
--- ═══════════════════════════════════════════
-local function solveMath(str)
-    if not str then return nil end
-    local clean = str:gsub("=%s*%?", ""):gsub("%s+", "")
-    clean = clean:gsub("[xX×]", "*"):gsub("÷", "/")
-    local fn = loadstring("return " .. clean)
-    if not fn then return nil end
-    local ok, r = pcall(fn)
-    return ok and tonumber(r) or nil
+local function GetTakePrompt()
+    local liv = GetLivrason()
+    if not liv then return nil end
+    local take1 = liv:FindFirstChild("Take1")
+    if not take1 then return nil end
+    local take = take1:FindFirstChild("Take")
+    if not take then return nil end
+    return take:FindFirstChildWhichIsA("ProximityPrompt"), take
 end
 
-local function clearHighlights()
-    for _, h in ipairs(State.Highlights) do
-        pcall(function() h:Destroy() end)
+local function GetLocationFolder()
+    local liv = GetLivrason()
+    if not liv then return nil end
+    return liv:FindFirstChild("Location")
+end
+
+local function GetActiveLocation()
+    -- Returns the Location whose prompt is Enabled
+    local locFolder = GetLocationFolder()
+    if not locFolder then return nil, nil end
+    for _, locNum in ipairs(locFolder:GetChildren()) do
+        local block = locNum:FindFirstChild("Block")
+        if block then
+            local prompt = block:FindFirstChildWhichIsA("ProximityPrompt")
+            if prompt and prompt.Enabled then
+                return prompt, block, locNum.Name
+            end
+        end
     end
-    State.Highlights = {}
+    return nil, nil, nil
+end
+
+local function HasBoxTool()
+    local ch = Char()
+    if not ch then return false end
+    -- Check if tool is equipped in character
+    for _, c in ipairs(ch:GetChildren()) do
+        if c:IsA("Tool") then
+            local n = c.Name:lower()
+            if n:find("box") or n:find("package") or n:find("parcel") or n:find("delivery") then
+                return true, c
+            end
+        end
+    end
+    -- Also check any tool
+    local anyTool = ch:FindFirstChildWhichIsA("Tool")
+    if anyTool then return true, anyTool end
+    return false
+end
+
+local function HasBoxInBackpack()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not bp then return false end
+    for _, c in ipairs(bp:GetChildren()) do
+        if c:IsA("Tool") then
+            local n = c.Name:lower()
+            if n:find("box") or n:find("package") or n:find("parcel") or n:find("delivery") then
+                return true, c
+            end
+        end
+    end
+    local anyTool = bp:FindFirstChildWhichIsA("Tool")
+    if anyTool then return true, anyTool end
+    return false
+end
+
+local function EquipBoxIfNeeded()
+    local hasEquipped = HasBoxTool()
+    if hasEquipped then return true end
+    local hasInBp, tool = HasBoxInBackpack()
+    if hasInBp and tool then
+        local ch = Char()
+        local h = ch and ch:FindFirstChildOfClass("Humanoid")
+        if h then
+            pcall(function() h:EquipTool(tool) end)
+            task.wait(0.3)
+            return HasBoxTool()
+        end
+    end
+    return false
+end
+
+local function SafeTeleport(cframe)
+    local hrp = HRP()
+    if not hrp then return false end
+    local ch = Char()
+    -- If sitting in vehicle, teleport the vehicle
+    local hum = Hum()
+    if hum and hum.SeatPart then
+        local seat = hum.SeatPart
+        local vehicleModel = seat:FindFirstAncestorOfClass("Model")
+        if vehicleModel and vehicleModel.PrimaryPart then
+            pcall(function() vehicleModel:SetPrimaryPartCFrame(cframe) end)
+            return true
+        elseif seat then
+            pcall(function() seat.CFrame = cframe end)
+            return true
+        end
+    end
+    pcall(function() hrp.CFrame = cframe end)
+    return true
+end
+
+local function WalkTo(position, maxTime)
+    local hum = Hum()
+    local hrp = HRP()
+    if not hum or not hrp then return false end
+    maxTime = maxTime or 15
+    local startTime = tick()
+    hum:MoveTo(position)
+    while (hrp.Position - position).Magnitude > 5 and (tick() - startTime) < maxTime do
+        task.wait(0.2)
+        if not State.AutoCourier then return false end
+        hum:MoveTo(position)
+    end
+    return true
+end
+
+local function FirePrompt(prompt)
+    if not prompt then return false end
+    local ok = pcall(function()
+        fireproximityprompt(prompt, 1)
+    end)
+    return ok
 end
 
 -- ═══════════════════════════════════════════
--- OVERLAY UI (top banner)
+-- MAIN COURIER LOOP
 -- ═══════════════════════════════════════════
-local function createTopBanner()
-    if State.QuizOverlay then pcall(function() State.QuizOverlay:Destroy() end) end
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "X0_QuizHelper"
-    sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    sg.DisplayOrder = 999
-    sg.Parent = GuiParent()
-
-    local frame = Instance.new("Frame", sg)
-    frame.Name = "MainFrame"
-    frame.Size = UDim2.new(0, 500, 0, 80)
-    frame.Position = UDim2.new(0.5, -250, 0, 15)
-    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    frame.BackgroundTransparency = 0.1
-    frame.BorderSizePixel = 0
-    frame.Visible = State.ShowTopBanner
-
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = State.QuizHighlightColor
-    stroke.Thickness = 2
-    stroke.Transparency = 0.2
-
-    local title = Instance.new("TextLabel", frame)
-    title.Size = UDim2.new(1, 0, 0, 22)
-    title.Position = UDim2.new(0, 0, 0, 5)
-    title.BackgroundTransparency = 1
-    title.Text = "🎯 X0DEC04T • Quiz Helper"
-    title.TextColor3 = State.QuizHighlightColor
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 14
-
-    local answerLabel = Instance.new("TextLabel", frame)
-    answerLabel.Name = "AnswerLabel"
-    answerLabel.Size = UDim2.new(1, -20, 0, 45)
-    answerLabel.Position = UDim2.new(0, 10, 0, 30)
-    answerLabel.BackgroundTransparency = 1
-    answerLabel.Text = "Waiting for quiz..."
-    answerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    answerLabel.Font = Enum.Font.GothamBold
-    answerLabel.TextSize = 24
-
-    State.QuizOverlay = sg
-    return sg
-end
-
--- ═══════════════════════════════════════════
--- MEGA ANSWER BUTTON (huge floating)
--- ═══════════════════════════════════════════
-local function createMegaButton()
-    if State.MegaButtonGui then pcall(function() State.MegaButtonGui:Destroy() end) end
-    if not State.ShowMegaButton then return nil end
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "X0_MegaButton"
-    sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    sg.DisplayOrder = 998
-    sg.Parent = GuiParent()
-
-    local frame = Instance.new("Frame", sg)
-    frame.Name = "MegaFrame"
-    frame.Size = UDim2.new(0, 200, 0, 200)
-    frame.Position = UDim2.new(1, -230, 0.5, -100)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    frame.BackgroundTransparency = 0.15
-    frame.BorderSizePixel = 0
-    frame.Visible = false
-
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 20)
-    local mstroke = Instance.new("UIStroke", frame)
-    mstroke.Color = State.QuizHighlightColor
-    mstroke.Thickness = 3
-
-    local lbl = Instance.new("TextLabel", frame)
-    lbl.Name = "AnswerBig"
-    lbl.Size = UDim2.new(1, -10, 0.7, 0)
-    lbl.Position = UDim2.new(0, 5, 0.05, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = "?"
-    lbl.TextColor3 = State.QuizHighlightColor
-    lbl.Font = Enum.Font.GothamBlack
-    lbl.TextSize = 80
-    lbl.TextScaled = true
-
-    local sub = Instance.new("TextLabel", frame)
-    sub.Size = UDim2.new(1, 0, 0.25, 0)
-    sub.Position = UDim2.new(0, 0, 0.72, 0)
-    sub.BackgroundTransparency = 1
-    sub.Text = "click this answer"
-    sub.TextColor3 = Color3.fromRGB(200, 200, 200)
-    sub.Font = Enum.Font.Gotham
-    sub.TextSize = 13
-
-    -- Make draggable
-    local dragging, dragStart, startPos
-    frame.Active = true
-    frame.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = inp.Position; startPos = frame.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(inp)
-        if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-            local delta = inp.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+delta.X, startPos.Y.Scale, startPos.Y.Offset+delta.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-
-    State.MegaButtonGui = sg
-    return sg
-end
-
--- ═══════════════════════════════════════════
--- MAIN QUIZ LOOP
--- ═══════════════════════════════════════════
-local function StartQuizHelper()
-    if State.QuizLoopRunning then return end
-    if not State.QuizHelperEnabled then return end
-
-    State.QuizLoopRunning = true
-    createTopBanner()
-    createMegaButton()
+local function StartCourier()
+    if State.CourierRunning then return end
+    State.CourierRunning = true
 
     task.spawn(function()
-        local lastQuestion = ""
-        while State.QuizHelperEnabled do
-            task.wait(0.15)
-            local pg = GetPG()
-            if not pg then continue end
-
-            local wg = pg:FindFirstChild("WorkGui")
-            local overlay = State.QuizOverlay
-            local answerLabel = overlay and overlay:FindFirstChild("MainFrame") 
-                and overlay.MainFrame:FindFirstChild("AnswerLabel")
-            local megaFrame = State.MegaButtonGui and State.MegaButtonGui:FindFirstChild("MegaFrame")
-            local megaLabel = megaFrame and megaFrame:FindFirstChild("AnswerBig")
-
-            if wg and wg.Enabled then
-                local qLabel = wg:FindFirstChild("QuestionLabel")
-                local frame = wg:FindFirstChild("Frame")
-
-                if qLabel and frame and qLabel.Text ~= "" then
-                    if qLabel.Text ~= lastQuestion then
-                        lastQuestion = qLabel.Text
-                        clearHighlights()
-
-                        local answer = solveMath(qLabel.Text)
-                        if answer then
-                            -- Update banners
-                            if answerLabel then
-                                answerLabel.Text = qLabel.Text .. "  =  " .. answer
-                                answerLabel.TextColor3 = State.QuizHighlightColor
-                            end
-                            if megaLabel then
-                                megaLabel.Text = tostring(answer)
-                                megaLabel.TextColor3 = State.QuizHighlightColor
-                                megaFrame.Visible = true
-                            end
-
-                            PlayBeep()
-
-                            -- Highlight the correct button
-                            for _, btn in ipairs(frame:GetChildren()) do
-                                if btn:IsA("TextButton") and btn.Name == "AnswerButton" then
-                                    local val = tonumber(btn.Text)
-                                    if val == answer then
-                                        local hStroke = Instance.new("UIStroke")
-                                        hStroke.Thickness = State.HighlightThickness
-                                        hStroke.Color = State.QuizHighlightColor
-                                        hStroke.Transparency = 0
-                                        hStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                                        hStroke.Parent = btn
-                                        table.insert(State.Highlights, hStroke)
-
-                                        -- Pulse
-                                        task.spawn(function()
-                                            while hStroke.Parent do
-                                                pcall(function()
-                                                    TweenService:Create(hStroke, TweenInfo.new(State.PulseSpeed), {Transparency = 0.6}):Play()
-                                                end)
-                                                task.wait(State.PulseSpeed)
-                                                pcall(function()
-                                                    TweenService:Create(hStroke, TweenInfo.new(State.PulseSpeed), {Transparency = 0}):Play()
-                                                end)
-                                                task.wait(State.PulseSpeed)
-                                            end
-                                        end)
-
-                                        State.JobsSolved = State.JobsSolved + 1
-                                    end
-                                end
-                            end
-                        else
-                            if answerLabel then
-                                answerLabel.Text = "❌ Cannot solve: " .. qLabel.Text
-                                answerLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-                            end
-                        end
-                    end
-                end
+        while State.AutoCourier do
+            local liv = GetLivrason()
+            if not liv then
+                State.CurrentStatus = "❌ Livrason folder not found"
+                task.wait(2)
             else
-                if lastQuestion ~= "" then
-                    lastQuestion = ""
-                    clearHighlights()
-                    if answerLabel then
-                        answerLabel.Text = "Waiting for quiz..."
-                        answerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+                -- Check if we have a box (means job in progress)
+                local hasBox = HasBoxTool() or HasBoxInBackpack()
+
+                if not hasBox then
+                    -- Step 1: Go to Take1 to start job
+                    State.CurrentStatus = "🚚 Going to basecamp..."
+                    local takePrompt, takePart = GetTakePrompt()
+                    if takePrompt and takePart then
+                        if State.CourierMode == "Instant" or State.CourierMode == "Fast" then
+                            SafeTeleport(takePart.CFrame + Vector3.new(0, 5, 0))
+                            task.wait(0.5)
+                        else
+                            WalkTo(takePart.Position, 30)
+                        end
+                        State.CurrentStatus = "📦 Picking up package..."
+                        task.wait(0.3)
+                        FirePrompt(takePrompt)
+                        task.wait(1.5)  -- wait for tool to appear
+                    else
+                        State.CurrentStatus = "⏳ Waiting for Take1 prompt..."
+                        task.wait(1)
                     end
-                    if megaFrame then megaFrame.Visible = false end
+                else
+                    -- Step 2: Equip box if in backpack
+                    if State.AutoEquipBox then
+                        EquipBoxIfNeeded()
+                    end
+
+                    -- Step 3: Find active delivery location
+                    local locPrompt, locBlock, locName = GetActiveLocation()
+                    if locPrompt and locBlock then
+                        State.CurrentStatus = "🎯 Delivering to Location " .. locName
+                        if State.CourierMode == "Instant" then
+                            SafeTeleport(locBlock.CFrame + Vector3.new(0, 5, 0))
+                            task.wait(0.5)
+                        elseif State.CourierMode == "Fast" then
+                            SafeTeleport(locBlock.CFrame + Vector3.new(0, 5, -8))
+                            task.wait(0.3)
+                            WalkTo(locBlock.Position, 5)
+                        else -- Legit
+                            WalkTo(locBlock.Position, 60)
+                        end
+
+                        -- Ensure equipped before firing
+                        EquipBoxIfNeeded()
+                        task.wait(0.3)
+
+                        State.CurrentStatus = "📬 Delivering..."
+                        FirePrompt(locPrompt)
+                        task.wait(1.5)
+
+                        -- Check if delivered (box gone)
+                        if not HasBoxTool() and not HasBoxInBackpack() then
+                            State.DeliveriesDone = State.DeliveriesDone + 1
+                            State.CurrentStatus = "✅ Delivered! Total: " .. State.DeliveriesDone
+                            task.wait(State.CourierDelay)
+                        else
+                            State.CurrentStatus = "⚠️ Delivery may have failed, retrying..."
+                            task.wait(1)
+                        end
+                    else
+                        State.CurrentStatus = "⏳ Waiting for destination..."
+                        task.wait(1)
+                    end
                 end
             end
+            task.wait(0.1)
         end
-        State.QuizLoopRunning = false
+        State.CurrentStatus = "🔴 Autofarm stopped"
+        State.CourierRunning = false
     end)
 end
 
-local function StopQuizHelper()
-    State.QuizHelperEnabled = false
-    clearHighlights()
-    if State.QuizOverlay then pcall(function() State.QuizOverlay:Destroy() end); State.QuizOverlay = nil end
-    if State.MegaButtonGui then pcall(function() State.MegaButtonGui:Destroy() end); State.MegaButtonGui = nil end
+local function StopCourier()
+    State.AutoCourier = false
+    State.CurrentStatus = "🔴 Stopped"
 end
-
--- ═══════════════════════════════════════════
--- MONEY TRACKER
--- ═══════════════════════════════════════════
-task.spawn(function()
-    task.wait(3)
-    local lbl = FindMoneyLabel()
-    while true do
-        task.wait(1.5)
-        if not lbl or not lbl.Parent then
-            lbl = FindMoneyLabel()
-        end
-        if lbl then
-            local cur = ParseMoney(lbl.Text)
-            if State.LastMoneyRaw == 0 then
-                State.LastMoneyRaw = cur
-            elseif cur > State.LastMoneyRaw then
-                local diff = cur - State.LastMoneyRaw
-                State.SessionMoney = State.SessionMoney + diff
-                State.LastMoneyRaw = cur
-            elseif cur < State.LastMoneyRaw then
-                -- Player spent money, just update baseline
-                State.LastMoneyRaw = cur
-            end
-        end
-    end
-end)
 
 -- ═══════════════════════════════════════════
 -- UTILITY: WALKSPEED
@@ -463,9 +378,61 @@ local function ApplyWalkSpeed()
     end
 end
 
+-- ═══════════════════════════════════════════
+-- UTILITY: NOCLIP
+-- ═══════════════════════════════════════════
+local function ApplyNoclip()
+    if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn = nil end
+    if not State.NoclipEnabled then
+        local ch = Char()
+        if ch then
+            for _, p in ipairs(ch:GetDescendants()) do
+                if p:IsA("BasePart") then pcall(function() p.CanCollide = true end) end
+            end
+        end
+        return
+    end
+    State.NoclipConn = RunService.Stepped:Connect(function()
+        if not State.NoclipEnabled then return end
+        local ch = Char()
+        if ch then
+            for _, p in ipairs(ch:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then
+                    pcall(function() p.CanCollide = false end)
+                end
+            end
+        end
+    end)
+end
+
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.WalkSpeedEnabled then ApplyWalkSpeed() end
+    if State.NoclipEnabled then ApplyNoclip() end
+end)
+
+-- ═══════════════════════════════════════════
+-- MONEY TRACKER
+-- ═══════════════════════════════════════════
+task.spawn(function()
+    task.wait(3)
+    local lbl = FindMoneyLabel()
+    if lbl then State.LastMoneyRaw = ParseMoney(lbl.Text) end
+    while true do
+        task.wait(1.5)
+        if not lbl or not lbl.Parent then lbl = FindMoneyLabel() end
+        if lbl then
+            local cur = ParseMoney(lbl.Text)
+            if State.LastMoneyRaw == 0 then
+                State.LastMoneyRaw = cur
+            elseif cur > State.LastMoneyRaw then
+                State.SessionMoney = State.SessionMoney + (cur - State.LastMoneyRaw)
+                State.LastMoneyRaw = cur
+            elseif cur < State.LastMoneyRaw then
+                State.LastMoneyRaw = cur
+            end
+        end
+    end
 end)
 
 -- ═══════════════════════════════════════════
@@ -473,10 +440,10 @@ end)
 -- ═══════════════════════════════════════════
 local Window = WindUI:CreateWindow({
     Title = HUB.Name,
-    Icon = "car",
+    Icon = "truck",
     Author = HUB.Author .. " | " .. HUB.Game,
     Folder = "X0DEC04T_DDS",
-    Size = UDim2.fromOffset(560, 400),
+    Size = UDim2.fromOffset(580, 420),
     Transparent = true,
     Theme = "Dark",
     SideBarWidth = 150,
@@ -487,7 +454,7 @@ local Window = WindUI:CreateWindow({
 })
 
 Window:EditOpenButton({
-    Title = HUB.Name, Icon = "car",
+    Title = HUB.Name, Icon = "truck",
     Enabled = false, Draggable = true,
 })
 
@@ -561,7 +528,7 @@ Tabs.Info:Paragraph({
     Title = HUB.Name .. " v" .. HUB.Version,
     Desc = "Game: " .. HUB.Game
         .. "\nDeveloper: " .. HUB.Author
-        .. "\nMode: Semi-Auto (Anti-Cheat Safe)"
+        .. "\nMode: FULL AUTO Courier"
 })
 
 Tabs.Info:Section({ Title = "Live Stats" })
@@ -569,29 +536,40 @@ local statsPara = Tabs.Info:Paragraph({
     Title = "Session Stats",
     Desc = "Loading..."
 })
+local statusPara = Tabs.Info:Paragraph({
+    Title = "Current Status",
+    Desc = "Idle"
+})
 
 task.spawn(function()
     while true do
-        task.wait(1.5)
+        task.wait(1)
         pcall(function()
             local elapsed = math.floor(tick() - State.SessionStartTime)
             local mins = math.floor(elapsed / 60)
             local secs = elapsed % 60
-            local rate = (State.JobsSolved > 0 and elapsed > 0) 
-                and math.floor((State.JobsSolved / elapsed) * 3600) or 0
-            local moneyRate = (State.SessionMoney > 0 and elapsed > 0)
-                and math.floor((State.SessionMoney / elapsed) * 3600) or 0
+            local rate = 0
+            if State.DeliveriesDone > 0 and elapsed > 0 then
+                rate = math.floor((State.DeliveriesDone / elapsed) * 3600)
+            end
+            local moneyRate = 0
+            if State.SessionMoney > 0 and elapsed > 0 then
+                moneyRate = math.floor((State.SessionMoney / elapsed) * 3600)
+            end
             local moneyLbl = FindMoneyLabel()
             local curMoney = moneyLbl and moneyLbl.Text or "?"
 
-            local text = "💰 Total Money: " .. curMoney
-                .. "\n💵 Earned Session: Rp. " .. State.SessionMoney
-                .. "\n🎯 Quizzes Solved: " .. State.JobsSolved
-                .. "\n📊 Rate: " .. rate .. " quiz/hr | Rp. " .. moneyRate .. "/hr"
-                .. "\n⏱️ Session: " .. string.format("%02d:%02d", mins, secs)
-                .. "\n🌐 Ping: " .. math.floor(LocalPlayer:GetNetworkPing() * 1000) .. "ms"
+            local text = "Total Money: " .. curMoney
+                .. "\nEarned Session: Rp. " .. State.SessionMoney
+                .. "\nDeliveries: " .. State.DeliveriesDone
+                .. "\nRate: " .. rate .. " deliv/hr | Rp. " .. moneyRate .. "/hr"
+                .. "\nSession: " .. string.format("%02d:%02d", mins, secs)
+                .. "\nPing: " .. math.floor(LocalPlayer:GetNetworkPing() * 1000) .. "ms"
             if statsPara and statsPara.SetDesc then
                 pcall(function() statsPara:SetDesc(text) end)
+            end
+            if statusPara and statusPara.SetDesc then
+                pcall(function() statusPara:SetDesc(State.CurrentStatus) end)
             end
         end)
     end
@@ -601,21 +579,15 @@ Tabs.Info:Section({ Title = "How To Use" })
 Tabs.Info:Paragraph({
     Title = "Quick Guide",
     Desc = "1. Go to Automation tab\n"
-        .. "2. Turn ON 'Quiz Helper'\n"
-        .. "3. Interact with PC in office\n"
-        .. "4. Correct answer appears:\n"
-        .. "   • Big number on right side\n"
-        .. "   • Green border on button\n"
-        .. "   • Text at top banner\n"
-        .. "5. Click green button = money!"
-})
-
-Tabs.Info:Paragraph({
-    Title = "Why Not Full Auto?",
-    Desc = "Drag Drive Simulator has strong anti-cheat.\n"
-        .. "Programmatic clicks get you kicked.\n"
-        .. "This hub gives you 'instant answer' mode\n"
-        .. "= tap once per question, safe & fast."
+        .. "2. Choose mode (Instant recommended)\n"
+        .. "3. Turn ON Auto Courier\n"
+        .. "4. Watch the money roll in!\n\n"
+        .. "The bot handles EVERYTHING:\n"
+        .. "- Pickup box at Take1\n"
+        .. "- Equip the box\n"
+        .. "- Teleport to destination\n"
+        .. "- Deliver the box\n"
+        .. "- Loop forever"
 })
 
 Tabs.Info:Section({ Title = "Community" })
@@ -630,97 +602,73 @@ Tabs.Info:Button({
 -- ═══════════════════════════════════════════
 -- AUTOMATION TAB
 -- ═══════════════════════════════════════════
-Tabs.Automation:Section({ Title = "🎯 Job Officer Helper" })
+Tabs.Automation:Section({ Title = "🚚 Courier Autofarm" })
 
 Tabs.Automation:Paragraph({
-    Title = "Semi-Auto Turbo",
-    Desc = "Instantly detects correct answer.\nYou just tap the highlighted button."
+    Title = "Full Auto Delivery",
+    Desc = "Automatically picks up packages,\nteleports to destination, and delivers.\n100% hands-free!"
 })
-
-Tabs.Automation:Toggle({
-    Title = "Quiz Helper",
-    Desc = "Auto-detect + highlight correct answer",
-    Default = false,
-    Callback = function(v)
-        State.QuizHelperEnabled = v
-        if v then StartQuizHelper() else StopQuizHelper() end
-        Notify("Quiz Helper", v and "ENABLED" or "DISABLED", 2)
-    end
-})
-
-Tabs.Automation:Section({ Title = "Display Options" })
-
-Tabs.Automation:Toggle({
-    Title = "Show Top Banner",
-    Default = true,
-    Callback = function(v)
-        State.ShowTopBanner = v
-        if State.QuizOverlay then
-            local f = State.QuizOverlay:FindFirstChild("MainFrame")
-            if f then f.Visible = v end
-        end
-    end
-})
-
-Tabs.Automation:Toggle({
-    Title = "Show Mega Answer (Big)",
-    Desc = "Giant answer number on side",
-    Default = true,
-    Callback = function(v)
-        State.ShowMegaButton = v
-        if v and State.QuizHelperEnabled then createMegaButton() end
-        if not v and State.MegaButtonGui then
-            pcall(function() State.MegaButtonGui:Destroy() end)
-            State.MegaButtonGui = nil
-        end
-    end
-})
-
-Tabs.Automation:Toggle({
-    Title = "Sound Alert",
-    Desc = "Beep when new question appears",
-    Default = true,
-    Callback = function(v) State.SoundAlert = v end
-})
-
-Tabs.Automation:Section({ Title = "Style" })
 
 Tabs.Automation:Dropdown({
-    Title = "Highlight Color",
-    Values = { "Green", "Red", "Yellow", "Blue", "Purple", "Cyan", "White", "Orange" },
-    Value = "Green",
+    Title = "Mode",
+    Values = { "Instant", "Fast", "Legit" },
+    Value = "Instant",
     Callback = function(v)
-        local colors = {
-            Green = Color3.fromRGB(0, 255, 128),
-            Red = Color3.fromRGB(255, 40, 40),
-            Yellow = Color3.fromRGB(255, 220, 60),
-            Blue = Color3.fromRGB(60, 120, 255),
-            Purple = Color3.fromRGB(180, 60, 220),
-            Cyan = Color3.fromRGB(60, 220, 220),
-            White = Color3.fromRGB(255, 255, 255),
-            Orange = Color3.fromRGB(255, 140, 20),
-        }
-        State.QuizHighlightColor = colors[v] or colors.Green
+        State.CourierMode = v
+        Notify("Mode", "Set to: " .. v, 2)
     end
 })
 
 Tabs.Automation:Slider({
-    Title = "Highlight Thickness",
-    Value = { Min = 3, Max = 15, Default = 8 },
-    Callback = function(v) State.HighlightThickness = tonumber(v) or 8 end
+    Title = "Delay Between Deliveries (sec)",
+    Value = { Min = 0, Max = 5, Default = 1 },
+    Callback = function(v)
+        State.CourierDelay = tonumber(v) or 0.5
+    end
 })
 
-Tabs.Automation:Slider({
-    Title = "Pulse Speed (x0.1s)",
-    Value = { Min = 2, Max = 15, Default = 5 },
-    Callback = function(v) State.PulseSpeed = (tonumber(v) or 5) * 0.1 end
+Tabs.Automation:Toggle({
+    Title = "Auto Equip Box",
+    Desc = "Auto-equip box from backpack",
+    Default = true,
+    Callback = function(v) State.AutoEquipBox = v end
+})
+
+Tabs.Automation:Toggle({
+    Title = "🚚 Auto Courier",
+    Desc = "MAIN TOGGLE - starts autofarm",
+    Default = false,
+    Callback = function(v)
+        State.AutoCourier = v
+        if v then
+            StartCourier()
+            Notify("Auto Courier", "STARTED - Full auto mode", 3)
+        else
+            StopCourier()
+            Notify("Auto Courier", "STOPPED", 2)
+        end
+    end
+})
+
+Tabs.Automation:Section({ Title = "Mode Descriptions" })
+Tabs.Automation:Paragraph({
+    Title = "🏆 Instant Mode",
+    Desc = "Teleport directly to Take1 & Location\nFastest — ~5 sec per delivery"
+})
+Tabs.Automation:Paragraph({
+    Title = "⚡ Fast Mode",
+    Desc = "Teleport near, walk last few studs\nSafer, ~10 sec per delivery"
+})
+Tabs.Automation:Paragraph({
+    Title = "🚶 Legit Mode",
+    Desc = "Walk/drive to destinations\nMost natural, slowest"
 })
 
 Tabs.Automation:Section({ Title = "Statistics" })
 Tabs.Automation:Button({
     Title = "Reset Counter",
     Callback = function()
-        State.JobsSolved = 0
+        State.DeliveriesDone = 0
         State.SessionMoney = 0
         State.SessionStartTime = tick()
         local lbl = FindMoneyLabel()
@@ -736,9 +684,9 @@ Tabs.Utility:Section({ Title = "🏃 Movement" })
 
 Tabs.Utility:Slider({
     Title = "Walk Speed",
-    Value = { Min = 16, Max = 50, Default = 25 },
+    Value = { Min = 16, Max = 100, Default = 30 },
     Callback = function(v)
-        State.WalkSpeedValue = tonumber(v) or 25
+        State.WalkSpeedValue = tonumber(v) or 30
         if State.WalkSpeedEnabled then ApplyWalkSpeed() end
     end
 })
@@ -752,10 +700,77 @@ Tabs.Utility:Toggle({
     end
 })
 
+Tabs.Utility:Toggle({
+    Title = "Noclip",
+    Desc = "Walk through walls",
+    Default = false,
+    Callback = function(v)
+        State.NoclipEnabled = v
+        ApplyNoclip()
+    end
+})
+
+Tabs.Utility:Section({ Title = "📍 Teleports" })
+
+Tabs.Utility:Button({
+    Title = "TP to Courier Basecamp (Take1)",
+    Callback = function()
+        local _, takePart = GetTakePrompt()
+        if takePart then
+            SafeTeleport(takePart.CFrame + Vector3.new(0, 5, 0))
+            Notify("Teleport", "At basecamp", 2)
+        else
+            Notify("Teleport", "Take1 not found", 3)
+        end
+    end
+})
+
+Tabs.Utility:Button({
+    Title = "TP to Active Delivery Location",
+    Callback = function()
+        local _, block, name = GetActiveLocation()
+        if block then
+            SafeTeleport(block.CFrame + Vector3.new(0, 5, 0))
+            Notify("Teleport", "At Location " .. name, 2)
+        else
+            Notify("Teleport", "No active location", 3)
+        end
+    end
+})
+
+Tabs.Utility:Button({
+    Title = "TP to Free Coffee (nearest)",
+    Callback = function()
+        local hrp = HRP()
+        if not hrp then return end
+        local best, bd = nil, math.huge
+        for _, m in ipairs(Workspace:GetChildren()) do
+            if m.Name == "PinewoodCoffeeMachine" then
+                local part = m:FindFirstChild("InteractiveScreen") or m:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    local d = (part.Position - hrp.Position).Magnitude
+                    if d < bd then bd = d; best = part end
+                end
+            end
+        end
+        if best then
+            SafeTeleport(best.CFrame + Vector3.new(0, 5, 0))
+            Notify("Teleport", "At coffee machine", 2)
+        end
+    end
+})
+
+Tabs.Utility:Button({
+    Title = "TP to BOB (Daily Code)",
+    Callback = function()
+        SafeTeleport(CFrame.new(-646, 5, -679))
+        Notify("Teleport", "At BOB", 2)
+    end
+})
+
 Tabs.Utility:Section({ Title = "🛡️ Anti AFK" })
 Tabs.Utility:Toggle({
     Title = "Anti AFK",
-    Desc = "Prevents 20-min idle kick",
     Default = true,
     Callback = function(v) State.AntiAFK = v end
 })
@@ -783,7 +798,8 @@ Tabs.Utility:Section({ Title = "⚠️ Danger Zone" })
 Tabs.Utility:Button({
     Title = "🔴 Unload Hub",
     Callback = function()
-        StopQuizHelper()
+        StopCourier()
+        if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.LogoGui then pcall(function() State.LogoGui:Destroy() end) end
         local h = Hum(); if h then pcall(function() h.WalkSpeed = State.DefaultWalkSpeed end) end
         _G[INSTANCE_KEY] = nil
@@ -797,18 +813,12 @@ Tabs.Utility:Button({
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
-        StopQuizHelper()
+        StopCourier()
+        if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.LogoGui then pcall(function() State.LogoGui:Destroy() end) end
         pcall(function() Window:Destroy() end)
     end,
 }
 
--- Init money baseline
-task.spawn(function()
-    task.wait(3)
-    local lbl = FindMoneyLabel()
-    if lbl then State.LastMoneyRaw = ParseMoney(lbl.Text) end
-end)
-
-Notify(HUB.Name, "v" .. HUB.Version .. " loaded - Enable Quiz Helper in Automation", 5)
-Log("v1.0 DDS fully loaded")
+Notify(HUB.Name, "v" .. HUB.Version .. " Courier Edition loaded!", 5)
+print("[X0DEC04T] v1.1 Courier Edition loaded successfully")
