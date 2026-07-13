@@ -1,7 +1,7 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v1.1 - Drag Drive Simulator [WindUI]
--- COURIER AUTOFARM EDITION
--- 100% Anti-Cheat Safe (uses only fireproximityprompt)
+-- X0DEC04T Hub v1.2 - Drag Drive Simulator [WindUI]
+-- 🏍️ VEHICLE AUTO-DRIVE COURIER FARM
+-- Anti-Cheat Safe: uses vehicle throttle + realistic delays
 -- Tabs: Info | Automation | Utility
 --═══════════════════════════════════════════════════════════════
 
@@ -19,7 +19,7 @@ pcall(function()
     LocalizationService.RobloxLocaleId = "en-us"
 end)
 
-local INSTANCE_KEY = "__X0DEC04T_DDS_v11"
+local INSTANCE_KEY = "__X0DEC04T_DDS_v12"
 if _G[INSTANCE_KEY] then
     pcall(function() _G[INSTANCE_KEY].destroy() end)
     _G[INSTANCE_KEY] = nil
@@ -42,7 +42,7 @@ pcall(function() if WindUI.SetLanguage then WindUI:SetLanguage("en") end end)
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Drag Drive Simulator",
-    Version = "1.1",
+    Version = "1.2",
     Author  = "voixera",
     LogoId  = "rbxassetid://91626851418651",
     Discord = "discord.gg/x0dec04t",
@@ -52,11 +52,17 @@ local HUB = {
 -- STATE
 -- ═══════════════════════════════════════════
 local State = {
-    -- Courier Autofarm
+    -- Autofarm
     AutoCourier = false,
-    CourierMode = "Instant",  -- Instant / Fast / Legit
-    CourierDelay = 0.5,
+    MinDelay = 3,
+    MaxDelay = 6,
+    NoclipVehicle = true,
     AutoEquipBox = true,
+
+    -- Driving
+    ArrivalDistance = 12,
+    PickupDistance = 8,
+    MaxThrottle = 1,
 
     -- Stats
     DeliveriesDone = 0,
@@ -69,9 +75,7 @@ local State = {
     WalkSpeedEnabled = false,
     WalkSpeedValue = 30,
     DefaultWalkSpeed = 16,
-    NoclipEnabled = false,
 
-    -- Anti AFK
     AntiAFK = true,
 
     -- UI
@@ -105,6 +109,10 @@ local function HRP() local c=Char(); return c and c:FindFirstChild("HumanoidRoot
 local function Hum() local c=Char(); return c and c:FindFirstChildOfClass("Humanoid") end
 local function GetPG() return LocalPlayer:FindFirstChild("PlayerGui") end
 
+local function RandomDelay()
+    return State.MinDelay + math.random() * (State.MaxDelay - State.MinDelay)
+end
+
 -- ═══════════════════════════════════════════
 -- ANTI AFK
 -- ═══════════════════════════════════════════
@@ -119,7 +127,7 @@ LocalPlayer.Idled:Connect(function()
 end)
 
 -- ═══════════════════════════════════════════
--- MONEY DETECTION
+-- MONEY
 -- ═══════════════════════════════════════════
 local function ParseMoney(str)
     if not str then return 0 end
@@ -133,41 +141,32 @@ local function FindMoneyLabel()
     for _, d in ipairs(pg:GetDescendants()) do
         if d:IsA("TextLabel") and d.Text:find("Rp") then
             local val = ParseMoney(d.Text)
-            if val > 1000 then
-                return d
-            end
+            if val > 1000 then return d end
         end
     end
     return nil
 end
 
 -- ═══════════════════════════════════════════
--- COURIER SYSTEM
+-- COURIER OBJECTS
 -- ═══════════════════════════════════════════
-local function GetLivrason()
-    return Workspace:FindFirstChild("Livrason")
-end
+local function GetLivrason() return Workspace:FindFirstChild("Livrason") end
 
 local function GetTakePrompt()
     local liv = GetLivrason()
-    if not liv then return nil end
+    if not liv then return nil, nil end
     local take1 = liv:FindFirstChild("Take1")
-    if not take1 then return nil end
+    if not take1 then return nil, nil end
     local take = take1:FindFirstChild("Take")
-    if not take then return nil end
+    if not take then return nil, nil end
     return take:FindFirstChildWhichIsA("ProximityPrompt"), take
 end
 
-local function GetLocationFolder()
-    local liv = GetLivrason()
-    if not liv then return nil end
-    return liv:FindFirstChild("Location")
-end
-
 local function GetActiveLocation()
-    -- Returns the Location whose prompt is Enabled
-    local locFolder = GetLocationFolder()
-    if not locFolder then return nil, nil end
+    local liv = GetLivrason()
+    if not liv then return nil, nil, nil end
+    local locFolder = liv:FindFirstChild("Location")
+    if not locFolder then return nil, nil, nil end
     for _, locNum in ipairs(locFolder:GetChildren()) do
         local block = locNum:FindFirstChild("Block")
         if block then
@@ -180,98 +179,245 @@ local function GetActiveLocation()
     return nil, nil, nil
 end
 
+-- ═══════════════════════════════════════════
+-- TOOL/BOX
+-- ═══════════════════════════════════════════
 local function HasBoxTool()
     local ch = Char()
     if not ch then return false end
-    -- Check if tool is equipped in character
-    for _, c in ipairs(ch:GetChildren()) do
-        if c:IsA("Tool") then
-            local n = c.Name:lower()
-            if n:find("box") or n:find("package") or n:find("parcel") or n:find("delivery") then
-                return true, c
-            end
-        end
-    end
-    -- Also check any tool
-    local anyTool = ch:FindFirstChildWhichIsA("Tool")
-    if anyTool then return true, anyTool end
-    return false
+    local t = ch:FindFirstChildWhichIsA("Tool")
+    if t then return true, t end
+    return false, nil
 end
 
 local function HasBoxInBackpack()
     local bp = LocalPlayer:FindFirstChild("Backpack")
-    if not bp then return false end
-    for _, c in ipairs(bp:GetChildren()) do
-        if c:IsA("Tool") then
-            local n = c.Name:lower()
-            if n:find("box") or n:find("package") or n:find("parcel") or n:find("delivery") then
-                return true, c
-            end
-        end
-    end
-    local anyTool = bp:FindFirstChildWhichIsA("Tool")
-    if anyTool then return true, anyTool end
-    return false
+    if not bp then return false, nil end
+    local t = bp:FindFirstChildWhichIsA("Tool")
+    if t then return true, t end
+    return false, nil
 end
 
 local function EquipBoxIfNeeded()
-    local hasEquipped = HasBoxTool()
-    if hasEquipped then return true end
-    local hasInBp, tool = HasBoxInBackpack()
-    if hasInBp and tool then
-        local ch = Char()
-        local h = ch and ch:FindFirstChildOfClass("Humanoid")
+    local hasE = HasBoxTool()
+    if hasE then return true end
+    local hasBp, tool = HasBoxInBackpack()
+    if hasBp and tool then
+        local h = Hum()
         if h then
             pcall(function() h:EquipTool(tool) end)
-            task.wait(0.3)
+            task.wait(0.4)
             return HasBoxTool()
         end
     end
     return false
 end
 
-local function SafeTeleport(cframe)
-    local hrp = HRP()
-    if not hrp then return false end
-    local ch = Char()
-    -- If sitting in vehicle, teleport the vehicle
-    local hum = Hum()
-    if hum and hum.SeatPart then
-        local seat = hum.SeatPart
-        local vehicleModel = seat:FindFirstAncestorOfClass("Model")
-        if vehicleModel and vehicleModel.PrimaryPart then
-            pcall(function() vehicleModel:SetPrimaryPartCFrame(cframe) end)
-            return true
-        elseif seat then
-            pcall(function() seat.CFrame = cframe end)
-            return true
+-- ═══════════════════════════════════════════
+-- VEHICLE CONTROL
+-- ═══════════════════════════════════════════
+local function GetSeat()
+    local h = Hum()
+    if h and h.SeatPart and h.SeatPart:IsA("VehicleSeat") then
+        return h.SeatPart
+    end
+    return nil
+end
+
+local function GetVehicleModel()
+    local seat = GetSeat()
+    if not seat then return nil end
+    local m = seat.Parent
+    while m and not (m:IsA("Model") and m.PrimaryPart) do
+        m = m.Parent
+        if m == Workspace then return nil end
+    end
+    return m
+end
+
+local function IsInVehicle() return GetSeat() ~= nil end
+
+local function FindMyMotorcycle()
+    for _, m in ipairs(Workspace:GetChildren()) do
+        if m:IsA("Model") and m.Name:find(LocalPlayer.Name) and m:FindFirstChild("DriveSeat") then
+            return m
         end
     end
-    pcall(function() hrp.CFrame = cframe end)
-    return true
+    return nil
 end
 
-local function WalkTo(position, maxTime)
-    local hum = Hum()
-    local hrp = HRP()
-    if not hum or not hrp then return false end
-    maxTime = maxTime or 15
-    local startTime = tick()
-    hum:MoveTo(position)
-    while (hrp.Position - position).Magnitude > 5 and (tick() - startTime) < maxTime do
-        task.wait(0.2)
-        if not State.AutoCourier then return false end
-        hum:MoveTo(position)
+local function MountMotorcycle()
+    local bike = FindMyMotorcycle()
+    if not bike then return false end
+    local seat = bike:FindFirstChild("DriveSeat")
+    if not seat or not seat:IsA("VehicleSeat") then return false end
+    if seat.Occupant then return true end
+    local h = Hum()
+    if h then
+        pcall(function() seat:Sit(h) end)
+        task.wait(0.5)
+        return IsInVehicle()
     end
-    return true
+    return false
 end
 
+local function SetVehicleControl(throttle, steer)
+    local seat = GetSeat()
+    if seat then
+        pcall(function()
+            seat.Throttle = throttle or 0
+            seat.SteerFloat = steer or 0
+            seat.Steer = math.sign(steer or 0)
+        end)
+    end
+end
+
+local function StopVehicle()
+    SetVehicleControl(0, 0)
+end
+
+-- Drive vehicle toward a target position
+-- Returns true when close enough, false if stuck/timeout
+local function DriveToward(targetPos, arriveDist, maxTime)
+    arriveDist = arriveDist or State.ArrivalDistance
+    maxTime = maxTime or 60
+    local seat = GetSeat()
+    local vehicle = GetVehicleModel()
+    if not seat or not vehicle or not vehicle.PrimaryPart then return false end
+
+    local startTime = tick()
+    local stuckTime = 0
+    local lastPos = vehicle.PrimaryPart.Position
+
+    while State.AutoCourier and IsInVehicle() do
+        local pp = vehicle.PrimaryPart
+        if not pp then break end
+
+        local dist = (pp.Position - targetPos).Magnitude
+        if dist <= arriveDist then
+            StopVehicle()
+            return true
+        end
+
+        -- Compute steering (positive = right, negative = left)
+        local toTarget = (targetPos - pp.Position)
+        local lookVec = pp.CFrame.LookVector
+        local rightVec = pp.CFrame.RightVector
+        local toTargetFlat = Vector3.new(toTarget.X, 0, toTarget.Z).Unit
+        local lookFlat = Vector3.new(lookVec.X, 0, lookVec.Z).Unit
+        local rightFlat = Vector3.new(rightVec.X, 0, rightVec.Z).Unit
+
+        local dot = lookFlat:Dot(toTargetFlat)
+        local steer = rightFlat:Dot(toTargetFlat)
+
+        -- If facing wrong way, throttle less (turn in place)
+        local throttle = State.MaxThrottle
+        if dot < 0.2 then throttle = 0.5 end  -- slow when turning sharp
+        if dot < -0.3 then throttle = -0.3 end  -- reverse if very wrong direction
+
+        SetVehicleControl(throttle, math.clamp(steer * 2, -1, 1))
+
+        -- Stuck detection
+        local currentPos = pp.Position
+        if (currentPos - lastPos).Magnitude < 1 then
+            stuckTime = stuckTime + 0.2
+            if stuckTime > 3 then
+                -- Try reverse briefly
+                SetVehicleControl(-0.5, -steer)
+                task.wait(1)
+                stuckTime = 0
+            end
+        else
+            stuckTime = 0
+        end
+        lastPos = currentPos
+
+        if tick() - startTime > maxTime then
+            StopVehicle()
+            return false
+        end
+        task.wait(0.15)
+    end
+    StopVehicle()
+    return false
+end
+
+-- ═══════════════════════════════════════════
+-- WALK TOWARD (on foot)
+-- ═══════════════════════════════════════════
+local function WalkTo(pos, maxTime, arriveDist)
+    maxTime = maxTime or 15
+    arriveDist = arriveDist or 4
+    local h = Hum()
+    local hrp = HRP()
+    if not h or not hrp then return false end
+    local start = tick()
+    h:MoveTo(pos)
+    while (hrp.Position - pos).Magnitude > arriveDist and (tick() - start) < maxTime do
+        if not State.AutoCourier then return false end
+        task.wait(0.25)
+        h:MoveTo(pos)
+    end
+    return (hrp.Position - pos).Magnitude <= arriveDist
+end
+
+-- ═══════════════════════════════════════════
+-- FIRE PROMPT (only when close, natural)
+-- ═══════════════════════════════════════════
 local function FirePrompt(prompt)
     if not prompt then return false end
+    local hrp = HRP()
+    local parent = prompt.Parent
+    if not hrp or not parent or not parent:IsA("BasePart") then return false end
+    local dist = (parent.Position - hrp.Position).Magnitude
+    if dist > 15 then return false end  -- safety: only fire when actually close
     local ok = pcall(function()
-        fireproximityprompt(prompt, 1)
+        fireproximityprompt(prompt)
     end)
     return ok
+end
+
+-- ═══════════════════════════════════════════
+-- DISMOUNT
+-- ═══════════════════════════════════════════
+local function Dismount()
+    local seat = GetSeat()
+    if seat then
+        local h = Hum()
+        if h then
+            pcall(function() seat:Sit(nil) end)
+            pcall(function() h.Sit = false end)
+            task.wait(0.5)
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════
+-- NOCLIP VEHICLE
+-- ═══════════════════════════════════════════
+local function ApplyVehicleNoclip()
+    if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn = nil end
+    if not State.NoclipVehicle then return end
+    State.NoclipConn = RunService.Stepped:Connect(function()
+        if not State.NoclipVehicle then return end
+        local vehicle = GetVehicleModel()
+        if vehicle then
+            for _, p in ipairs(vehicle:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then
+                    pcall(function() p.CanCollide = false end)
+                end
+            end
+        end
+        -- Also character while on foot
+        local ch = Char()
+        if ch then
+            for _, p in ipairs(ch:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide and p.Name ~= "HumanoidRootPart" then
+                    pcall(function() p.CanCollide = false end)
+                end
+            end
+        end
+    end)
 end
 
 -- ═══════════════════════════════════════════
@@ -280,94 +426,112 @@ end
 local function StartCourier()
     if State.CourierRunning then return end
     State.CourierRunning = true
+    ApplyVehicleNoclip()
 
     task.spawn(function()
         while State.AutoCourier do
-            local liv = GetLivrason()
-            if not liv then
-                State.CurrentStatus = "❌ Livrason folder not found"
-                task.wait(2)
-            else
-                -- Check if we have a box (means job in progress)
-                local hasBox = HasBoxTool() or HasBoxInBackpack()
+            local hasBox = HasBoxTool() or HasBoxInBackpack()
 
-                if not hasBox then
-                    -- Step 1: Go to Take1 to start job
-                    State.CurrentStatus = "🚚 Going to basecamp..."
-                    local takePrompt, takePart = GetTakePrompt()
-                    if takePrompt and takePart then
-                        if State.CourierMode == "Instant" or State.CourierMode == "Fast" then
-                            SafeTeleport(takePart.CFrame + Vector3.new(0, 5, 0))
-                            task.wait(0.5)
-                        else
-                            WalkTo(takePart.Position, 30)
+            if not hasBox then
+                -- STEP 1: Go to Take1 basecamp
+                local takePrompt, takePart = GetTakePrompt()
+                if not takePrompt or not takePart then
+                    State.CurrentStatus = "⏳ Waiting for Take1..."
+                    task.wait(2)
+                else
+                    -- Ensure on bike
+                    if not IsInVehicle() then
+                        State.CurrentStatus = "🏍️ Mounting motorcycle..."
+                        if not MountMotorcycle() then
+                            State.CurrentStatus = "⚠️ No motorcycle found!"
+                            task.wait(3)
+                            continue
                         end
-                        State.CurrentStatus = "📦 Picking up package..."
-                        task.wait(0.3)
-                        FirePrompt(takePrompt)
-                        task.wait(1.5)  -- wait for tool to appear
-                    else
-                        State.CurrentStatus = "⏳ Waiting for Take1 prompt..."
                         task.wait(1)
                     end
+
+                    State.CurrentStatus = "🚚 Driving to basecamp..."
+                    DriveToward(takePart.Position, State.PickupDistance, 45)
+
+                    -- Get off bike near prompt
+                    State.CurrentStatus = "🛑 Dismounting..."
+                    Dismount()
+                    task.wait(0.5)
+
+                    -- Walk to exact prompt
+                    State.CurrentStatus = "🚶 Walking to prompt..."
+                    WalkTo(takePart.Position, 8, 4)
+
+                    -- Fire pickup
+                    State.CurrentStatus = "📦 Picking up package..."
+                    task.wait(0.5)
+                    FirePrompt(takePrompt)
+                    task.wait(1.5)
+                end
+            else
+                -- STEP 2: Deliver
+                if State.AutoEquipBox then EquipBoxIfNeeded() end
+
+                local locPrompt, locBlock, locName = GetActiveLocation()
+                if not locPrompt or not locBlock then
+                    State.CurrentStatus = "⏳ Waiting for destination..."
+                    task.wait(2)
                 else
-                    -- Step 2: Equip box if in backpack
-                    if State.AutoEquipBox then
-                        EquipBoxIfNeeded()
-                    end
-
-                    -- Step 3: Find active delivery location
-                    local locPrompt, locBlock, locName = GetActiveLocation()
-                    if locPrompt and locBlock then
-                        State.CurrentStatus = "🎯 Delivering to Location " .. locName
-                        if State.CourierMode == "Instant" then
-                            SafeTeleport(locBlock.CFrame + Vector3.new(0, 5, 0))
-                            task.wait(0.5)
-                        elseif State.CourierMode == "Fast" then
-                            SafeTeleport(locBlock.CFrame + Vector3.new(0, 5, -8))
-                            task.wait(0.3)
-                            WalkTo(locBlock.Position, 5)
-                        else -- Legit
-                            WalkTo(locBlock.Position, 60)
-                        end
-
-                        -- Ensure equipped before firing
-                        EquipBoxIfNeeded()
-                        task.wait(0.3)
-
-                        State.CurrentStatus = "📬 Delivering..."
-                        FirePrompt(locPrompt)
-                        task.wait(1.5)
-
-                        -- Check if delivered (box gone)
-                        if not HasBoxTool() and not HasBoxInBackpack() then
-                            State.DeliveriesDone = State.DeliveriesDone + 1
-                            State.CurrentStatus = "✅ Delivered! Total: " .. State.DeliveriesDone
-                            task.wait(State.CourierDelay)
+                    -- Mount if not on bike
+                    if not IsInVehicle() then
+                        State.CurrentStatus = "🏍️ Getting on bike..."
+                        if not MountMotorcycle() then
+                            State.CurrentStatus = "⚠️ Walking (no bike)..."
+                            WalkTo(locBlock.Position, 120, 4)
                         else
-                            State.CurrentStatus = "⚠️ Delivery may have failed, retrying..."
                             task.wait(1)
                         end
+                    end
+
+                    if IsInVehicle() then
+                        State.CurrentStatus = "🎯 Driving to Loc " .. locName .. "..."
+                        DriveToward(locBlock.Position, State.PickupDistance, 90)
+                        Dismount()
+                        task.wait(0.5)
+                    end
+
+                    State.CurrentStatus = "🚶 Walking to drop point..."
+                    WalkTo(locBlock.Position, 8, 4)
+
+                    EquipBoxIfNeeded()
+                    task.wait(0.5)
+
+                    State.CurrentStatus = "📬 Delivering..."
+                    FirePrompt(locPrompt)
+                    task.wait(2)
+
+                    if not HasBoxTool() and not HasBoxInBackpack() then
+                        State.DeliveriesDone = State.DeliveriesDone + 1
+                        local delay = RandomDelay()
+                        State.CurrentStatus = "✅ Delivered #" .. State.DeliveriesDone .. " | wait " .. string.format("%.1fs", delay)
+                        task.wait(delay)
                     else
-                        State.CurrentStatus = "⏳ Waiting for destination..."
-                        task.wait(1)
+                        State.CurrentStatus = "⚠️ Delivery incomplete, retry..."
+                        task.wait(2)
                     end
                 end
             end
-            task.wait(0.1)
+            task.wait(0.2)
         end
-        State.CurrentStatus = "🔴 Autofarm stopped"
+        StopVehicle()
+        State.CurrentStatus = "🔴 Stopped"
         State.CourierRunning = false
     end)
 end
 
 local function StopCourier()
     State.AutoCourier = false
-    State.CurrentStatus = "🔴 Stopped"
+    StopVehicle()
+    if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn = nil end
 end
 
 -- ═══════════════════════════════════════════
--- UTILITY: WALKSPEED
+-- WALKSPEED
 -- ═══════════════════════════════════════════
 local function ApplyWalkSpeed()
     local h = Hum()
@@ -378,37 +542,10 @@ local function ApplyWalkSpeed()
     end
 end
 
--- ═══════════════════════════════════════════
--- UTILITY: NOCLIP
--- ═══════════════════════════════════════════
-local function ApplyNoclip()
-    if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn = nil end
-    if not State.NoclipEnabled then
-        local ch = Char()
-        if ch then
-            for _, p in ipairs(ch:GetDescendants()) do
-                if p:IsA("BasePart") then pcall(function() p.CanCollide = true end) end
-            end
-        end
-        return
-    end
-    State.NoclipConn = RunService.Stepped:Connect(function()
-        if not State.NoclipEnabled then return end
-        local ch = Char()
-        if ch then
-            for _, p in ipairs(ch:GetDescendants()) do
-                if p:IsA("BasePart") and p.CanCollide then
-                    pcall(function() p.CanCollide = false end)
-                end
-            end
-        end
-    end)
-end
-
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.WalkSpeedEnabled then ApplyWalkSpeed() end
-    if State.NoclipEnabled then ApplyNoclip() end
+    if State.NoclipVehicle and State.AutoCourier then ApplyVehicleNoclip() end
 end)
 
 -- ═══════════════════════════════════════════
@@ -436,19 +573,17 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════
--- WINDUI SETUP
+-- WINDUI
 -- ═══════════════════════════════════════════
 local Window = WindUI:CreateWindow({
     Title = HUB.Name,
     Icon = "truck",
     Author = HUB.Author .. " | " .. HUB.Game,
     Folder = "X0DEC04T_DDS",
-    Size = UDim2.fromOffset(580, 420),
+    Size = UDim2.fromOffset(600, 430),
     Transparent = true,
     Theme = "Dark",
     SideBarWidth = 150,
-    HideSearchBar = false,
-    ScrollBarEnabled = true,
     KeySystem = false,
     Language = "en",
 })
@@ -528,18 +663,12 @@ Tabs.Info:Paragraph({
     Title = HUB.Name .. " v" .. HUB.Version,
     Desc = "Game: " .. HUB.Game
         .. "\nDeveloper: " .. HUB.Author
-        .. "\nMode: FULL AUTO Courier"
+        .. "\nMode: Vehicle Auto-Drive Courier"
 })
 
 Tabs.Info:Section({ Title = "Live Stats" })
-local statsPara = Tabs.Info:Paragraph({
-    Title = "Session Stats",
-    Desc = "Loading..."
-})
-local statusPara = Tabs.Info:Paragraph({
-    Title = "Current Status",
-    Desc = "Idle"
-})
+local statsPara = Tabs.Info:Paragraph({ Title = "Session Stats", Desc = "Loading..." })
+local statusPara = Tabs.Info:Paragraph({ Title = "Current Status", Desc = "Idle" })
 
 task.spawn(function()
     while true do
@@ -562,15 +691,11 @@ task.spawn(function()
             local text = "Total Money: " .. curMoney
                 .. "\nEarned Session: Rp. " .. State.SessionMoney
                 .. "\nDeliveries: " .. State.DeliveriesDone
-                .. "\nRate: " .. rate .. " deliv/hr | Rp. " .. moneyRate .. "/hr"
+                .. "\nRate: " .. rate .. " del/hr | Rp. " .. moneyRate .. "/hr"
                 .. "\nSession: " .. string.format("%02d:%02d", mins, secs)
                 .. "\nPing: " .. math.floor(LocalPlayer:GetNetworkPing() * 1000) .. "ms"
-            if statsPara and statsPara.SetDesc then
-                pcall(function() statsPara:SetDesc(text) end)
-            end
-            if statusPara and statusPara.SetDesc then
-                pcall(function() statusPara:SetDesc(State.CurrentStatus) end)
-            end
+            if statsPara and statsPara.SetDesc then pcall(function() statsPara:SetDesc(text) end) end
+            if statusPara and statusPara.SetDesc then pcall(function() statusPara:SetDesc(State.CurrentStatus) end) end
         end)
     end
 end)
@@ -578,16 +703,13 @@ end)
 Tabs.Info:Section({ Title = "How To Use" })
 Tabs.Info:Paragraph({
     Title = "Quick Guide",
-    Desc = "1. Go to Automation tab\n"
-        .. "2. Choose mode (Instant recommended)\n"
-        .. "3. Turn ON Auto Courier\n"
-        .. "4. Watch the money roll in!\n\n"
-        .. "The bot handles EVERYTHING:\n"
-        .. "- Pickup box at Take1\n"
-        .. "- Equip the box\n"
-        .. "- Teleport to destination\n"
-        .. "- Deliver the box\n"
-        .. "- Loop forever"
+    Desc = "1. Spawn your motorcycle first!\n"
+        .. "2. Get on the bike (sit on it)\n"
+        .. "3. Go to Automation tab\n"
+        .. "4. Turn ON Auto Courier\n"
+        .. "5. Bot drives, pickups, delivers!\n\n"
+        .. "The bot uses your bike to drive\n"
+        .. "with realistic delays (safe from AC)"
 })
 
 Tabs.Info:Section({ Title = "Community" })
@@ -602,47 +724,22 @@ Tabs.Info:Button({
 -- ═══════════════════════════════════════════
 -- AUTOMATION TAB
 -- ═══════════════════════════════════════════
-Tabs.Automation:Section({ Title = "🚚 Courier Autofarm" })
+Tabs.Automation:Section({ Title = "🏍️ Vehicle Courier Autofarm" })
 
 Tabs.Automation:Paragraph({
-    Title = "Full Auto Delivery",
-    Desc = "Automatically picks up packages,\nteleports to destination, and delivers.\n100% hands-free!"
-})
-
-Tabs.Automation:Dropdown({
-    Title = "Mode",
-    Values = { "Instant", "Fast", "Legit" },
-    Value = "Instant",
-    Callback = function(v)
-        State.CourierMode = v
-        Notify("Mode", "Set to: " .. v, 2)
-    end
-})
-
-Tabs.Automation:Slider({
-    Title = "Delay Between Deliveries (sec)",
-    Value = { Min = 0, Max = 5, Default = 1 },
-    Callback = function(v)
-        State.CourierDelay = tonumber(v) or 0.5
-    end
-})
-
-Tabs.Automation:Toggle({
-    Title = "Auto Equip Box",
-    Desc = "Auto-equip box from backpack",
-    Default = true,
-    Callback = function(v) State.AutoEquipBox = v end
+    Title = "How It Works",
+    Desc = "Uses your motorcycle to drive to\npickup/delivery points naturally.\nRandom delays = anti-cheat safe."
 })
 
 Tabs.Automation:Toggle({
     Title = "🚚 Auto Courier",
-    Desc = "MAIN TOGGLE - starts autofarm",
+    Desc = "MAIN TOGGLE",
     Default = false,
     Callback = function(v)
         State.AutoCourier = v
         if v then
             StartCourier()
-            Notify("Auto Courier", "STARTED - Full auto mode", 3)
+            Notify("Auto Courier", "STARTED", 3)
         else
             StopCourier()
             Notify("Auto Courier", "STOPPED", 2)
@@ -650,21 +747,58 @@ Tabs.Automation:Toggle({
     end
 })
 
-Tabs.Automation:Section({ Title = "Mode Descriptions" })
-Tabs.Automation:Paragraph({
-    Title = "🏆 Instant Mode",
-    Desc = "Teleport directly to Take1 & Location\nFastest — ~5 sec per delivery"
-})
-Tabs.Automation:Paragraph({
-    Title = "⚡ Fast Mode",
-    Desc = "Teleport near, walk last few studs\nSafer, ~10 sec per delivery"
-})
-Tabs.Automation:Paragraph({
-    Title = "🚶 Legit Mode",
-    Desc = "Walk/drive to destinations\nMost natural, slowest"
+Tabs.Automation:Section({ Title = "⚙️ Safety Delays" })
+
+Tabs.Automation:Slider({
+    Title = "Min Delay (sec)",
+    Value = { Min = 1, Max = 10, Default = 3 },
+    Callback = function(v)
+        State.MinDelay = tonumber(v) or 3
+        if State.MinDelay > State.MaxDelay then State.MaxDelay = State.MinDelay end
+    end
 })
 
-Tabs.Automation:Section({ Title = "Statistics" })
+Tabs.Automation:Slider({
+    Title = "Max Delay (sec)",
+    Value = { Min = 2, Max = 15, Default = 6 },
+    Callback = function(v)
+        State.MaxDelay = tonumber(v) or 6
+        if State.MaxDelay < State.MinDelay then State.MinDelay = State.MaxDelay end
+    end
+})
+
+Tabs.Automation:Section({ Title = "🚗 Vehicle" })
+
+Tabs.Automation:Toggle({
+    Title = "Noclip Vehicle",
+    Desc = "Drive through walls/objects",
+    Default = true,
+    Callback = function(v)
+        State.NoclipVehicle = v
+        if v and State.AutoCourier then ApplyVehicleNoclip() 
+        elseif State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end); State.NoclipConn = nil end
+    end
+})
+
+Tabs.Automation:Toggle({
+    Title = "Auto Equip Box",
+    Default = true,
+    Callback = function(v) State.AutoEquipBox = v end
+})
+
+Tabs.Automation:Slider({
+    Title = "Max Throttle",
+    Value = { Min = 3, Max = 10, Default = 10 },
+    Callback = function(v) State.MaxThrottle = (tonumber(v) or 10) / 10 end
+})
+
+Tabs.Automation:Slider({
+    Title = "Arrival Distance",
+    Value = { Min = 5, Max = 25, Default = 12 },
+    Callback = function(v) State.ArrivalDistance = tonumber(v) or 12 end
+})
+
+Tabs.Automation:Section({ Title = "📊 Stats" })
 Tabs.Automation:Button({
     Title = "Reset Counter",
     Callback = function()
@@ -673,7 +807,16 @@ Tabs.Automation:Button({
         State.SessionStartTime = tick()
         local lbl = FindMoneyLabel()
         State.LastMoneyRaw = lbl and ParseMoney(lbl.Text) or 0
-        Notify("Stats", "Reset complete", 2)
+        Notify("Stats", "Reset", 2)
+    end
+})
+
+Tabs.Automation:Button({
+    Title = "🛑 EMERGENCY STOP",
+    Callback = function()
+        State.AutoCourier = false
+        StopVehicle()
+        Notify("STOPPED", "Emergency stop", 3)
     end
 })
 
@@ -684,7 +827,7 @@ Tabs.Utility:Section({ Title = "🏃 Movement" })
 
 Tabs.Utility:Slider({
     Title = "Walk Speed",
-    Value = { Min = 16, Max = 100, Default = 30 },
+    Value = { Min = 16, Max = 60, Default = 30 },
     Callback = function(v)
         State.WalkSpeedValue = tonumber(v) or 30
         if State.WalkSpeedEnabled then ApplyWalkSpeed() end
@@ -700,71 +843,23 @@ Tabs.Utility:Toggle({
     end
 })
 
-Tabs.Utility:Toggle({
-    Title = "Noclip",
-    Desc = "Walk through walls",
-    Default = false,
-    Callback = function(v)
-        State.NoclipEnabled = v
-        ApplyNoclip()
-    end
-})
-
-Tabs.Utility:Section({ Title = "📍 Teleports" })
-
+Tabs.Utility:Section({ Title = "🏍️ Vehicle" })
 Tabs.Utility:Button({
-    Title = "TP to Courier Basecamp (Take1)",
+    Title = "Mount My Motorcycle",
     Callback = function()
-        local _, takePart = GetTakePrompt()
-        if takePart then
-            SafeTeleport(takePart.CFrame + Vector3.new(0, 5, 0))
-            Notify("Teleport", "At basecamp", 2)
+        if MountMotorcycle() then
+            Notify("Vehicle", "Mounted", 2)
         else
-            Notify("Teleport", "Take1 not found", 3)
+            Notify("Vehicle", "Motorcycle not found - spawn one first!", 3)
         end
     end
 })
 
 Tabs.Utility:Button({
-    Title = "TP to Active Delivery Location",
+    Title = "Dismount",
     Callback = function()
-        local _, block, name = GetActiveLocation()
-        if block then
-            SafeTeleport(block.CFrame + Vector3.new(0, 5, 0))
-            Notify("Teleport", "At Location " .. name, 2)
-        else
-            Notify("Teleport", "No active location", 3)
-        end
-    end
-})
-
-Tabs.Utility:Button({
-    Title = "TP to Free Coffee (nearest)",
-    Callback = function()
-        local hrp = HRP()
-        if not hrp then return end
-        local best, bd = nil, math.huge
-        for _, m in ipairs(Workspace:GetChildren()) do
-            if m.Name == "PinewoodCoffeeMachine" then
-                local part = m:FindFirstChild("InteractiveScreen") or m:FindFirstChildWhichIsA("BasePart")
-                if part then
-                    local d = (part.Position - hrp.Position).Magnitude
-                    if d < bd then bd = d; best = part end
-                end
-            end
-        end
-        if best then
-            SafeTeleport(best.CFrame + Vector3.new(0, 5, 0))
-            Notify("Teleport", "At coffee machine", 2)
-        end
-    end
-})
-
-Tabs.Utility:Button({
-    Title = "TP to BOB (Daily Code)",
-    Callback = function()
-        SafeTeleport(CFrame.new(-646, 5, -679))
-        Notify("Teleport", "At BOB", 2)
+        Dismount()
+        Notify("Vehicle", "Dismounted", 2)
     end
 })
 
@@ -799,7 +894,6 @@ Tabs.Utility:Button({
     Title = "🔴 Unload Hub",
     Callback = function()
         StopCourier()
-        if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.LogoGui then pcall(function() State.LogoGui:Destroy() end) end
         local h = Hum(); if h then pcall(function() h.WalkSpeed = State.DefaultWalkSpeed end) end
         _G[INSTANCE_KEY] = nil
@@ -814,11 +908,10 @@ _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
         StopCourier()
-        if State.NoclipConn then pcall(function() State.NoclipConn:Disconnect() end) end
         if State.LogoGui then pcall(function() State.LogoGui:Destroy() end) end
         pcall(function() Window:Destroy() end)
     end,
 }
 
-Notify(HUB.Name, "v" .. HUB.Version .. " Courier Edition loaded!", 5)
-print("[X0DEC04T] v1.1 Courier Edition loaded successfully")
+Notify(HUB.Name, "v" .. HUB.Version .. " Vehicle Edition loaded", 5)
+print("[X0DEC04T] v1.2 Vehicle Edition loaded")
