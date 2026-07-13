@@ -1,5 +1,9 @@
 --═══════════════════════════════════════════════════════════════
--- X0DEC04T Hub v0.7.3 - Violence District
+-- X0DEC04T Hub v0.7.4 - Violence District [WindUI]
+-- Fixed: Invisible = Option C (real invisibility, character moves normally)
+-- Added: Unlock Cursor feature
+-- Added: Force English UI (patches WindUI internal strings)
+-- Skillcheck: needs hook diagnostic to fix exact args
 --═══════════════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -20,13 +24,15 @@ local LocalizationService = game:GetService("LocalizationService")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
+-- Force English BEFORE anything loads
 pcall(function()
     if LocalizationService then
         LocalizationService.RobloxLocaleId = "en-us"
+        LocalizationService.SystemLocaleId = "en-us"
     end
 end)
 
-local INSTANCE_KEY = "__X0DEC04T_v073"
+local INSTANCE_KEY = "__X0DEC04T_v074"
 if _G[INSTANCE_KEY] then
     local prev = _G[INSTANCE_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -36,9 +42,9 @@ end
 
 local _t0 = os.clock()
 local function Log(m) print(string.format("[X0DEC04T][+%.2fs] %s", os.clock()-_t0, tostring(m))) end
-Log("v0.7.3 starting")
+Log("v0.7.4 starting")
 
--- WINDUI
+-- WINDUI (load with English language forced)
 local WindUI = nil
 for _, url in ipairs({
     "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
@@ -49,10 +55,28 @@ for _, url in ipairs({
 end
 if not WindUI then warn("WindUI failed"); return end
 
+-- FORCE ENGLISH WINDUI - patches internal language table if exists
+pcall(function()
+    if WindUI.Language then
+        WindUI.Language = "en"
+    end
+    if WindUI.SetLanguage then
+        WindUI:SetLanguage("en")
+    end
+    -- Force override common Indonesian strings that appear
+    if WindUI.Translations then
+        for locale, _ in pairs(WindUI.Translations) do
+            if locale ~= "en" and locale ~= "en-us" and locale ~= "en-US" then
+                WindUI.Translations[locale] = nil
+            end
+        end
+    end
+end)
+
 local HUB = {
     Name    = "X0DEC04T Hub",
     Game    = "Violence District",
-    Version = "0.7.3",
+    Version = "0.7.4",
     Author  = "voixera",
     LogoId  = "rbxassetid://91626851418651",
     Discord = "discord.gg/x0dec04t",
@@ -152,7 +176,6 @@ local R = {
     Perks = {},
     Vault = GR("Vault","VaultEvent") or FindDeep(Remotes,"VaultEvent") or FindDeep(Remotes,"Vault"),
     ExitGate = GR("ExitGate","Open") or FindDeep(Remotes,"ExitGate") or FindDeep(Remotes,"OpenExit"),
-
     SkillCheck = {
         GenResult   = GR("Generator","SkillCheckResultEvent"),
         GenEvent    = GR("Generator","SkillCheckEvent"),
@@ -161,7 +184,6 @@ local R = {
         HealEvent   = GR("Healing","SkillCheckEvent"),
         HealFail    = GR("Healing","SkillCheckFailEvent"),
     },
-
     Pallet = {
         SlideAnim = GR("Pallet","PalletSlideAnim"),
         SlideEvent = GR("Pallet","PalletSlideEvent"),
@@ -202,7 +224,7 @@ for _, kw in ipairs({"invis","hidden","stealth","cloak","perk"}) do
     for _, r in ipairs(FindKW(Remotes,kw)) do table.insert(R.Perks, r) end
 end
 
-Log("SkillCheck:"..(R.SkillCheck.GenResult and "y" or "n").." | Attack:"..(R.Attacks.Basic and "y" or "n"))
+Log("SkillCheck:"..(R.SkillCheck.GenResult and "y" or "n"))
 
 local WS = {
     Map = Workspace:FindFirstChild("Map"),
@@ -210,7 +232,6 @@ local WS = {
     FakeChars = Workspace:FindFirstChild("FakeCharacters"),
 }
 
--- SCANNERS
 local function FindAllGenerators()
     local list, seen = {}, {}
     if WS.Map then
@@ -352,6 +373,7 @@ local State = {
     NoFallDamage = false,
     WalkSpeedEnabled = false, WalkSpeedValue = 28,
     Invisible = false,
+    UnlockCursor = false,
 
     AutoHit = false, AutoHitRange = 12,
     KillAura = false, KillAuraRange = 20,
@@ -372,7 +394,8 @@ local State = {
 
     WalkSpeed = 16, ESPCache = {}, GenProgressGuis = {},
     HitboxSaved = {}, HitboxConn = nil,
-    InvisibleConn = nil,
+    InvisibleConn = nil, InvisibleSaved = {},
+    UnlockCursorConn = nil,
     NoFallConn = nil, AutoHealConn = nil, AutoParryConn = nil,
     AutoHitConn = nil, KillAuraConn = nil, AutoDamageGenConn = nil,
     SkillcheckConn = nil, RemoveSCConn = nil, AutoEscapeConn = nil,
@@ -382,7 +405,6 @@ local State = {
     UIOpen = true, LogoGui = nil, CrosshairGui = nil,
 }
 
--- HELPERS
 local function GuiParent()
     local p = CoreGui
     pcall(function() if gethui then p = gethui() end end)
@@ -492,14 +514,14 @@ function Config.Save(name)
     return false
 end
 function Config.Load(name)
-    if not readfile then Notify("Config","readfile not supported",3); return false end
+    if not readfile then return false end
     EnsureFolder()
     local path = "X0DEC04T/Configs/"..name..".json"
     if not isfile(path) then Notify("Config","Not found: "..name,3); return false end
     local ok, raw = pcall(readfile, path)
     if not ok then return false end
     local dec, data = pcall(HttpService.JSONDecode, HttpService, raw)
-    if not dec then Notify("Config","Invalid JSON",3); return false end
+    if not dec then return false end
     for k, v in pairs(data) do State[k] = v end
     Notify("Config","Loaded: "..name, 3)
     return true
@@ -558,33 +580,28 @@ end
 local function MakeEntry(obj, label, color, isChar, kind)
     local rp = GetRootPart(obj); if not rp then return nil end
     local topPart = GetHeadOrTop(obj) or rp
-
     local hl = Instance.new("Highlight")
     hl.Adornee=obj; hl.FillColor=color; hl.OutlineColor=color
     hl.FillTransparency=isChar and 0.5 or 0.6
     hl.OutlineTransparency=0
     hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent=Workspace
-
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 200, 0, isChar and 60 or 45)
     bb.StudsOffset = Vector3.new(0, isChar and 2.5 or 2, 0)
     bb.AlwaysOnTop = true; bb.LightInfluence = 0
     bb.MaxDistance = State.ESP_MaxDistance
     bb.ResetOnSpawn = false; bb.Adornee = topPart; bb.Parent = ESPGui
-
     local layout = Instance.new("UIListLayout", bb)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
     layout.Padding = UDim.new(0, 1)
-
     local nl = Instance.new("TextLabel", bb)
     nl.LayoutOrder = 1; nl.Size = UDim2.new(1, 0, 0, 18)
     nl.BackgroundTransparency = 1; nl.Text = label; nl.TextColor3 = color
     nl.TextStrokeTransparency = 0.35; nl.TextStrokeColor3 = Color3.new(0,0,0)
     nl.Font = Enum.Font.GothamBold; nl.TextSize = 13
-
     local hp = nil
     if isChar then
         hp = Instance.new("TextLabel", bb)
@@ -594,14 +611,12 @@ local function MakeEntry(obj, label, color, isChar, kind)
         hp.TextStrokeTransparency = 0.35; hp.TextStrokeColor3 = Color3.new(0,0,0)
         hp.Font = Enum.Font.GothamBold; hp.TextSize = 12
     end
-
     local dl = Instance.new("TextLabel", bb)
     dl.LayoutOrder = 3; dl.Size = UDim2.new(1, 0, 0, 12)
     dl.BackgroundTransparency = 1; dl.Text = "0m"
     dl.TextColor3 = Color3.fromRGB(220,220,220)
     dl.TextStrokeTransparency = 0.35; dl.TextStrokeColor3 = Color3.new(0,0,0)
     dl.Font = Enum.Font.Gotham; dl.TextSize = 11
-
     return {rp=rp, topPart=topPart, obj=obj, hl=hl, bb=bb, nl=nl, dl=dl, hp=hp, isChar=isChar, color=color, kind=kind}
 end
 
@@ -850,93 +865,91 @@ local function SetNoFall(e)
     end
 end
 
--- ═══════════════════════════════════════════════════════════════
--- INVISIBLE v3: TRUE server-side (void TP + phantom controller)
--- Character teleports to void so server sees you as "not there"
--- Ghost model at last visible position lets you interact/move
--- ═══════════════════════════════════════════════════════════════
-local invisibleGhost = nil       -- fake body at your last position
-local invisibleAnchor = nil      -- anchor point in world for ghost
-local invisibleRealPos = Vector3.new(0, -5000, 0)
-local invisibleGhostConn = nil
-local invisibleMoveConn = nil
-local invisibleSyncConn = nil
-
+-- ═══════════════════════════════════════════
+-- INVISIBLE - OPTION C
+-- Character moves normally in real world
+-- Visually invisible to others (real Transparency = 1)
+-- You still see yourself via LocalTransparencyModifier = 0
+-- ═══════════════════════════════════════════
 local function SetInvisible(enable)
-    -- Cleanup previous
-    for _, c in ipairs({State.InvisibleConn, invisibleGhostConn, invisibleMoveConn, invisibleSyncConn}) do
-        if c then pcall(function() c:Disconnect() end) end
-    end
-    State.InvisibleConn = nil
-    invisibleGhostConn = nil
-    invisibleMoveConn = nil
-    invisibleSyncConn = nil
-
-    if invisibleGhost then
-        pcall(function() invisibleGhost:Destroy() end)
-        invisibleGhost = nil
+    if State.InvisibleConn then
+        pcall(function() State.InvisibleConn:Disconnect() end)
+        State.InvisibleConn = nil
     end
 
     local char = Char()
     if not char then Notify("Invisible","No character",2); return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
 
     -- ── OFF ──
     if not enable then
-        pcall(function()
-            hum.PlatformStand = false
-            hum.AutoRotate = true
-            hum.WalkSpeed = State.WalkSpeedEnabled and State.WalkSpeedValue or State.WalkSpeed
-        end)
-        pcall(function()
-            Camera.CameraType = Enum.CameraType.Custom
-            Camera.CameraSubject = hum
-        end)
-        -- Bring character back to ghost position
-        if invisibleAnchor then
-            pcall(function()
-                hrp.CFrame = CFrame.new(invisibleAnchor + Vector3.new(0,3,0))
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end)
-            invisibleAnchor = nil
+        -- Restore original transparency
+        for part, orig in pairs(State.InvisibleSaved) do
+            if part and part.Parent then
+                pcall(function()
+                    if part:IsA("BasePart") then
+                        part.Transparency = orig.trans
+                        part.LocalTransparencyModifier = 0
+                        part.CanQuery = orig.canQuery ~= nil and orig.canQuery or true
+                        part.CanCollide = orig.canCollide ~= nil and orig.canCollide or true
+                    elseif part:IsA("Decal") or part:IsA("Texture") then
+                        part.Transparency = orig.trans
+                    end
+                end)
+            end
         end
+        State.InvisibleSaved = {}
+
+        -- Clear attributes
         pcall(function()
             char:SetAttribute("Invisible", false)
             char:SetAttribute("Untargettable", false)
             char:SetAttribute("Hidden", false)
         end)
+
+        -- Show nameplate
         local head = char:FindFirstChild("Head")
         if head then
             for _, g in ipairs(head:GetChildren()) do
                 if g:IsA("BillboardGui") then pcall(function() g.Enabled = true end) end
             end
         end
-        Notify("Invisible", "OFF - Character returned", 2)
+
+        Notify("Invisible", "OFF", 2)
         return
     end
 
     -- ── ON ──
-    -- 1) Save current world position (this is where the ghost/camera stays)
-    invisibleAnchor = hrp.Position
+    -- Save + set transparency
+    State.InvisibleSaved = {}
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            State.InvisibleSaved[p] = {
+                trans = p.Transparency,
+                canQuery = p.CanQuery,
+                canCollide = p.CanCollide,
+            }
+            pcall(function()
+                p.Transparency = 1  -- REAL transparency (server + others see this)
+                p.LocalTransparencyModifier = 0  -- YOU still see yourself normally
+                p.CanQuery = false  -- killer's raycast can't hit you
+            end)
+        elseif p:IsA("Decal") or p:IsA("Texture") then
+            State.InvisibleSaved[p] = { trans = p.Transparency }
+            pcall(function() p.Transparency = 1 end)
+        end
+    end
 
-    -- 2) Teleport actual character to void (server sees you way below map)
-    pcall(function()
-        hrp.CFrame = CFrame.new(invisibleRealPos)
-        hrp.AssemblyLinearVelocity = Vector3.zero
-    end)
-
-    -- 3) Set attributes so game logic knows you're invisible
+    -- Server-side attributes
     pcall(function()
         char:SetAttribute("Invisible", true)
         char:SetAttribute("Untargettable", true)
         char:SetAttribute("Hidden", true)
     end)
+
+    -- Fire perk remotes
     for _, r in ipairs(R.Perks) do pcall(function() r:FireServer(true) end) end
 
-    -- 4) Hide nameplate
+    -- Hide nameplate
     local head = char:FindFirstChild("Head")
     if head then
         for _, g in ipairs(head:GetChildren()) do
@@ -944,87 +957,61 @@ local function SetInvisible(enable)
         end
     end
 
-    -- 5) Lock camera to your original position with mouse-look
-    pcall(function()
-        Camera.CameraType = Enum.CameraType.Scriptable
-    end)
-
-    -- Enable free camera rotation
-    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-    local camYaw = 0
-    local camPitch = -0.3
-
-    -- Track mouse for camera rotation
-    local mouseDelta = Vector2.zero
-    local trackingMouse = false
-    invisibleSyncConn = UserInputService.InputChanged:Connect(function(inp)
-        if not State.Invisible then return end
-        if inp.UserInputType == Enum.UserInputType.MouseMovement then
-            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-                mouseDelta = inp.Delta
-                camYaw = camYaw - mouseDelta.X * 0.005
-                camPitch = math.clamp(camPitch - mouseDelta.Y * 0.005, -1.4, 1.4)
-            end
-        end
-    end)
-
-    -- 6) Main sync loop: camera + character teleport based on WASD
-    invisibleMoveConn = RunService.RenderStepped:Connect(function(dt)
+    -- Maintenance loop: keep transparency + attributes applied
+    State.InvisibleConn = RunService.RenderStepped:Connect(function()
         if not State.Invisible then return end
         local c = Char(); if not c then return end
-        local h = c:FindFirstChild("HumanoidRootPart")
-        local humNow = c:FindFirstChildOfClass("Humanoid")
-        if not h or not humNow then return end
-
-        -- Read WASD input
-        local moveDir = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Vector3.new(0,0,-1) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir + Vector3.new(0,0,1) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir + Vector3.new(-1,0,0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Vector3.new(1,0,0) end
-
-        -- Rotate move direction by camera yaw
-        if moveDir.Magnitude > 0 then
-            moveDir = moveDir.Unit
-            local rotated = CFrame.Angles(0, camYaw, 0):VectorToWorldSpace(moveDir)
-            local speed = State.WalkSpeedEnabled and State.WalkSpeedValue or State.WalkSpeed
-            invisibleAnchor = invisibleAnchor + rotated * speed * dt
+        for _, p in ipairs(c:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if p.Transparency < 0.99 then
+                    pcall(function()
+                        p.Transparency = 1
+                        p.LocalTransparencyModifier = 0
+                        p.CanQuery = false
+                    end)
+                end
+            end
         end
-
-        -- Jump support
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            invisibleAnchor = invisibleAnchor + Vector3.new(0, 20*dt, 0)
-        end
-
-        -- Update camera to look at anchor from behind
-        local camOffset = CFrame.Angles(0, camYaw, 0) * CFrame.Angles(camPitch, 0, 0) * CFrame.new(0, 0, 8)
-        local camCF = CFrame.new(invisibleAnchor) * camOffset
-        pcall(function()
-            Camera.CFrame = CFrame.new(camCF.Position, invisibleAnchor + Vector3.new(0, 2, 0))
-        end)
-
-        -- Keep character in void
-        if h.Position.Y > -3000 then
-            pcall(function()
-                h.CFrame = CFrame.new(invisibleRealPos)
-                h.AssemblyLinearVelocity = Vector3.zero
-            end)
-        end
-
-        -- Re-apply attributes
         pcall(function()
             if c:GetAttribute("Invisible") ~= true then c:SetAttribute("Invisible", true) end
             if c:GetAttribute("Untargettable") ~= true then c:SetAttribute("Untargettable", true) end
         end)
-
-        -- Freeze humanoid so it doesn't wander
-        pcall(function()
-            humNow.PlatformStand = false
-            humNow.AutoRotate = false
-        end)
     end)
 
-    Notify("Invisible", "ON - Void TP, WASD moves camera anchor", 3)
+    Notify("Invisible", "ON - You can see yourself, others cannot", 3)
+end
+
+-- ═══════════════════════════════════════════
+-- UNLOCK CURSOR
+-- ═══════════════════════════════════════════
+local function SetUnlockCursor(enable)
+    if State.UnlockCursorConn then
+        pcall(function() State.UnlockCursorConn:Disconnect() end)
+        State.UnlockCursorConn = nil
+    end
+
+    if not enable then
+        -- Let game control it again
+        pcall(function()
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = true
+        end)
+        Notify("Unlock Cursor", "OFF - Game controls cursor", 2)
+        return
+    end
+
+    -- Force cursor to be free every frame
+    State.UnlockCursorConn = RunService.RenderStepped:Connect(function()
+        if not State.UnlockCursor then return end
+        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+            pcall(function()
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+            end)
+        end
+    end)
+
+    Notify("Unlock Cursor", "ON - Cursor free to move", 2)
 end
 
 -- AUTO HEAL
@@ -1039,7 +1026,6 @@ local function DoHeal()
     for _, r in ipairs(R.HealAlts) do pcall(function() r:FireServer() end) end
     if R.SkillCheck and R.SkillCheck.HealResult then
         pcall(function() R.SkillCheck.HealResult:FireServer("Perfect") end)
-        pcall(function() R.SkillCheck.HealResult:FireServer(true) end)
     end
     pcall(function()
         c:SetAttribute("IsHealing", true); c:SetAttribute("Healing", true)
@@ -1173,18 +1159,25 @@ local function SetAutoGenRush(enable)
     end
 end
 
--- AUTO SKILLCHECK (remote-only, no key press, cannot trigger vault)
+-- SKILLCHECK (character stays free to move)
 local function SetAutoSkillcheck(enable)
     if State.SkillcheckConn then pcall(function() State.SkillcheckConn:Disconnect() end); State.SkillcheckConn=nil end
     if not enable then return end
 
-    local lastFire = 0
+    -- Track which skillcheck we already fired for (prevents duplicate fires)
+    local firedForCurrentSC = false
+    local lastGuiCheck = 0
 
     State.SkillcheckConn = RunService.Heartbeat:Connect(function()
         if not State.AutoSkillcheck then return end
+
+        -- Only check GUI every 0.05s (not every frame - saves performance)
+        if tick() - lastGuiCheck < 0.05 then return end
+        lastGuiCheck = tick()
+
         local pg = LocalPlayer:FindFirstChild("PlayerGui"); if not pg then return end
 
-        -- Check if a skillcheck GUI is currently active
+        -- Check for active skillcheck GUI
         local scGui = nil
         for _, gui in ipairs(pg:GetChildren()) do
             if (gui.Name == "SkillCheckPromptGui" or gui.Name == "SkillCheckPromptGui-con")
@@ -1192,25 +1185,38 @@ local function SetAutoSkillcheck(enable)
                 scGui = gui; break
             end
         end
-        if not scGui then return end
 
-        -- Delay based on mode
-        local delay = State.SkillcheckMode == "Instant" and 0.1 or 0.3
-        if tick() - lastFire < delay then return end
-        lastFire = tick()
-
-        -- Legit mode adds a small wait to simulate reaction time
-        if State.SkillcheckMode == "Legit" then
-            task.wait(0.15)
+        -- No skillcheck showing = reset the fire flag so next SC can fire
+        if not scGui then
+            firedForCurrentSC = false
+            return
         end
 
-        -- Fire result remote (this is what game accepts for perfect hit)
-        -- Never uses key press, so vault won't trigger
+        -- Skillcheck is showing but we already fired for it - do nothing
+        if firedForCurrentSC then return end
+
+        -- Legit mode adds slight delay to look natural
+        if State.SkillcheckMode == "Legit" then
+            task.wait(0.15)
+            -- Re-verify GUI still active after delay
+            if not scGui.Parent or not scGui.Enabled then
+                firedForCurrentSC = false
+                return
+            end
+        end
+
+        -- Mark that we fired for THIS skillcheck
+        firedForCurrentSC = true
+
+        -- Fire the perfect result remote (all argument formats)
         if R.SkillCheck.GenResult then
             pcall(function() R.SkillCheck.GenResult:FireServer("Perfect") end)
-            pcall(function() R.SkillCheck.GenResult:FireServer(true) end)
             pcall(function() R.SkillCheck.GenResult:FireServer("perfect") end)
+            pcall(function() R.SkillCheck.GenResult:FireServer("PERFECT") end)
+            pcall(function() R.SkillCheck.GenResult:FireServer("Great") end)
+            pcall(function() R.SkillCheck.GenResult:FireServer(true) end)
             pcall(function() R.SkillCheck.GenResult:FireServer(1) end)
+            pcall(function() R.SkillCheck.GenResult:FireServer("Success") end)
             pcall(function() R.SkillCheck.GenResult:FireServer() end)
         end
         if R.SkillCheck.HealResult then
@@ -1219,18 +1225,20 @@ local function SetAutoSkillcheck(enable)
             pcall(function() R.SkillCheck.HealResult:FireServer() end)
         end
 
-        -- Set success attributes
+        -- Set success attributes (game may read these)
         local ch = Char()
         if ch then
             pcall(function()
                 ch:SetAttribute("SkillcheckPerfect", true)
                 ch:SetAttribute("SkillcheckSuccess", true)
             end)
-        end
-
-        -- Hide GUI after firing (instant mode)
-        if State.SkillcheckMode == "Instant" then
-            pcall(function() scGui.Enabled = false end)
+            -- Clear the attributes after a tick so future skillchecks work
+            task.delay(0.3, function()
+                pcall(function()
+                    ch:SetAttribute("SkillcheckPerfect", false)
+                    ch:SetAttribute("SkillcheckSuccess", false)
+                end)
+            end)
         end
     end)
 end
@@ -1245,10 +1253,6 @@ local function SetRemoveSkillcheck(enable)
             local scPlayer = ch:FindFirstChild("Skillcheck-player")
             if scGen then pcall(function() scGen.Disabled = false end) end
             if scPlayer then pcall(function() scPlayer.Disabled = false end) end
-            pcall(function()
-                ch:SetAttribute("skillcheckfrequency", 1)
-                ch:SetAttribute("skillcheckspeed", 1)
-            end)
         end
         return
     end
@@ -1278,14 +1282,10 @@ local function SetRemoveSkillcheck(enable)
             local scPlayer = ch:FindFirstChild("Skillcheck-player")
             if scGen and not scGen.Disabled then pcall(function() scGen.Disabled = true end) end
             if scPlayer and not scPlayer.Disabled then pcall(function() scPlayer.Disabled = true end) end
-            if ch:GetAttribute("skillcheckfrequency") ~= 0 then
-                pcall(function() ch:SetAttribute("skillcheckfrequency", 0) end)
-            end
         end
     end)
 end
 
--- AUTO ESCAPE
 local function SetAutoEscape(enable)
     if State.AutoEscapeConn then pcall(function() State.AutoEscapeConn:Disconnect() end); State.AutoEscapeConn=nil end
     if not enable then return end
@@ -1324,7 +1324,7 @@ local function SetFastVault(e)
     end
 end
 
--- KILLER FEATURES
+-- KILLER
 local function FireHit(target)
     local ch = target and target.Character
     if not ch then return end
@@ -1626,7 +1626,7 @@ if R.Game.Start then
     end)
 end
 
--- WINDUI
+-- WINDUI (English forced)
 local Window = WindUI:CreateWindow({
     Title = HUB.Name,
     Icon = "shield",
@@ -1642,10 +1642,41 @@ local Window = WindUI:CreateWindow({
     Language = "en",
 })
 
+pcall(function() Window:SetLanguage("en") end)
+
 Window:EditOpenButton({
     Title = HUB.Name, Icon = "shield",
     Enabled = false, Draggable = true,
 })
+
+-- Force patch WindUI text every 2s (kills late-loading translations)
+task.spawn(function()
+    while task.wait(2) do
+        pcall(function()
+            if WindUI and WindUI.SetLanguage then WindUI:SetLanguage("en") end
+        end)
+        -- Manually override common Indonesian text in ScreenGuis
+        local windui_gui = GuiParent():FindFirstChild("WindUI") or GuiParent():FindFirstChild("X0DEC04T")
+        if windui_gui then
+            for _, t in ipairs(windui_gui:GetDescendants()) do
+                if t:IsA("TextLabel") or t:IsA("TextButton") or t:IsA("TextBox") then
+                    local txt = t.Text
+                    if txt == "Cari" then t.Text = "Search"
+                    elseif txt == "Pengaturan" then t.Text = "Settings"
+                    elseif txt == "Lain-lain" then t.Text = "Misc"
+                    elseif txt == "Utama" then t.Text = "Main"
+                    elseif txt == "Tampilan" then t.Text = "Display"
+                    elseif txt == "Muat Ulang" then t.Text = "Reload"
+                    elseif txt == "Hapus" then t.Text = "Delete"
+                    elseif txt == "Simpan" then t.Text = "Save"
+                    elseif txt == "Batal" then t.Text = "Cancel"
+                    elseif txt == "OK" then t.Text = "OK"
+                    end
+                end
+            end
+        end
+    end
+end)
 
 -- LOGO
 local function CreateFloatingLogo()
@@ -1744,20 +1775,16 @@ local Tabs = {
 Tabs.Main:Section({ Title = "Added in v"..HUB.Version })
 Tabs.Main:Paragraph({
     Title = "New Features",
-    Desc = "- TRUE server-side invisible via void TP\n"
-        .."- Skillcheck uses remotes only (no key press, cannot trigger vault)\n"
-        .."- Custom camera controller during invisible mode",
+    Desc = "- Invisible: Option C (transparency + LTM = 0 so you see yourself)\n"
+        .."- Unlock Cursor toggle (free cursor in gameplay)\n"
+        .."- WindUI English patch (overrides Indonesian text every 2s)",
 })
-Tabs.Main:Section({ Title = "Fixed" })
+Tabs.Main:Section({ Title = "Needs Diagnostic" })
 Tabs.Main:Paragraph({
-    Title = "Fixed Features",
-    Desc = "- Invisible: character in void, WASD moves camera anchor freely\n"
-        .."- Skillcheck near window no longer triggers vault\n"
-        .."- Hold RMB to look around while invisible\n"
-        .."- Legit mode fires remote with delay (looks natural)",
+    Title = "Skillcheck Fix",
+    Desc = "Run the SkillCheck hook (see Discord/Console) to find exact argument format.\nCurrently tries: Perfect, perfect, PERFECT, Great, Success, true, 1, nil",
 })
 
--- ESP TAB
 Tabs.ESP:Section({ Title = "Players" })
 Tabs.ESP:Toggle({Title = "Player ESP", Default = false, Callback = function(v) State.ESP_Player = v; ESP.RefreshAll() end})
 Tabs.ESP:Toggle({Title = "Survivor ESP", Default = false, Callback = function(v) State.ESP_Survivor = v; Role.ResetKillerCache(); ESP.RefreshAll() end})
@@ -1782,7 +1809,6 @@ Tabs.ESP:Slider({Title = "ESP Max Distance", Value = { Min = 100, Max = 3000, De
 Tabs.ESP:Button({Title = "Refresh All ESP", Callback = function() ESP.ClearAll(); Role.ResetKillerCache(); ESP.RefreshAll(); Notify("ESP","Refreshed",2) end})
 Tabs.ESP:Button({Title = "Clear All ESP", Callback = function() ESP.ClearAll(); Notify("ESP","Cleared",2) end})
 
--- SURVIVOR
 Tabs.Survivor:Section({ Title = "Auto Gen Rush" })
 Tabs.Survivor:Slider({Title = "Killer Radius", Value = { Min = 10, Max = 100, Default = 30 }, Callback = function(v) State.GenKillerRadius = tonumber(v) or 30 end})
 Tabs.Survivor:Dropdown({Title = "Gen Mode", Values = { "Legit", "Instant" }, Value = "Legit", Callback = function(v) State.AutoGenMode = v end})
@@ -1790,7 +1816,7 @@ Tabs.Survivor:Toggle({Title = "Auto Gen Rush", Default = false, Callback = funct
 
 Tabs.Survivor:Section({ Title = "Skillcheck" })
 Tabs.Survivor:Dropdown({Title = "Skillcheck Mode", Values = { "Legit", "Instant" }, Value = "Legit", Callback = function(v) State.SkillcheckMode = v; if State.AutoSkillcheck then SetAutoSkillcheck(true) end end})
-Tabs.Survivor:Paragraph({Title = "Mode Info", Desc = "Both modes use SkillCheckResultEvent remote directly.\nNo key presses = won't trigger vault!"})
+Tabs.Survivor:Paragraph({Title = "Note", Desc = "Fires SkillCheckResultEvent remote (no key press, cannot trigger vault)."})
 Tabs.Survivor:Toggle({Title = "Auto Perfect Skillcheck", Default = false, Callback = function(v) State.AutoSkillcheck = v; SetAutoSkillcheck(v) end})
 Tabs.Survivor:Toggle({Title = "Remove Skillcheck", Default = false, Callback = function(v) State.RemoveSkillcheck = v; SetRemoveSkillcheck(v) end})
 
@@ -1812,10 +1838,12 @@ Tabs.Survivor:Slider({Title = "Walk Speed", Value = { Min = 16, Max = 60, Defaul
 Tabs.Survivor:Toggle({Title = "Walk Speed (Double-tap V)", Default = false, Callback = function(v) State.WalkSpeedEnabled = v; Move.SetWalkSpeed(v) end})
 
 Tabs.Survivor:Section({ Title = "Invisible (Double-tap G)" })
-Tabs.Survivor:Paragraph({Title = "How It Works", Desc = "TRUE server-side invisible.\nCharacter teleports to void (Y=-5000).\nWASD moves camera anchor at your last position.\nHOLD RIGHT CLICK to rotate camera.\nKiller cannot see or hit you."})
+Tabs.Survivor:Paragraph({Title = "How It Works", Desc = "You can move & interact normally.\nYou see yourself normally (LocalTransparencyModifier = 0).\nOthers see nothing (real Transparency = 1)."})
 Tabs.Survivor:Toggle({Title = "Invisible", Default = false, Callback = function(v) State.Invisible = v; SetInvisible(v) end})
 
--- KILLER
+Tabs.Survivor:Section({ Title = "Cursor" })
+Tabs.Survivor:Toggle({Title = "Unlock Cursor", Desc = "Free cursor movement in gameplay", Default = false, Callback = function(v) State.UnlockCursor = v; SetUnlockCursor(v) end})
+
 Tabs.Killer:Section({ Title = "Auto Hit" })
 Tabs.Killer:Slider({Title = "Hit Range", Value = { Min = 5, Max = 40, Default = 12 }, Callback = function(v) State.AutoHitRange = tonumber(v) or 12 end})
 Tabs.Killer:Toggle({Title = "Auto Hit", Default = false, Callback = function(v) State.AutoHit = v; SetAutoHit(v) end})
@@ -1848,17 +1876,15 @@ Tabs.Killer:Toggle({Title = "No Slowdown", Default = false, Callback = function(
 Tabs.Killer:Section({ Title = "Invisible (Double-tap G)" })
 Tabs.Killer:Toggle({Title = "Invisible", Default = false, Callback = function(v) State.Invisible = v; SetInvisible(v) end})
 
--- VISUALS
 Tabs.Visuals:Section({ Title = "Lighting" })
 Tabs.Visuals:Toggle({Title = "Full Bright", Default = false, Callback = function(v) State.FullBright = v; Vis.FullBright(v) end})
 Tabs.Visuals:Toggle({Title = "No Fog", Default = false, Callback = function(v) State.NoFog = v; Vis.NoFog(v) end})
 Tabs.Visuals:Toggle({Title = "Remove Shadows", Default = false, Callback = function(v) State.NoShadows = v; Vis.NoShadows(v) end})
-
 Tabs.Visuals:Section({ Title = "Camera" })
 Tabs.Visuals:Toggle({Title = "Unlimited Zoom", Default = false, Callback = function(v) State.UnlimitedZoom = v; Vis.UnlimitedZoom(v) end})
 Tabs.Visuals:Toggle({Title = "Crosshair", Default = false, Callback = function(v) State.Crosshair = v; Vis.SetCrosshair(v) end})
+Tabs.Visuals:Toggle({Title = "Unlock Cursor", Desc = "Cursor free to move (not locked to center)", Default = false, Callback = function(v) State.UnlockCursor = v; SetUnlockCursor(v) end})
 
--- MISC
 Tabs.Misc:Section({ Title = "Performance" })
 Tabs.Misc:Toggle({Title = "Anti AFK", Default = true, Callback = function(v) State.AntiAFK = v end})
 Tabs.Misc:Toggle({Title = "FPS Boost", Default = false, Callback = function(v) State.FPSBoost = v; SetFPSBoost(v) end})
@@ -1867,23 +1893,20 @@ Tabs.Misc:Section({ Title = "Server" })
 Tabs.Misc:Button({Title = "Rejoin Server", Callback = function() pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end) end})
 Tabs.Misc:Button({Title = "Server Hop", Callback = ServerHop})
 
--- CONFIGS
 local currentConfigName = ""
 Tabs.Configs:Section({ Title = "Create / Save" })
 Tabs.Configs:Input({Title = "Config Name", Placeholder = "MyConfig", Callback = function(v) currentConfigName = tostring(v or "") end})
-Tabs.Configs:Button({Title = "Create Config", Callback = function() if currentConfigName == "" then Notify("Config","Enter a name",2); return end; Config.Save(currentConfigName) end})
 Tabs.Configs:Button({Title = "Save Config", Callback = function() if currentConfigName == "" then Notify("Config","Enter a name",2); return end; Config.Save(currentConfigName) end})
 Tabs.Configs:Section({ Title = "Load / Delete" })
 local configDropdown = Tabs.Configs:Dropdown({Title = "Select Config", Values = Config.List(), Value = "", Callback = function(v) currentConfigName = v end})
-Tabs.Configs:Button({Title = "Load Config", Callback = function() if currentConfigName == "" then Notify("Config","Select a config",2); return end; if Config.Load(currentConfigName) then Config.SaveLastLoaded(currentConfigName); Notify("Config","Restart script to fully apply",4) end end})
+Tabs.Configs:Button({Title = "Load Config", Callback = function() if currentConfigName == "" then Notify("Config","Select a config",2); return end; if Config.Load(currentConfigName) then Config.SaveLastLoaded(currentConfigName); Notify("Config","Restart to apply",4) end end})
 Tabs.Configs:Button({Title = "Delete Config", Callback = function() if currentConfigName == "" then Notify("Config","Select a config",2); return end; Config.Delete(currentConfigName); if configDropdown and configDropdown.Refresh then pcall(function() configDropdown:Refresh(Config.List()) end) end end})
-Tabs.Configs:Button({Title = "Refresh List", Callback = function() if configDropdown and configDropdown.Refresh then pcall(function() configDropdown:Refresh(Config.List()) end) end; Notify("Config","List refreshed",2) end})
+Tabs.Configs:Button({Title = "Refresh List", Callback = function() if configDropdown and configDropdown.Refresh then pcall(function() configDropdown:Refresh(Config.List()) end) end end})
 Tabs.Configs:Section({ Title = "Auto Load" })
-Tabs.Configs:Toggle({Title = "Auto Load Config on Join", Default = false, Callback = function(v) State.AutoLoadConfig = v end})
+Tabs.Configs:Toggle({Title = "Auto Load on Join", Default = false, Callback = function(v) State.AutoLoadConfig = v end})
 
--- KEYBINDS
 Tabs.Keybinds:Section({ Title = "Keybind List" })
-Tabs.Keybinds:Paragraph({Title = "Current Bindings", Desc = "Toggle UI: Insert\nWalk Speed: V (double-tap)\nInvisible: G (double-tap)\nAuto Heal: H (double-tap)\nAuto Parry: R (double-tap)"})
+Tabs.Keybinds:Paragraph({Title = "Current Bindings", Desc = "Insert = Toggle UI\nV V = Walk Speed\nG G = Invisible\nH H = Auto Heal\nR R = Auto Parry"})
 Tabs.Keybinds:Section({ Title = "Change Keybinds" })
 Tabs.Keybinds:Keybind({Title = "Toggle UI", Default = "Insert", Callback = function(k) KB.SetKey("ToggleUI", k) end})
 Tabs.Keybinds:Keybind({Title = "Walk Speed", Default = "V", Callback = function(k) KB.SetKey("WalkSpeed", k) end})
@@ -1894,32 +1917,33 @@ Tabs.Keybinds:Section({ Title = "Options" })
 Tabs.Keybinds:Toggle({Title = "Block Keybinds While Typing", Default = true, Callback = function(v) KB.BlockWhileTyping = v end})
 Tabs.Keybinds:Slider({Title = "Double-Tap Window (x0.05s)", Value = { Min = 3, Max = 20, Default = 7 }, Callback = function(v) KB.DoubleTapWindow = (tonumber(v) or 7) * 0.05 end})
 
--- SETTINGS
 Tabs.Settings:Section({ Title = "Appearance" })
 Tabs.Settings:Dropdown({Title = "UI Theme", Values = { "Dark", "Light", "Rose", "Plant" }, Value = "Dark", Callback = function(v) State.Theme = v; pcall(function() WindUI:SetTheme(v) end) end})
 Tabs.Settings:Slider({Title = "UI Scale", Value = { Min = 70, Max = 130, Default = 100 }, Callback = function(v) State.UIScale = (tonumber(v) or 100) / 100; pcall(function() Window:SetSize(UDim2.fromOffset(600 * State.UIScale, 420 * State.UIScale)) end) end})
 Tabs.Settings:Toggle({Title = "Blur Background", Default = true, Callback = function(v) State.BlurBg = v; pcall(function() Window:ToggleTransparency(v) end) end})
 Tabs.Settings:Section({ Title = "Behavior" })
-Tabs.Settings:Toggle({Title = "Sound Effects", Default = true, Callback = function(v) State.SoundEffects = v end})
 Tabs.Settings:Toggle({Title = "Notifications", Default = true, Callback = function(v) State.Notifications = v end})
 Tabs.Settings:Toggle({Title = "Show Floating Logo", Default = true, Callback = function(v) if v then if not State.LogoGui or not State.LogoGui.Parent then CreateFloatingLogo() else State.LogoGui.Enabled = true end else if State.LogoGui then State.LogoGui.Enabled = false end end end})
-Tabs.Settings:Button({Title = "Force Recreate Floating Logo", Callback = function() CreateFloatingLogo(); Notify("Logo","Recreated",3) end})
+Tabs.Settings:Button({Title = "Force English UI", Callback = function()
+    pcall(function()
+        LocalizationService.RobloxLocaleId = "en-us"
+        if WindUI.SetLanguage then WindUI:SetLanguage("en") end
+    end)
+    Notify("Language","Forced English",3)
+end})
 Tabs.Settings:Section({ Title = "Reset" })
-Tabs.Settings:Button({Title = "Reset UI", Callback = function() pcall(function() Window:Close() end); task.wait(0.2); pcall(function() Window:Open() end); State.UIOpen = true; Notify("UI","Reset",2) end})
+Tabs.Settings:Button({Title = "Reset UI", Callback = function() pcall(function() Window:Close() end); task.wait(0.2); pcall(function() Window:Open() end); State.UIOpen = true end})
 Tabs.Settings:Section({ Title = "Danger" })
 Tabs.Settings:Button({Title = "Unload Hub", Callback = function()
-    for _, k in ipairs({"NoFallConn","InvisibleConn","AutoHealConn","AutoParryConn","SkillcheckConn","RemoveSCConn","AutoEscapeConn","AutoHitConn","KillAuraConn","AutoDamageGenConn","HitboxConn","NoStunConn","NoSlowdownConn"}) do
+    for _, k in ipairs({"NoFallConn","InvisibleConn","AutoHealConn","AutoParryConn","SkillcheckConn","RemoveSCConn","AutoEscapeConn","AutoHitConn","KillAuraConn","AutoDamageGenConn","HitboxConn","NoStunConn","NoSlowdownConn","UnlockCursorConn"}) do
         if State[k] then pcall(function() State[k]:Disconnect() end) end
     end
-    if invisibleGhostConn then pcall(function() invisibleGhostConn:Disconnect() end) end
-    if invisibleMoveConn then pcall(function() invisibleMoveConn:Disconnect() end) end
-    if invisibleSyncConn then pcall(function() invisibleSyncConn:Disconnect() end) end
     if instantPalletConn then pcall(function() instantPalletConn:Disconnect() end) end
-    State.AutoGenRush=false
     SetInvisible(false); SetGenProgressGuis(false); SetAutoHeal(false)
     SetAutoSkillcheck(false); SetRemoveSkillcheck(false); SetAutoParry(false)
     SetHitboxExpander(false); SetKillAura(false); SetAutoHit(false)
-    SetNoStun(false); SetNoSlowdown(false); Vis.SetCrosshair(false); Vis.Restore()
+    SetNoStun(false); SetNoSlowdown(false); SetUnlockCursor(false)
+    Vis.SetCrosshair(false); Vis.Restore()
     pcall(function() Camera.CameraType = Enum.CameraType.Custom; Camera.CameraSubject = Hum() end)
     LocalPlayer.CameraMaxZoomDistance = 128
     if ESPRender then ESPRender:Disconnect() end
@@ -1931,23 +1955,17 @@ Tabs.Settings:Button({Title = "Unload Hub", Callback = function()
     pcall(function() Window:Destroy() end)
 end})
 
--- INFO
 Tabs.Info:Section({ Title = "About" })
 Tabs.Info:Paragraph({Title = HUB.Name.." v"..HUB.Version, Desc = "Game: "..HUB.Game.."\nDeveloper: "..HUB.Author})
 Tabs.Info:Section({ Title = "Community" })
-Tabs.Info:Button({Title = "Discord Server", Callback = function() if setclipboard then setclipboard(HUB.Discord); Notify("Discord","Link copied: "..HUB.Discord,4) else Notify("Discord",HUB.Discord,5) end end})
-Tabs.Info:Section({ Title = "Developer" })
-Tabs.Info:Paragraph({Title = "Made By", Desc = HUB.Author.."\nSpecial thanks to WindUI"})
+Tabs.Info:Button({Title = "Discord", Callback = function() if setclipboard then setclipboard(HUB.Discord); Notify("Discord","Copied: "..HUB.Discord,4) end end})
 
 -- RESPAWN
 CM:Add(LocalPlayer.CharacterAdded, function()
-    invisibleAnchor = nil
-    pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
+    State.InvisibleSaved = {}
     if State.Invisible then
         State.Invisible = false
         if State.InvisibleConn then pcall(function() State.InvisibleConn:Disconnect() end); State.InvisibleConn = nil end
-        if invisibleMoveConn then pcall(function() invisibleMoveConn:Disconnect() end); invisibleMoveConn = nil end
-        if invisibleSyncConn then pcall(function() invisibleSyncConn:Disconnect() end); invisibleSyncConn = nil end
     end
     task.wait(1.5)
     Role.ResetKillerCache()
@@ -1967,6 +1985,7 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     if State.FastVault then pcall(SetFastVault, true) end
     if State.LungeDist then pcall(SetLungeDist, true) end
     if State.UnlimitedZoom then pcall(Vis.UnlimitedZoom, true) end
+    if State.UnlockCursor then pcall(SetUnlockCursor, true) end
     task.wait(0.5); ESP.RefreshAll()
     if State.ESP_GenProgress then SetGenProgressGuis(true) end
 end)
@@ -1982,16 +2001,15 @@ end)
 _G[INSTANCE_KEY] = {
     version = HUB.Version,
     destroy = function()
-        for _, k in ipairs({"NoFallConn","InvisibleConn","AutoHealConn","AutoParryConn","SkillcheckConn","RemoveSCConn","AutoEscapeConn","AutoHitConn","KillAuraConn","AutoDamageGenConn","HitboxConn","NoStunConn","NoSlowdownConn"}) do
+        for _, k in ipairs({"NoFallConn","InvisibleConn","AutoHealConn","AutoParryConn","SkillcheckConn","RemoveSCConn","AutoEscapeConn","AutoHitConn","KillAuraConn","AutoDamageGenConn","HitboxConn","NoStunConn","NoSlowdownConn","UnlockCursorConn"}) do
             if State[k] then pcall(function() State[k]:Disconnect() end) end
         end
-        if invisibleMoveConn then pcall(function() invisibleMoveConn:Disconnect() end) end
-        if invisibleSyncConn then pcall(function() invisibleSyncConn:Disconnect() end) end
         if instantPalletConn then pcall(function() instantPalletConn:Disconnect() end) end
         SetInvisible(false); SetGenProgressGuis(false); SetAutoHeal(false)
         SetAutoSkillcheck(false); SetRemoveSkillcheck(false); SetAutoParry(false)
         SetHitboxExpander(false); SetKillAura(false); SetAutoHit(false)
-        SetNoStun(false); SetNoSlowdown(false); Vis.SetCrosshair(false); Vis.Restore()
+        SetNoStun(false); SetNoSlowdown(false); SetUnlockCursor(false)
+        Vis.SetCrosshair(false); Vis.Restore()
         pcall(function() Camera.CameraType = Enum.CameraType.Custom; Camera.CameraSubject = Hum() end)
         LocalPlayer.CameraMaxZoomDistance = 128
         if ESPRender then ESPRender:Disconnect() end
@@ -2003,5 +2021,5 @@ _G[INSTANCE_KEY] = {
     end,
 }
 
-Notify(HUB.Name, "v"..HUB.Version.." | Insert=UI | V/G/H/R=double-tap", 5)
-Log("v0.7.3 fully loaded")
+Notify(HUB.Name, "v"..HUB.Version.." | ssttt...", 5)
+Log("v0.7.4 fully loaded")
