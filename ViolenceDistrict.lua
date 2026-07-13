@@ -149,8 +149,11 @@ end
 local function FindDeep(root, name)
     if not root then return nil end
     for _, v in ipairs(root:GetDescendants()) do
-        if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and v.Name == name then return v end
+        if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and v.Name == name then
+            return v
+        end
     end
+    return nil 
 end
 local function FindKW(root, kw)
     local found = {}
