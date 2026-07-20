@@ -49,7 +49,7 @@ local HUB = {
     Game    = "Violence District",
     Version = "0.0.7",
     Author  = "voixera",
-    LogoId  = "rbxassetid://91626851418651",
+    LogoId  = "rbxassetid://112894385091124",
     Discord = "discord.gg/x0dec04t",
 }
 
