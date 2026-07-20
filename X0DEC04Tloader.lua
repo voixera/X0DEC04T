@@ -1,9 +1,9 @@
 local VERSION  = "0.2"
 local HUB_NAME = "X0DEC04T"
 local GAMES = {
-    [6739698191]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/ViolenceDistrict.lua",
+    [6739698191]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/ViolenceDistrict.luau",
     [10200395747]     = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/GrowAGarden2.lua",
-    [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/CDID.lua",
+    [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/CDID.luau",
     [90226220017920]  = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/RA.lua",
     [136020512003847] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/SDBR.lua",
 }
