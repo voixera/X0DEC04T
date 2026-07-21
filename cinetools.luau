@@ -1,6 +1,6 @@
 --═══════════════════════════════════════════════════════════════════════════════
--- X0DEC04T Tools - Cinematic Suite v2.3.0 [Fluent UI]
--- HD / HDR / Portrait / Landscape / Auto Cine / Reflections — Desktop
+-- X0DEC04T Tools - Cinematic Suite v2.4.1 [Fluent UI]
+-- FULL HD | Clear Frame Auto Cine | Floating Logo | Fixed Icons
 --═══════════════════════════════════════════════════════════════════════════════
 
 local Players             = game:GetService("Players")
@@ -13,6 +13,7 @@ local CoreGui             = game:GetService("CoreGui")
 local TextChatService     = game:GetService("TextChatService")
 local LocalizationService = game:GetService("LocalizationService")
 local StarterGui          = game:GetService("StarterGui")
+local ContentProvider     = game:GetService("ContentProvider")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -22,7 +23,7 @@ pcall(function()
     LocalizationService.SystemLocaleId = "en-us"
 end)
 
-local TOOL_KEY = "__X0DEC04T_Tools_v230"
+local TOOL_KEY = "__X0DEC04T_Tools_v241"
 if _G[TOOL_KEY] then
     local prev = _G[TOOL_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -31,13 +32,12 @@ if _G[TOOL_KEY] then
 end
 
 local function Log(m) print("[X0DEC04T Tools] " .. tostring(m)) end
-Log("v2.3.0 starting")
+Log("v2.4.1 starting")
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- FLUENT LOAD
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local Fluent, SaveManager, InterfaceManager
-
 local ok1, r1 = pcall(function()
     return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 end)
@@ -56,14 +56,15 @@ InterfaceManager = ok3 and r3 or nil
 
 local TOOL = {
     Name    = "X0DEC04T Tools",
-    Version = "2.3.0",
+    Version = "2.4.1",
     Author  = "voixera",
     Discord = "discord.gg/x0dec04t",
+    LogoId  = "rbxassetid://85855925276969",
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- CONNECTION MANAGER
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local CM = { _list = {} }
 function CM:Add(sig, cb)
     if not sig then return end
@@ -75,9 +76,9 @@ function CM:Cleanup()
     self._list = {}
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- UTILITIES
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function IsTyping()
     if UserInputService:GetFocusedTextBox() then return true end
     local ok, cfg = pcall(function() return TextChatService.ChatInputBarConfiguration end)
@@ -100,9 +101,9 @@ local function Notif(t, c, d)
     end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- GRAPHICS QUALITY
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local GfxBackup = {}
 local function BackupGfx()
     if next(GfxBackup) then return end
@@ -119,11 +120,12 @@ end
 local function SetQuality(level)
     BackupGfx()
     local q = {
-        Ultra  = {Q=Enum.QualityLevel.Level21,S=true, B=2,  D=1,  P=1  },
-        High   = {Q=Enum.QualityLevel.Level14,S=true, B=1.5,D=0.8,P=0.8},
-        Medium = {Q=Enum.QualityLevel.Level10,S=true, B=1.2,D=0.5,P=0.5},
-        Low    = {Q=Enum.QualityLevel.Level05,S=false,B=1,  D=0.3,P=0  },
-        Potato = {Q=Enum.QualityLevel.Level01,S=false,B=0.8,D=0,  P=0  },
+        MAX    = {Q=Enum.QualityLevel.Level21, S=true, B=2.5, D=1,   P=1   },
+        Ultra  = {Q=Enum.QualityLevel.Level21, S=true, B=2,   D=1,   P=1   },
+        High   = {Q=Enum.QualityLevel.Level14, S=true, B=1.5, D=0.8, P=0.8 },
+        Medium = {Q=Enum.QualityLevel.Level10, S=true, B=1.2, D=0.5, P=0.5 },
+        Low    = {Q=Enum.QualityLevel.Level05, S=false,B=1,   D=0.3, P=0   },
+        Potato = {Q=Enum.QualityLevel.Level01, S=false,B=0.8, D=0,   P=0   },
     }
     local s = q[level]; if not s then return end
     pcall(function()
@@ -132,12 +134,17 @@ local function SetQuality(level)
         Lighting.Brightness               = s.B
         Lighting.EnvironmentDiffuseScale  = s.D
         Lighting.EnvironmentSpecularScale = s.P
+        if level == "MAX" then
+            Lighting.ShadowSoftness = 0.5
+            Lighting.GlobalShadows = true
+            pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level04 end)
+        end
     end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- LIGHTING BACKUP / RESTORE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local LightingBackup = {}
 local function BackupLighting()
     if next(LightingBackup) then return end
@@ -172,9 +179,9 @@ local function RemoveEffect(name)
     local e = Lighting:FindFirstChild(name); if e then e:Destroy() end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- STATE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local State = {
     -- Freecam
     FreecamActive      = false,
@@ -189,7 +196,7 @@ local State = {
 
     -- Gameplay HD
     GameplayHD      = false,
-    GameplayQuality = "Ultra",
+    GameplayQuality = "MAX",
     GameplayFOV     = 75,
 
     -- Cinematic Bars
@@ -199,6 +206,7 @@ local State = {
     CineBarsAnim    = true,
     _cineBarTop     = nil,
     _cineBarBot     = nil,
+    _cineBarsLocked = false,
 
     -- Frame
     FrameGui     = nil,
@@ -228,15 +236,6 @@ local State = {
     -- HDR
     HDREnabled = false, ExposureComp = 0,
 
-    -- Reflections
-    ReflectionEnabled    = false,
-    ReflectionAmount     = 0.6,
-    ReflectionBlur       = 0.15,
-    ReflectionTargets    = {},  -- {part, originalRefl, originalMaterial}
-    ReflectionAutoScan   = true,
-    ReflectionScanRadius = 200,
-    ReflectionMaterials  = true,  -- also change material to SmoothPlastic/Glass for best look
-
     -- Photo Mode
     PhotoModeActive = false, PhotoHideUI = true, PhotoHideChar = false,
     PhotoGridLines = false, PhotoGridGui = nil,
@@ -245,6 +244,8 @@ local State = {
     AutoCineActive = false, AutoCineLoop = true, AutoCineSpeed = 0.3,
     AutoCineWaypoints = {}, AutoCineIndex = 1, AutoCineTween = nil,
     AutoCineEasing = "Sine", _autoCineConn = nil,
+    AutoCineClearFrame = true,   -- Clear bars + frame during cine for clean shot
+    _savedFrameMode = "None",    -- Remember frame to restore
 
     -- Camera Shake
     ShakeActive = false, ShakeIntensity = 0.5, ShakeSpeed = 10, ShakeType = "Sine",
@@ -252,12 +253,19 @@ local State = {
     -- Time
     TimeAnimActive = false, TimeAnimSpeed = 1,
 
+    -- Floating Logo
+    FloatingLogo         = true,
+    LogoGui              = nil,
+    LogoImage            = nil,
+    LogoSize             = 60,
+    LogoTransparency     = 0.1,
+
     CurrentPreset = "None",
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- APPLY LIGHTING EFFECTS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function ApplyDOF()
     local d = GetOrCreate(Lighting,"DepthOfFieldEffect","X0_DOF")
     d.Enabled = State.DOFEnabled; d.FarIntensity = State.DOFFarIntensity
@@ -303,240 +311,28 @@ local function RemoveAllEffects()
     State.SunRaysEnabled=false; State.AtmoEnabled=false; State.HDREnabled=false
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REFLECTION SYSTEM
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
---[[
-    HOW REFLECTIONS WORK IN ROBLOX
-    ═════════════════════════════
-    Roblox doesn't have true screen-space reflections (SSR).
-    However we can create convincing reflections using:
-
-    1. BasePart.Reflectance (0–1):
-       Makes the surface shiny and mirror-like. Works on all parts.
-       Best results with SmoothPlastic or Glass material.
-
-    2. Lighting.EnvironmentSpecularScale (0–1):
-       Controls how much the sky/environment reflects on surfaces.
-       Higher = more environmental reflections on all shiny surfaces.
-
-    3. Lighting.EnvironmentDiffuseScale (0–1):
-       Controls how much the sky tints diffuse surfaces.
-
-    4. Material selection:
-       SmoothPlastic reflects light best. Glass adds transparency.
-       ForceField is extremely reflective.
-
-    This system scans for ground, walls, water, roads etc. and
-    applies reflectance to make them look like wet / polished /
-    mirror surfaces. Combined with HDR exposure and bloom, this
-    creates a convincing "ray-traced" look.
-]]
-
--- Surface keywords that should receive reflections
-local REFL_KEYWORDS = {
-    "floor","ground","road","street","asphalt","concrete","tile",
-    "sidewalk","path","pavement","water","sea","ocean","lake","river",
-    "puddle","wet","marble","glass","window","mirror","wall",
-    "baseplate","terrain","base","platform","surface",
-}
-
--- Materials that look best with reflections
-local REFL_MATERIALS = {
-    [Enum.Material.SmoothPlastic] = true,
-    [Enum.Material.Glass]         = true,
-    [Enum.Material.Marble]        = true,
-    [Enum.Material.Metal]         = true,
-    [Enum.Material.DiamondPlate]  = true,
-    [Enum.Material.Ice]           = true,
-    [Enum.Material.Foil]          = true,
-    [Enum.Material.Neon]          = true,
-    [Enum.Material.ForceField]    = true,
-}
-
-local function IsReflectionCandidate(part)
-    if not part:IsA("BasePart") then return false end
-
-    -- Already reflective material?
-    if REFL_MATERIALS[part.Material] then return true end
-
-    -- Check name
-    local n = part.Name:lower()
-    for _, kw in ipairs(REFL_KEYWORDS) do
-        if n:find(kw, 1, true) then return true end
+--------------------------------------------------------------------------------
+-- CINEMATIC BARS
+--------------------------------------------------------------------------------
+local function SetCineBars(enable, animate, lock)
+    if enable and State.CineBarsActive and State._cineBarsLocked and lock then
+        return
     end
 
-    -- Check if it's large + flat (likely a floor/wall)
-    local size = part.Size
-    local minAxis = math.min(size.X, size.Y, size.Z)
-    local maxAxis = math.max(size.X, size.Y, size.Z)
-    -- Thin + large = likely floor/wall
-    if minAxis < 2 and maxAxis > 8 then return true end
-
-    -- Baseplate
-    if part == Workspace:FindFirstChild("Baseplate") or part == Workspace.Terrain then
-        return true
-    end
-
-    return false
-end
-
-local function ScanAndApplyReflections()
-    -- Restore any previously modified parts
-    RevertReflections()
-
-    if not State.ReflectionEnabled then return end
-
-    local hrp = HRP()
-    local scanCenter = hrp and hrp.Position or Vector3.zero
-    local radius = State.ReflectionScanRadius
-    local reflAmount = math.clamp(State.ReflectionAmount, 0, 1)
-
-    State.ReflectionTargets = {}
-
-    local function ProcessPart(part)
-        if not part:IsA("BasePart") then return end
-        if part.Transparency >= 0.95 then return end  -- Skip invisible
-
-        -- Distance check
-        if radius > 0 and hrp then
-            local dist = (part.Position - scanCenter).Magnitude
-            if dist > radius then return end
-        end
-
-        if IsReflectionCandidate(part) then
-            local entry = {
-                part         = part,
-                origRefl     = part.Reflectance,
-                origMaterial = part.Material,
-            }
-            table.insert(State.ReflectionTargets, entry)
-
-            -- Apply reflectance
-            part.Reflectance = reflAmount
-
-            -- Optionally upgrade material for better look
-            if State.ReflectionMaterials then
-                if not REFL_MATERIALS[part.Material] then
-                    -- Water-like parts → Glass
-                    local n = part.Name:lower()
-                    if n:find("water") or n:find("sea") or n:find("ocean")
-                        or n:find("lake") or n:find("puddle") then
-                        part.Material = Enum.Material.Glass
-                    else
-                        part.Material = Enum.Material.SmoothPlastic
-                    end
-                end
-            end
-        end
-    end
-
-    -- Scan workspace
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        ProcessPart(obj)
-    end
-
-    -- Terrain reflections (water material on terrain)
-    pcall(function()
-        if Workspace.Terrain then
-            -- Terrain doesn't have Reflectance property,
-            -- but we can enhance it via environment scales
-        end
-    end)
-
-    -- Boost environment specular for screen-wide reflections
-    pcall(function()
-        Lighting.EnvironmentSpecularScale = math.max(Lighting.EnvironmentSpecularScale, reflAmount)
-        Lighting.EnvironmentDiffuseScale  = math.max(Lighting.EnvironmentDiffuseScale, reflAmount * 0.7)
-    end)
-
-    Log("[Reflections] Applied to " .. #State.ReflectionTargets .. " parts")
-    Notif("Reflections", "Applied to " .. #State.ReflectionTargets .. " surfaces", 3)
-end
-
-local function RevertReflections()
-    for _, entry in ipairs(State.ReflectionTargets) do
-        if entry.part and entry.part.Parent then
-            pcall(function()
-                entry.part.Reflectance = entry.origRefl
-                entry.part.Material    = entry.origMaterial
-            end)
-        end
-    end
-    State.ReflectionTargets = {}
-end
-
-local function SetReflection(enable)
-    State.ReflectionEnabled = enable
-    if enable then
-        ScanAndApplyReflections()
-    else
-        RevertReflections()
-        Notif("Reflections", "Removed", 2)
-    end
-end
-
--- Add a "wet floor" effect: extra glossy + slight transparency
-local function SetWetFloor(enable)
-    if enable then
-        -- First make sure reflections are on
-        if not State.ReflectionEnabled then
-            State.ReflectionEnabled = true
-            ScanAndApplyReflections()
-        end
-        -- Make floors extra glossy
-        for _, entry in ipairs(State.ReflectionTargets) do
-            local p = entry.part
-            if p and p.Parent then
-                pcall(function()
-                    p.Reflectance = math.min(1, State.ReflectionAmount + 0.25)
-                    -- Slight wet transparency
-                    if p.Transparency < 0.1 then
-                        p.Transparency = State.ReflectionBlur
-                    end
-                end)
-            end
-        end
-        Notif("Wet Floor", "Applied — glossy + slight transparency", 3)
-    else
-        -- Revert to normal reflection levels
-        for _, entry in ipairs(State.ReflectionTargets) do
-            local p = entry.part
-            if p and p.Parent then
-                pcall(function()
-                    p.Reflectance = State.ReflectionAmount
-                    if p.Transparency > 0 and p.Transparency <= State.ReflectionBlur + 0.01 then
-                        p.Transparency = 0
-                    end
-                end)
-            end
-        end
-        Notif("Wet Floor", "Removed", 2)
-    end
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- CINEMATIC BARS (FIXED — animate IN and OUT properly)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-local function SetCineBars(enable, animate)
     if not enable then
-        -- ANIMATE OUT (shrink to 0 then destroy)
         if State.CineBarsGui then
             local sg = State.CineBarsGui
             local top = State._cineBarTop
             local bot = State._cineBarBot
 
             if animate and State.CineBarsAnim and top and bot and top.Parent and bot.Parent then
-                -- Shrink bars to 0
                 local dur = 0.4
                 TweenService:Create(top, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
                     { Size = UDim2.new(1, 0, 0, 0) }):Play()
                 local tw2 = TweenService:Create(bot, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
                     { Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 1, 0) })
                 tw2:Play()
-                tw2.Completed:Connect(function()
-                    pcall(function() sg:Destroy() end)
-                end)
+                tw2.Completed:Connect(function() pcall(function() sg:Destroy() end) end)
             else
                 pcall(function() sg:Destroy() end)
             end
@@ -545,10 +341,10 @@ local function SetCineBars(enable, animate)
             State._cineBarBot = nil
         end
         State.CineBarsActive = false
+        State._cineBarsLocked = false
         return
     end
 
-    -- Destroy old bars (no animation on replacement)
     if State.CineBarsGui then
         pcall(function() State.CineBarsGui:Destroy() end)
         State.CineBarsGui = nil
@@ -557,6 +353,7 @@ local function SetCineBars(enable, animate)
     end
 
     State.CineBarsActive = true
+    if lock then State._cineBarsLocked = true end
 
     local sg = Instance.new("ScreenGui")
     sg.Name = "X0_CineBars"; sg.ResetOnSpawn = false
@@ -571,7 +368,6 @@ local function SetCineBars(enable, animate)
     bot.BackgroundColor3 = Color3.new(0,0,0); bot.BorderSizePixel = 0; bot.ZIndex = 10
 
     if animate and State.CineBarsAnim then
-        -- Start at 0 height, animate to barH
         top.Size = UDim2.new(1,0,0,0); top.Position = UDim2.new(0,0,0,0)
         bot.Size = UDim2.new(1,0,0,0); bot.Position = UDim2.new(0,0,1,0)
         local dur = 0.5
@@ -589,9 +385,41 @@ local function SetCineBars(enable, animate)
     State._cineBarBot = bot
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FRAME SYSTEM (Desktop aspect ratio crops)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Bar watchdog (only runs when bars are locked)
+task.spawn(function()
+    while task.wait(0.5) do
+        if State.AutoCineActive and State._cineBarsLocked then
+            local top = State._cineBarTop
+            local bot = State._cineBarBot
+            local sg = State.CineBarsGui
+            local needsRebuild = false
+
+            if not sg or not sg.Parent then needsRebuild = true
+            elseif not top or not top.Parent then needsRebuild = true
+            elseif not bot or not bot.Parent then needsRebuild = true
+            else
+                local barH = State.CineBarsSize
+                if top.Size.Y.Scale < barH - 0.005 or bot.Size.Y.Scale < barH - 0.005 then
+                    pcall(function()
+                        top.Size = UDim2.new(1, 0, barH, 0)
+                        top.Position = UDim2.new(0, 0, 0, 0)
+                        bot.Size = UDim2.new(1, 0, barH, 0)
+                        bot.Position = UDim2.new(0, 0, 1 - barH, 0)
+                    end)
+                end
+            end
+
+            if needsRebuild then
+                Log("[Bars] Rebuilding - bars were removed during AutoCine")
+                SetCineBars(true, false, true)
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- FRAME SYSTEM
+--------------------------------------------------------------------------------
 local FRAME_DEFS = {
     Portrait       = { ratio=9/16,  axis="H", label="9:16 Portrait"     },
     Landscape_16_9 = { ratio=16/9,  axis="V", label="16:9 Landscape"    },
@@ -666,9 +494,9 @@ local function StartFrameResize()
 end
 StartFrameResize()
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- GRID LINES
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function SetGridLines(enable)
     if State.PhotoGridGui then pcall(function() State.PhotoGridGui:Destroy() end); State.PhotoGridGui=nil end
     if not enable then return end
@@ -685,9 +513,9 @@ local function SetGridLines(enable)
     State.PhotoGridGui=sg
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- AUTO DOF FOCUS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local AutoFocusConn = nil
 local function SetAutoFocus(e)
     if AutoFocusConn then pcall(function() AutoFocusConn:Disconnect() end); AutoFocusConn=nil end
@@ -703,9 +531,9 @@ local function SetAutoFocus(e)
     end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- FREECAM
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local FreecamRSConn = nil
 
 local function StopFreecam()
@@ -770,12 +598,12 @@ local function StartFreecam()
         end
         pcall(function() Camera.CFrame=State._fcCurrentCF*shakeCF; Camera.FieldOfView=State.FreecamFOV end)
     end)
-    Notif("Freecam","ON — WASD | Ctrl=fast | Z=slow | Q/E=roll",5)
+    Notif("Freecam","ON - WASD | Ctrl=fast | Z=slow | Q/E=roll",5)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- CAMERA SHAKE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local ShakeConn = nil
 local function SetCameraShake(e)
     State.ShakeActive=e
@@ -790,9 +618,9 @@ local function SetCameraShake(e)
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- FOV ANIMATION
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
+-- FOV / TIME
+--------------------------------------------------------------------------------
 local function AnimateFOV(target,dur)
     dur=dur or 1; local s=Camera.FieldOfView; local st=tick()
     local conn; conn=RunService.RenderStepped:Connect(function()
@@ -801,10 +629,6 @@ local function AnimateFOV(target,dur)
         if a>=1 then conn:Disconnect(); State.FreecamFOV=target end
     end)
 end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- TIME ANIMATION
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 local TimeAnimConn = nil
 local function SetTimeAnim(e)
     State.TimeAnimActive=e
@@ -813,13 +637,13 @@ local function SetTimeAnim(e)
     TimeAnimConn=RunService.Heartbeat:Connect(function(dt) Lighting.ClockTime=(Lighting.ClockTime+dt*State.TimeAnimSpeed)%24 end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- PHOTO MODE
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function SetPhotoMode(enable)
     State.PhotoModeActive=enable
     if enable then
-        SetCineBars(true,true)
+        SetCineBars(true,true,false)
         if State.PhotoGridLines then SetGridLines(true) end
         if State.PhotoHideChar then
             local c=Char(); if c then for _,p in ipairs(c:GetDescendants()) do
@@ -829,7 +653,7 @@ local function SetPhotoMode(enable)
         if not State.FreecamActive then StartFreecam() end
         Notif("Photo Mode","ON",4)
     else
-        SetCineBars(false,true)
+        SetCineBars(false,true,false)
         SetGridLines(false)
         local c=Char(); if c then for _,p in ipairs(c:GetDescendants()) do
             if p:IsA("BasePart") or p:IsA("Decal") then pcall(function() p.LocalTransparencyModifier=0 end) end end end
@@ -839,9 +663,9 @@ local function SetPhotoMode(enable)
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO CINEMATIC (FIXED — bars animate out when stopped)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
+-- AUTO CINEMATIC
+--------------------------------------------------------------------------------
 local function SaveWaypoint()
     table.insert(State.AutoCineWaypoints, Camera.CFrame)
     Notif("Waypoint","Saved #"..#State.AutoCineWaypoints,2)
@@ -852,6 +676,7 @@ end
 
 local function StopAutoCine()
     State.AutoCineActive = false
+    State._cineBarsLocked = false
     if State.AutoCineTween then pcall(function() State.AutoCineTween:Cancel() end); State.AutoCineTween=nil end
     if State._autoCineConn then pcall(function() State._autoCineConn:Disconnect() end); State._autoCineConn=nil end
     pcall(function()
@@ -860,8 +685,13 @@ local function StopAutoCine()
         end
     end)
     State.FreecamActive = false
-    -- Animate bars OUT (shrink)
-    SetCineBars(false, true)
+    -- Animate bars out (if any were shown)
+    SetCineBars(false, true, false)
+    -- Restore the frame that was active before cine started
+    if State._savedFrameMode and State._savedFrameMode ~= "None" then
+        SetFrame(State._savedFrameMode, true)
+        State._savedFrameMode = "None"
+    end
     Notif("Auto Cine","Stopped",2)
 end
 
@@ -883,8 +713,17 @@ local function StartAutoCine()
     pcall(function() Camera.CameraType=Enum.CameraType.Scriptable end)
     State.FreecamActive=true
 
-    -- Animate bars IN
-    SetCineBars(true, true)
+    -- Clear Frame mode: remove all bars + frame for a clean cinematic shot
+    if State.AutoCineClearFrame then
+        State._savedFrameMode = State.FrameMode
+        SetCineBars(false, false, false)
+        DestroyFrame()
+        State.FrameMode = "None"
+        Notif("Auto Cine","RUNNING - Clean frame mode",4)
+    else
+        SetCineBars(true, true, true)
+        Notif("Auto Cine","RUNNING - "..#State.AutoCineWaypoints.." waypoints",4)
+    end
 
     local function FlyToNext()
         if not State.AutoCineActive then return end
@@ -920,12 +759,11 @@ local function StartAutoCine()
     end
 
     FlyToNext()
-    Notif("Auto Cine","RUNNING — "..#State.AutoCineWaypoints.." waypoints",4)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- PRESET SYSTEM
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local Presets = {}
 
 local function ApplyPresetTable(p)
@@ -960,17 +798,24 @@ local function ApplyPresetTable(p)
         if p.lighting.outdoor then Lighting.OutdoorAmbient=p.lighting.outdoor end
         if p.lighting.time then Lighting.ClockTime=p.lighting.time end
     end
-    if p.bars then State.CineBarsSize=p.bars; SetCineBars(true,true) end
+    if p.bars then State.CineBarsSize=p.bars; SetCineBars(true,true,false) end
     State.CurrentPreset=p.name or "Custom"
     Notif("Preset",(p.name or "Custom").." applied",3)
 end
 
-Presets["HD"] = { name="HD",quality="High",
-    color={contrast=0.12,saturation=0.18,brightness=0.08},
-    bloom={intensity=0.3,size=20,threshold=2.3},sunrays={intensity=0.14,spread=0.4},
-    atmosphere={density=0.32,haze=1,glare=0.1,color=Color3.fromRGB(200,210,222),decay=Color3.fromRGB(100,110,128)},
-    hdr={exposure=0.1},lighting={brightness=1.4,time=14}}
-Presets["HDR"] = { name="HDR",quality="Ultra",
+Presets["HD"] = {
+    name="HD (Full HD)", quality="MAX",
+    color={contrast=0.28, saturation=0.35, brightness=0.10, tintR=1.03, tintG=1, tintB=0.97},
+    bloom={intensity=0.65, size=28, threshold=1.9},
+    sunrays={intensity=0.32, spread=0.58},
+    atmosphere={density=0.36, haze=1.8, glare=0.28,
+        color=Color3.fromRGB(200,212,225), decay=Color3.fromRGB(100,112,130)},
+    hdr={exposure=0.30},
+    lighting={brightness=2.0, time=14,
+        ambient=Color3.fromRGB(95,100,115), outdoor=Color3.fromRGB(155,165,180)},
+    dof={far=0.25, focus=45, radius=15, near=0.08},
+}
+Presets["HDR"] = { name="HDR", quality="Ultra",
     color={contrast=0.25,saturation=0.35,brightness=0.12,tintR=1.02,tintG=1,tintB=0.98},
     bloom={intensity=0.55,size=28,threshold=1.8},sunrays={intensity=0.28,spread=0.55},
     atmosphere={density=0.38,haze=2,glare=0.35,color=Color3.fromRGB(195,208,228),decay=Color3.fromRGB(95,108,130)},
@@ -1017,31 +862,42 @@ Presets["Landscape"] = { name="Landscape",quality="Ultra",
 
 local function ApplyPreset(name)
     if name=="Reset" then
-        RemoveAllEffects(); RestoreLighting(); SetCineBars(false,true); DestroyFrame()
-        RevertReflections()
+        RemoveAllEffects(); RestoreLighting(); SetCineBars(false,true,false); DestroyFrame()
         pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Automatic end)
         State.CurrentPreset="None"; Notif("Preset","Reset",2); return
     end
     local p=Presets[name]; if p then ApplyPresetTable(p) end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- GAMEPLAY HD
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function SetGameplayHD(enable)
     State.GameplayHD=enable
     if enable then
-        BackupLighting(); SetQuality(State.GameplayQuality or "Ultra")
-        State.ColorEnabled=true; State.ColorContrast=0.18; State.ColorSaturation=0.22
-        State.ColorBrightness=0.05; State.ColorTintR=1; State.ColorTintG=1; State.ColorTintB=1; ApplyCC()
-        State.BloomEnabled=true; State.BloomIntensity=0.35; State.BloomSize=22; State.BloomThreshold=2.2; ApplyBloom()
-        State.SunRaysEnabled=true; State.SunRaysIntensity=0.18; State.SunRaysSpread=0.45; ApplySunRays()
-        State.AtmoEnabled=true; State.AtmoDensity=0.35; State.AtmoHaze=1.5; State.AtmoGlare=0.2
-        State.AtmoColor=Color3.fromRGB(200,210,220); State.AtmoDecay=Color3.fromRGB(100,110,125); ApplyAtmo()
-        State.HDREnabled=true; State.ExposureComp=0.2; ApplyHDR()
-        pcall(function() Lighting.GlobalShadows=true; Lighting.EnvironmentDiffuseScale=1; Lighting.EnvironmentSpecularScale=1 end)
+        BackupLighting()
+        SetQuality(State.GameplayQuality or "MAX")
+        State.ColorEnabled=true
+        State.ColorContrast=0.22; State.ColorSaturation=0.28
+        State.ColorBrightness=0.08; State.ColorTintR=1.02; State.ColorTintG=1; State.ColorTintB=0.98
+        ApplyCC()
+        State.BloomEnabled=true; State.BloomIntensity=0.45; State.BloomSize=26; State.BloomThreshold=2.0
+        ApplyBloom()
+        State.SunRaysEnabled=true; State.SunRaysIntensity=0.22; State.SunRaysSpread=0.5
+        ApplySunRays()
+        State.AtmoEnabled=true; State.AtmoDensity=0.35; State.AtmoHaze=1.6; State.AtmoGlare=0.25
+        State.AtmoColor=Color3.fromRGB(200,212,225); State.AtmoDecay=Color3.fromRGB(100,112,130)
+        ApplyAtmo()
+        State.HDREnabled=true; State.ExposureComp=0.28
+        ApplyHDR()
+        pcall(function()
+            Lighting.GlobalShadows=true
+            Lighting.EnvironmentDiffuseScale=1
+            Lighting.EnvironmentSpecularScale=1
+            Lighting.ShadowSoftness=0.5
+        end)
         if not State.FreecamActive then pcall(function() Camera.FieldOfView=State.GameplayFOV end) end
-        Notif("Gameplay HD","ON",4)
+        Notif("Gameplay HD","MAX quality + HDR + Full grade",5)
     else
         RemoveAllEffects(); RestoreLighting()
         pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Automatic end)
@@ -1050,11 +906,11 @@ local function SetGameplayHD(enable)
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- SCREENSHOT
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function TakeScreenshot()
-    Notif("Screenshot","Hiding UI 2s — press screenshot key!",4)
+    Notif("Screenshot","Hiding UI 2s - press screenshot key!",4)
     task.spawn(function()
         local w=_G[TOOL_KEY] and _G[TOOL_KEY].window
         pcall(function() if w then w:SetVisible(false) end end); task.wait(2)
@@ -1062,9 +918,94 @@ local function TakeScreenshot()
     end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
+-- FLOATING LOGO
+--------------------------------------------------------------------------------
+local FloatingLogo = {}
+local function DestroyLogo()
+    if State.LogoGui then pcall(function() State.LogoGui:Destroy() end) end
+    local gp = GuiParent()
+    if gp then
+        for _, c in ipairs(gp:GetChildren()) do
+            if c.Name == "X0_Tools_Logo" then pcall(function() c:Destroy() end) end
+        end
+    end
+    State.LogoGui = nil; State.LogoImage = nil
+end
+
+function FloatingLogo.Build()
+    DestroyLogo()
+    local gp = GuiParent(); if not gp then return false end
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "X0_Tools_Logo"; sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true; sg.DisplayOrder = 999999; sg.Enabled = true
+    local ok = pcall(function() sg.Parent = gp end)
+    if not ok then pcall(function() sg.Parent = LocalPlayer:WaitForChild("PlayerGui", 5) end) end
+
+    local size = State.LogoSize
+    local img = Instance.new("ImageButton")
+    img.Name = "Logo"
+    img.Size = UDim2.new(0, size, 0, size)
+    img.Position = UDim2.new(0, 20, 0, 100)
+    img.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    img.BackgroundTransparency = 0.4
+    img.BorderSizePixel = 0
+    img.Image = TOOL.LogoId
+    img.ImageTransparency = State.LogoTransparency
+    img.ScaleType = Enum.ScaleType.Fit
+    img.AutoButtonColor = false
+    img.Active = true; img.Selectable = true; img.Visible = true
+    img.ZIndex = 100; img.Parent = sg
+    Instance.new("UICorner", img).CornerRadius = UDim.new(0, 10)
+
+    local dragging, dragStart, startPos, dragMoved = false, Vector2.zero, UDim2.new(), false
+    img.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragStart = i.Position; startPos = img.Position; dragMoved = false
+        end
+    end)
+    img.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - dragStart
+            if d.Magnitude > 4 then dragMoved = true end
+            img.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+                                      startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+    img.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    img.MouseButton1Click:Connect(function()
+        if dragMoved then return end
+        pcall(function()
+            local h = _G[TOOL_KEY]
+            if h and h.window and h.window.Minimize then h.window:Minimize() end
+        end)
+    end)
+
+    State.LogoGui = sg; State.LogoImage = img
+    return true
+end
+
+function FloatingLogo.SetVisible(v)
+    State.FloatingLogo = v
+    if v then FloatingLogo.Build() else DestroyLogo() end
+end
+function FloatingLogo.SetSize(sz)
+    State.LogoSize = sz
+    if State.LogoImage then State.LogoImage.Size = UDim2.new(0, sz, 0, sz) end
+end
+function FloatingLogo.SetTransparency(a)
+    State.LogoTransparency = a
+    if State.LogoImage then State.LogoImage.ImageTransparency = a end
+end
+task.spawn(function() pcall(function() ContentProvider:PreloadAsync({TOOL.LogoId}) end) end)
+
+--------------------------------------------------------------------------------
 -- CLEANUP
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local function CleanupAll()
     if State.FreecamActive then pcall(StopFreecam) end
     if State.AutoCineActive then pcall(StopAutoCine) end
@@ -1072,40 +1013,41 @@ local function CleanupAll()
     pcall(function() SetCameraShake(false) end)
     pcall(function() SetTimeAnim(false) end)
     pcall(function() SetGameplayHD(false) end)
-    pcall(function() SetCineBars(false,false) end)
+    pcall(function() SetCineBars(false, false, false) end)
     pcall(function() SetGridLines(false) end)
     pcall(function() DestroyFrame() end)
     pcall(function() SetAutoFocus(false) end)
-    pcall(function() RevertReflections() end)
+    pcall(function() DestroyLogo() end)
     if _frameResizeConn then pcall(function() _frameResizeConn:Disconnect() end) end
     pcall(function() ApplyPreset("Reset") end)
     CM:Cleanup()
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- WINDOW + TABS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local Window = Fluent:CreateWindow({
-    Title=TOOL.Name, SubTitle="Cinematic Suite v"..TOOL.Version.." · "..TOOL.Author,
-    TabWidth=150, Size=UDim2.fromOffset(720,550),
+    Title=TOOL.Name, SubTitle="Cinematic Suite v"..TOOL.Version.." | "..TOOL.Author,
+    TabWidth=150, Size=UDim2.fromOffset(720, 550),
     Acrylic=true, Theme="Dark", MinimizeKey=Enum.KeyCode.F6,
 })
+
+_G[TOOL_KEY] = { version = TOOL.Version, window = Window, destroy = CleanupAll }
 
 local Tabs = {
     Freecam  = Window:AddTab({Title="Freecam",   Icon="camera"}),
     Frame    = Window:AddTab({Title="Frame",      Icon="crop"}),
     Photo    = Window:AddTab({Title="Photo",      Icon="image"}),
-    Reflect  = Window:AddTab({Title="Reflections",Icon="droplet"}),
     Presets  = Window:AddTab({Title="Presets",    Icon="layers"}),
-    Effects  = Window:AddTab({Title="Effects",    Icon="radiant"}),
+    Effects  = Window:AddTab({Title="Effects",    Icon="wand"}),
     AutoCine = Window:AddTab({Title="Auto Cine",  Icon="play-circle"}),
     GameHD   = Window:AddTab({Title="Gameplay HD",Icon="monitor"}),
     Settings = Window:AddTab({Title="Settings",   Icon="settings"}),
 }
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- FREECAM TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Freecam
     T:AddButton({Title="Toggle Freecam [F7]",Description="WASD | Ctrl=fast | Z=slow | Q/E=roll",Callback=StartFreecam})
     T:AddSlider("FC_S",{Title="Speed",Default=20,Min=1,Max=300,Rounding=0}):OnChanged(function(v) State.FreecamSpeed=v end)
@@ -1122,11 +1064,11 @@ do local T=Tabs.Freecam
     T:AddDropdown("FC_ST",{Title="Shake Type",Values={"Sine","Perlin","Trauma"},Default="Sine"}):OnChanged(function(v) State.ShakeType=v end)
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- FRAME TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Frame
-    T:AddButton({Title="ℹ Desktop Frame Crops",Description="Black bars mask viewport to target ratio.\nPortrait=bars on sides | Cinema=bars top/bottom.",
+    T:AddButton({Title="About Frame Crops",Description="Black bars mask viewport to target ratio.",
         Callback=function() Notif("Frame","Desktop crop system",5) end})
     local fk={"None","Portrait","Landscape_16_9","Square","Widescreen_21_9","Instagram_4_5","Cinema_235","Letterbox_185"}
     local fl={None="None",Portrait="9:16 Portrait",Landscape_16_9="16:9 Landscape",Square="1:1 Square",
@@ -1136,31 +1078,31 @@ do local T=Tabs.Frame
     T:AddDropdown("FR_S",{Title="Aspect Ratio",Values=dn,Default="None"}):OnChanged(function(v) SetFrame(lk[v] or "None",true) end)
     T:AddSlider("FR_O",{Title="Bar Opacity",Default=100,Min=0,Max=100,Rounding=0}):OnChanged(function(v) State.FrameOpacity=v*0.01; if State.FrameMode~="None" then BuildFrame(State.FrameMode,false) end end)
     T:AddButton({Title="Remove Frame",Callback=function() DestroyFrame(); State.FrameMode="None"; Notif("Frame","Removed",2) end})
-    T:AddButton({Title="📱 Portrait Mode (9:16)",Description="Frame + Portrait preset + freecam",Callback=function()
+    T:AddButton({Title="Portrait Mode (9:16)",Callback=function()
         ApplyPreset("Portrait"); SetFrame("Portrait",true)
         if not State.FreecamActive then StartFreecam() end
         State.FreecamFOV=72; pcall(function() Camera.FieldOfView=72 end)
     end})
-    T:AddButton({Title="🖥 Landscape Mode (16:9)",Callback=function()
+    T:AddButton({Title="Landscape Mode (16:9)",Callback=function()
         ApplyPreset("Landscape"); SetFrame("Landscape_16_9",true)
         if not State.FreecamActive then StartFreecam() end
         State.FreecamFOV=78; pcall(function() Camera.FieldOfView=78 end)
     end})
-    T:AddButton({Title="🎬 Cinema Mode (2.35:1)",Callback=function()
+    T:AddButton({Title="Cinema Mode (2.35:1)",Callback=function()
         ApplyPreset("Cinematic"); SetFrame("Cinema_235",true)
         if not State.FreecamActive then StartFreecam() end
         State.FreecamFOV=80; pcall(function() Camera.FieldOfView=80 end)
     end})
-    T:AddButton({Title="⬛ Square Mode (1:1)",Callback=function()
+    T:AddButton({Title="Square Mode (1:1)",Callback=function()
         ApplyPreset("HD"); SetFrame("Square",true)
         if not State.FreecamActive then StartFreecam() end
         State.FreecamFOV=70; pcall(function() Camera.FieldOfView=70 end)
     end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- PHOTO TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Photo
     T:AddToggle("PM",{Title="Photo Mode [F10]",Default=false}):OnChanged(function(v) SetPhotoMode(v) end)
     T:AddToggle("PM_UI",{Title="Hide UI",Default=true}):OnChanged(function(v) State.PhotoHideUI=v end)
@@ -1169,83 +1111,33 @@ do local T=Tabs.Photo
             if p:IsA("BasePart") or p:IsA("Decal") then pcall(function() p.LocalTransparencyModifier=v and 1 or 0 end) end end end
     end)
     T:AddToggle("PM_GR",{Title="Grid Lines",Default=false}):OnChanged(function(v) State.PhotoGridLines=v; SetGridLines(v) end)
-    T:AddToggle("PM_CB",{Title="Cinematic Bars",Default=false}):OnChanged(function(v) SetCineBars(v,true) end)
+    T:AddToggle("PM_CB",{Title="Cinematic Bars",Default=false}):OnChanged(function(v) SetCineBars(v,true,false) end)
     T:AddToggle("PM_CA",{Title="Animate Bars",Default=true}):OnChanged(function(v) State.CineBarsAnim=v end)
-    T:AddSlider("PM_BS",{Title="Bar Size %",Default=8,Min=2,Max=25,Rounding=0}):OnChanged(function(v) State.CineBarsSize=v*0.01; if State.CineBarsActive then SetCineBars(true,false) end end)
+    T:AddSlider("PM_BS",{Title="Bar Size %",Default=8,Min=2,Max=25,Rounding=0}):OnChanged(function(v) State.CineBarsSize=v*0.01; if State.CineBarsActive then SetCineBars(true,false,State._cineBarsLocked) end end)
     T:AddButton({Title="Screenshot (hides UI 2s)",Callback=TakeScreenshot})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- REFLECTIONS TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-do local T=Tabs.Reflect
-    T:AddButton({Title="ℹ How Reflections Work",
-        Description="Scans ground, walls, water, roads etc.\n"..
-            "Applies Reflectance + SmoothPlastic material.\n"..
-            "Combined with env specular = mirror-like surfaces.\n"..
-            "Use 'Wet Floor' for extra glossy + slight transparency.",
-        Callback=function() Notif("Reflections","Surface reflectance + environment specular",5) end})
-
-    T:AddToggle("RF_On",{Title="Enable Reflections",Default=false}):OnChanged(function(v) SetReflection(v) end)
-
-    T:AddSlider("RF_Am",{Title="Reflectance Amount",Default=60,Min=0,Max=100,Rounding=0}):OnChanged(function(v)
-        State.ReflectionAmount=v*0.01
-        if State.ReflectionEnabled then ScanAndApplyReflections() end
-    end)
-
-    T:AddSlider("RF_Bl",{Title="Wet Transparency",Default=15,Min=0,Max=50,Rounding=0}):OnChanged(function(v)
-        State.ReflectionBlur=v*0.01
-    end)
-
-    T:AddSlider("RF_Rd",{Title="Scan Radius",Default=200,Min=20,Max=1000,Rounding=0}):OnChanged(function(v)
-        State.ReflectionScanRadius=v
-    end)
-
-    T:AddToggle("RF_Mat",{Title="Upgrade Materials (SmoothPlastic/Glass)",Default=true}):OnChanged(function(v)
-        State.ReflectionMaterials=v
-    end)
-
-    T:AddButton({Title="🔄 Rescan Surfaces",Description="Re-detect and apply reflections",Callback=function()
-        if State.ReflectionEnabled then ScanAndApplyReflections() end
-    end})
-
-    T:AddButton({Title="💧 Wet Floor (extra gloss + transparency)",Callback=function() SetWetFloor(true) end})
-    T:AddButton({Title="Remove Wet Floor",Callback=function() SetWetFloor(false) end})
-
-    T:AddButton({Title="🪟 Mirror Mode (max reflectance everywhere)",Callback=function()
-        State.ReflectionEnabled=true; State.ReflectionAmount=1.0
-        State.ReflectionScanRadius=9999; State.ReflectionMaterials=true
-        ScanAndApplyReflections()
-        pcall(function()
-            Lighting.EnvironmentSpecularScale=1
-            Lighting.EnvironmentDiffuseScale=1
-        end)
-        Notif("Mirror Mode","Maximum reflections applied",4)
-    end})
-
-    T:AddButton({Title="Remove All Reflections",Callback=function()
-        State.ReflectionEnabled=false; RevertReflections(); Notif("Reflections","Removed",2)
-    end})
-end
-
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- PRESETS TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Presets
+    T:AddParagraph({Title="FULL HD Preset",Content="The flagship preset: MAX quality + HDR + rich atmosphere + vivid color grading.\nBest overall visuals available."})
+    T:AddButton({Title="APPLY FULL HD",Callback=function() ApplyPreset("HD") end})
+
     local pN={"HD","HDR","Cinematic","Night","Vintage","Bright","Sunset","Portrait","Landscape","Reset"}
-    T:AddDropdown("PR_S",{Title="Select Preset",Values=pN,Default="HD"})
+    T:AddDropdown("PR_S",{Title="Other Presets",Values=pN,Default="HD"})
     T:AddButton({Title="Apply Selected",Callback=function()
         local v=(Fluent.Options["PR_S"] and Fluent.Options["PR_S"].Value) or "HD"; ApplyPreset(v)
     end})
     for _,n in ipairs(pN) do local nm=n
-        T:AddButton({Title="▶ "..nm,Callback=function() ApplyPreset(nm) end}) end
+        T:AddButton({Title="> "..nm,Callback=function() ApplyPreset(nm) end}) end
     T:AddButton({Title="Cinematic Full Enter",Callback=function() ApplyPreset("Cinematic"); if not State.FreecamActive then StartFreecam() end end})
     T:AddButton({Title="Reset Everything",Callback=function() CleanupAll(); Notif("Reset","All OFF",3) end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- EFFECTS TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Effects
     T:AddToggle("E_DOF",{Title="Depth of Field",Default=false}):OnChanged(function(v) State.DOFEnabled=v; ApplyDOF() end)
     T:AddToggle("E_AF",{Title="Auto Focus",Default=false}):OnChanged(function(v) State.DOFAutoFocus=v; SetAutoFocus(v) end)
@@ -1276,20 +1168,21 @@ do local T=Tabs.Effects
     T:AddButton({Title="Remove All Effects",Callback=function() ApplyPreset("Reset") end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- AUTO CINEMATIC TAB (FIXED bars animate in AND out)
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
+-- AUTO CINEMATIC TAB
+--------------------------------------------------------------------------------
 do local T=Tabs.AutoCine
-    T:AddButton({Title="ℹ How to use",Description="1. Move camera to a position\n2. Save Waypoint (F11)\n3. Repeat 2+ times\n4. Start — camera flies between all waypoints\n5. Stop — bars shrink out automatically",
+    T:AddButton({Title="How to use",Description="1. Move camera to a position\n2. Save Waypoint (F11)\n3. Repeat 2+ times\n4. Start - clean fullscreen shot (no bars)\n5. Stop - restores previous frame",
         Callback=function() Notif("Auto Cine","Save waypoints then Start",5) end})
     T:AddButton({Title="Save Waypoint [F11]",Callback=SaveWaypoint})
     T:AddButton({Title="Clear Waypoints",Callback=ClearWaypoints})
     T:AddButton({Title="Count",Callback=function() Notif("WP",#State.AutoCineWaypoints.." saved",3) end})
     T:AddSlider("AC_S",{Title="Travel Speed",Default=30,Min=1,Max=200,Rounding=0}):OnChanged(function(v) State.AutoCineSpeed=v*0.01 end)
     T:AddToggle("AC_L",{Title="Loop",Default=true}):OnChanged(function(v) State.AutoCineLoop=v end)
+    T:AddToggle("AC_Clear",{Title="Clear Frame (no bars during cine)",Default=true}):OnChanged(function(v) State.AutoCineClearFrame=v end)
     T:AddDropdown("AC_E",{Title="Easing",Values={"Sine","Quad","Cubic","Expo","Elastic","Bounce","Linear"},Default="Sine"}):OnChanged(function(v) State.AutoCineEasing=v end)
-    T:AddButton({Title="▶ Start / Stop",Callback=function() if State.AutoCineActive then StopAutoCine() else StartAutoCine() end end})
-    T:AddButton({Title="■ Force Stop",Callback=StopAutoCine})
+    T:AddButton({Title="Start / Stop",Callback=function() if State.AutoCineActive then StopAutoCine() else StartAutoCine() end end})
+    T:AddButton({Title="Force Stop",Callback=StopAutoCine})
     T:AddButton({Title="Quick Orbit Demo (8 pts)",Callback=function()
         local hrp=HRP(); if not hrp then Notif("Demo","No char",2); return end
         ClearWaypoints(); local b=hrp.CFrame; local r=25
@@ -1300,14 +1193,14 @@ do local T=Tabs.AutoCine
     T:AddButton({Title="Apply Cinematic Preset",Callback=function() ApplyPreset("Cinematic") end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- GAMEPLAY HD TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.GameHD
-    T:AddButton({Title="ℹ About",Description="Ultra quality + HDR while playing normally.\nCamera stays as Follow. No freecam needed.",
-        Callback=function() Notif("HD","Play normally with ultra visuals",5) end})
+    T:AddButton({Title="About Gameplay HD",Description="MAX quality + Full HD grade while playing normally.\nCamera stays as Follow. No freecam needed.",
+        Callback=function() Notif("HD","Play normally with FULL HD visuals",5) end})
     T:AddToggle("GH_On",{Title="Enable Gameplay HD",Default=false}):OnChanged(function(v) SetGameplayHD(v) end)
-    T:AddDropdown("GH_Q",{Title="Quality",Values={"Ultra","High","Medium","Low","Potato"},Default="Ultra"}):OnChanged(function(v) State.GameplayQuality=v; if State.GameplayHD then SetQuality(v) end end)
+    T:AddDropdown("GH_Q",{Title="Quality",Values={"MAX","Ultra","High","Medium","Low","Potato"},Default="MAX"}):OnChanged(function(v) State.GameplayQuality=v; if State.GameplayHD then SetQuality(v) end end)
     T:AddSlider("GH_F",{Title="FOV",Default=75,Min=50,Max=110,Rounding=0}):OnChanged(function(v) State.GameplayFOV=v; if not State.FreecamActive then pcall(function() Camera.FieldOfView=v end) end end)
     T:AddToggle("GH_D",{Title="Subtle DOF",Default=false}):OnChanged(function(v)
         State.DOFEnabled=v; if v then State.DOFFarIntensity=0.15; State.DOFFocusDist=35; State.DOFInFocusRadius=12; State.DOFNearIntensity=0.05 end; ApplyDOF()
@@ -1318,15 +1211,21 @@ do local T=Tabs.GameHD
     T:AddToggle("GH_AT",{Title="Atmosphere",Default=true}):OnChanged(function(v) State.AtmoEnabled=v; ApplyAtmo() end)
     T:AddToggle("GH_CC",{Title="Color Grade",Default=true}):OnChanged(function(v) State.ColorEnabled=v; ApplyCC() end)
     T:AddToggle("GH_HD",{Title="HDR",Default=true}):OnChanged(function(v) State.HDREnabled=v; ApplyHDR() end)
-    T:AddButton({Title="Apply HD",Callback=function() ApplyPreset("HD") end})
-    T:AddButton({Title="Apply HDR",Callback=function() ApplyPreset("HDR") end})
+    T:AddButton({Title="Apply FULL HD Preset",Callback=function() ApplyPreset("HD") end})
+    T:AddButton({Title="Apply HDR Preset",Callback=function() ApplyPreset("HDR") end})
     T:AddButton({Title="Reset Default",Callback=function() SetGameplayHD(false); ApplyPreset("Reset") end})
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- SETTINGS TAB
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 do local T=Tabs.Settings
+    T:AddParagraph({Title="Floating Logo",Content="Draggable logo. Click to toggle hub visibility."})
+    T:AddToggle("FloatLogo",{Title="Floating Logo",Default=true}):OnChanged(function(v) FloatingLogo.SetVisible(v) end)
+    T:AddSlider("LogoSize",{Title="Logo Size",Default=60,Min=30,Max=140,Rounding=0}):OnChanged(function(v) FloatingLogo.SetSize(v) end)
+    T:AddSlider("LogoAlpha",{Title="Logo Transparency %",Default=10,Min=0,Max=90,Rounding=0}):OnChanged(function(v) FloatingLogo.SetTransparency(v/100) end)
+    T:AddButton({Title="Rebuild Logo",Callback=function() State.FloatingLogo=true; FloatingLogo.Build(); Notif("Logo","Rebuilt",2) end})
+
     T:AddButton({Title="Copy Discord",Callback=function()
         if setclipboard then setclipboard(TOOL.Discord); Notif("Discord","Copied!",3)
         else Notif("Discord",TOOL.Discord,6) end
@@ -1334,6 +1233,7 @@ do local T=Tabs.Settings
     T:AddButton({Title="Unload All",Description="Stop everything and close hub",Callback=function()
         CleanupAll(); _G[TOOL_KEY]=nil; pcall(function() Fluent:Destroy() end)
     end})
+
     if SaveManager and InterfaceManager then
         local ok=pcall(function()
             SaveManager:SetLibrary(Fluent); InterfaceManager:SetLibrary(Fluent)
@@ -1344,14 +1244,12 @@ do local T=Tabs.Settings
             pcall(function() InterfaceManager:BuildInterfaceSection(T) end)
             pcall(function() SaveManager:BuildConfigSection(T) end)
         end
-    else
-        T:AddButton({Title="⚠ Config saving unavailable",Callback=function() Notif("Config","Addons not loaded",4) end})
     end
 end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 -- KEYBINDS
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--------------------------------------------------------------------------------
 local KB={}
 CM:Add(UserInputService.InputBegan,function(inp,gpe)
     if gpe or IsTyping() then return end
@@ -1362,11 +1260,22 @@ KB[Enum.KeyCode.F10]=function() SetPhotoMode(not State.PhotoModeActive) end
 KB[Enum.KeyCode.F11]=function() SaveWaypoint() end
 KB[Enum.KeyCode.F12]=function() TakeScreenshot() end
 
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- GLOBAL
---━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_G[TOOL_KEY]={version=TOOL.Version,window=Window,destroy=CleanupAll}
+--------------------------------------------------------------------------------
+-- BUILD LOGO ON STARTUP
+--------------------------------------------------------------------------------
+task.spawn(function()
+    task.wait(0.5)
+    if State.FloatingLogo then
+        local ok = FloatingLogo.Build()
+        if not ok then for i = 1, 3 do task.wait(1); if FloatingLogo.Build() then break end end end
+    end
+    while task.wait(5) do
+        if State.FloatingLogo and not (State.LogoGui and State.LogoGui.Parent) then
+            FloatingLogo.Build()
+        end
+    end
+end)
 
 Window:SelectTab(1)
-Notif(TOOL.Name,"v"..TOOL.Version.." — Reflections · Frame · Auto Cine fixed",8)
-Log("v2.3.0 fully loaded")
+Notif(TOOL.Name,"v"..TOOL.Version.." | Clean Cine | Wand Icon | FULL HD",8)
+Log("v2.4.1 fully loaded")
