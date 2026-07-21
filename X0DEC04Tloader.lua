@@ -2,10 +2,11 @@ local VERSION  = "0.2"
 local HUB_NAME = "X0DEC04T"
 local GAMES = {
     [6739698191]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/ViolenceDistrict.luau",
-    [10200395747]     = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/GrowAGarden2.lua",
+    [10200395747]     = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/GrowAGarden2.luau",
     [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/CDID.luau",
-    [90226220017920]  = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/RA.lua",
-    [136020512003847] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/SDBR.lua",
+    [136020512003847] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/SDBR.luau",
+    [131378148336503] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/DDS.luau",
+    
 }
 
 local function log(msg)
