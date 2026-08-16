@@ -7,6 +7,7 @@ local GAMES = {
     [136020512003847] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/SDBR.luau",
     [131378148336503] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/DDS.luau",
     [116365546508507] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/BXI.luau",
+    [128736949265057] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/Gakuran.luau",
 
 }
 
