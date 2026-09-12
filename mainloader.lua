@@ -4,12 +4,11 @@ local GAMES = {
     [6739698191]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/ViolenceDistrict.luau",
     [10200395747]     = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/GrowAGarden2.luau",
     [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/CDID.luau",
-    [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/Cdidseasonal.luau",
+    [6911148748]      = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/CdidBeceaa.luau",
     [136020512003847] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/SDBR.luau",
     [131378148336503] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/DDS.luau",
     [116365546508507] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/BXI.luau",
     [128736949265057] = "https://raw.githubusercontent.com/voixera/X0DEC04T/refs/heads/main/Gakuran.luau",
-
 }
 
 local function log(msg)
