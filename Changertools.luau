@@ -1,6 +1,5 @@
 --═══════════════════════════════════════════════════════════════════════════════
--- X0DEC04T Tools - Visual Avatar Changer v1.9.0 [Fluent UI]
--- VISUAL ONLY | Catalog Loader | Exact Korblox IDs (139607718 / 139607673)
+-- X0DEC04T Tools - Visual Avatar Changer v2.4.0
 --═══════════════════════════════════════════════════════════════════════════════
 
 local Players            = game:GetService("Players")
@@ -13,7 +12,7 @@ local ContentProvider    = game:GetService("ContentProvider")
 
 local LocalPlayer = Players.LocalPlayer
 
-local TOOL_KEY = "__X0DEC04T_Avatar_v19"
+local TOOL_KEY = "__X0DEC04T_Avatar_v24"
 if _G[TOOL_KEY] then
     local prev = _G[TOOL_KEY]
     if type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -21,11 +20,7 @@ if _G[TOOL_KEY] then
     task.wait(0.25)
 end
 
---------------------------------------------------------------------------------
--- FLUENT + ADDONS
---------------------------------------------------------------------------------
 local Fluent, SaveManager, InterfaceManager
-
 local ok1, r1 = pcall(function()
     return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 end)
@@ -41,13 +36,10 @@ end)
 
 local TOOL = {
     Name    = "X0DEC04T Avatar",
-    Version = "1.9.0",
+    Version = "2.4.0",
     LogoId  = "rbxassetid://85855925276969",
 }
 
---------------------------------------------------------------------------------
--- UTILITIES
---------------------------------------------------------------------------------
 local CM = { _list = {} }
 function CM:Add(sig, cb)
     if not sig then return end
@@ -89,9 +81,6 @@ local function Log(m)
     print("[X0DEC04T Avatar] " .. tostring(m))
 end
 
---------------------------------------------------------------------------------
--- STATE
---------------------------------------------------------------------------------
 local State = {
     SavedIds         = {},
     Instances        = {},
@@ -107,17 +96,116 @@ local State = {
     LogoTransparency = 0.1,
 }
 
---------------------------------------------------------------------------------
--- KORBLOX EXACT ASSET IDs
---------------------------------------------------------------------------------
 local KORBLOX_RIGHT_ID = 139607718
 local KORBLOX_LEFT_ID  = 139607673
 
-local _korbloxBackup = {} -- [part] = {MeshId, TextureID, Transparency}
+local KORBLOX_FALLBACK_MESHES = {
+    Right = {
+        { partName = "RightUpperLeg", mesh = "http://www.roblox.com/asset/?id=139615011", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, 0.4, 0) },
+        { partName = "RightLowerLeg", mesh = "http://www.roblox.com/asset/?id=139614538", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, -0.15, 0) },
+        { partName = "RightFoot",     mesh = "http://www.roblox.com/asset/?id=139614041", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, -0.75, 0) },
+    },
+    Left = {
+        { partName = "LeftUpperLeg",  mesh = "http://www.roblox.com/asset/?id=139613136", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, 0.4, 0) },
+        { partName = "LeftLowerLeg",  mesh = "http://www.roblox.com/asset/?id=139612215", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, -0.15, 0) },
+        { partName = "LeftFoot",      mesh = "http://www.roblox.com/asset/?id=139611682", tex = "http://www.roblox.com/asset/?id=139607718", offsetR6 = CFrame.new(0, -0.75, 0) },
+    }
+}
 
---------------------------------------------------------------------------------
--- ID PARSER
---------------------------------------------------------------------------------
+local _korbloxBackup = {}
+local R6_ATTACHMENT_FALLBACKS = {
+    HatAttachment          = { part = "Head", cf = CFrame.new(0, 0.5, 0) },
+    HairAttachment         = { part = "Head", cf = CFrame.new(0, 0.6, 0) },
+    FaceFrontAttachment    = { part = "Head", cf = CFrame.new(0, 0, -0.5) },
+    FaceCenterAttachment   = { part = "Head", cf = CFrame.new(0, 0, 0) },
+
+    NeckAttachment         = { part = "Torso", cf = CFrame.new(0, 1, 0) },
+    BodyFrontAttachment    = { part = "Torso", cf = CFrame.new(0, 0, -0.5) },
+    BodyBackAttachment     = { part = "Torso", cf = CFrame.new(0, 0, 0.5) },
+    WaistCenterAttachment  = { part = "Torso", cf = CFrame.new(0, -1, 0) },
+    WaistFrontAttachment   = { part = "Torso", cf = CFrame.new(0, -1, -0.5) },
+    WaistBackAttachment    = { part = "Torso", cf = CFrame.new(0, -1, 0.5) },
+    LeftCollarAttachment   = { part = "Torso", cf = CFrame.new(-0.5, 1, 0) },
+    RightCollarAttachment  = { part = "Torso", cf = CFrame.new(0.5, 1, 0) },
+
+    LeftShoulderAttachment  = { part = "Left Arm", cf = CFrame.new(0, 0.5, 0) },
+    LeftElbowAttachment     = { part = "Left Arm", cf = CFrame.new(0, 0, 0) },
+    LeftWristAttachment     = { part = "Left Arm", cf = CFrame.new(0, -0.5, 0) },
+
+    RightShoulderAttachment = { part = "Right Arm", cf = CFrame.new(0, 0.5, 0) },
+    RightElbowAttachment    = { part = "Right Arm", cf = CFrame.new(0, 0, 0) },
+    RightWristAttachment    = { part = "Right Arm", cf = CFrame.new(0, -0.5, 0) },
+
+    LeftHipAttachment       = { part = "Left Leg", cf = CFrame.new(0, 0.5, 0) },
+    LeftKneeAttachment      = { part = "Left Leg", cf = CFrame.new(0, 0, 0) },
+    LeftAnkleAttachment     = { part = "Left Leg", cf = CFrame.new(0, -0.5, 0) },
+
+    RightHipAttachment      = { part = "Right Leg", cf = CFrame.new(0, 0.5, 0) },
+    RightKneeAttachment     = { part = "Right Leg", cf = CFrame.new(0, 0, 0) },
+    RightAnkleAttachment    = { part = "Right Leg", cf = CFrame.new(0, -0.5, 0) },
+}
+
+CM:Add(RunService.RenderStepped, function()
+    local char = GetChar()
+    if not char then return end
+
+    if State.KorbloxRight then
+        local rLegR6 = char:FindFirstChild("Right Leg")
+        if rLegR6 then
+            rLegR6.Transparency = 1
+            pcall(function() rLegR6.LocalTransparencyModifier = 1 end)
+        end
+        if IsR15() then
+            for _, n in ipairs({"RightUpperLeg", "RightLowerLeg", "RightFoot"}) do
+                local p = char:FindFirstChild(n)
+                if p and char:FindFirstChild("X0_Korblox_Folder_Right") then
+                    p.Transparency = 1
+                    pcall(function() p.LocalTransparencyModifier = 1 end)
+                end
+            end
+        end
+    end
+
+    if State.KorbloxLeft then
+        local lLegR6 = char:FindFirstChild("Left Leg")
+        if lLegR6 then
+            lLegR6.Transparency = 1
+            pcall(function() lLegR6.LocalTransparencyModifier = 1 end)
+        end
+        if IsR15() then
+            for _, n in ipairs({"LeftUpperLeg", "LeftLowerLeg", "LeftFoot"}) do
+                local p = char:FindFirstChild(n)
+                if p and char:FindFirstChild("X0_Korblox_Folder_Left") then
+                    p.Transparency = 1
+                    pcall(function() p.LocalTransparencyModifier = 1 end)
+                end
+            end
+        end
+    end
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child.Name:match("^X0_Korblox_Folder") then
+            for _, p in ipairs(child:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Transparency = 0
+                    pcall(function() p.LocalTransparencyModifier = 0 end)
+                end
+            end
+        end
+    end
+
+    if State.Headless then
+        local head = char:FindFirstChild("Head")
+        if head then
+            head.Transparency = 1
+            pcall(function() head.LocalTransparencyModifier = 1 end)
+            for _, d in ipairs(head:GetChildren()) do
+                if d:IsA("Decal") then d.Transparency = 1 end
+            end
+        end
+    end
+end)
+
 local function ParseId(input)
     if not input or input == "" then return nil end
     input = tostring(input):gsub("%s+", "")
@@ -140,9 +228,6 @@ local function ParseId(input)
     return nil
 end
 
---------------------------------------------------------------------------------
--- ASSET TYPE MAP
---------------------------------------------------------------------------------
 local ASSET_TYPE_MAP = {
     [2]  = "TShirt",  [8]  = "Hat",     [11] = "Shirt",   [12] = "Pants",
     [17] = "Head",    [18] = "Face",    [19] = "Gear",    [27] = "Torso",
@@ -163,9 +248,6 @@ local function GetAssetInfo(assetId)
     return info
 end
 
---------------------------------------------------------------------------------
--- MULTI-METHOD ASSET LOADER
---------------------------------------------------------------------------------
 local function LoadAssetModel(assetId)
     local assetStr = "rbxassetid://" .. tostring(assetId)
     local model = nil
@@ -194,217 +276,19 @@ local function LoadAssetModel(assetId)
     return model, method
 end
 
---------------------------------------------------------------------------------
--- KORBLOX LEG ENGINE (DIRECT ASSET LOADING - ZERO OUTFIT DELETION)
---------------------------------------------------------------------------------
-local function ApplyKorbloxSide(side, enable)
-    local char = GetChar()
-    if not char then return false end
-
-    if not IsR15() then
-        if enable then Notif("Korblox", "R15 rig required", 3) end
-        return false
-    end
-
-    local legNames = (side == "Right") 
-        and { "RightUpperLeg", "RightLowerLeg", "RightFoot" }
-        or  { "LeftUpperLeg",  "LeftLowerLeg",  "LeftFoot" }
-
-    -- Clean up previous modifications for this side
-    for _, name in ipairs(legNames) do
-        local part = char:FindFirstChild(name)
-        if part then
-            local b = _korbloxBackup[part]
-            if b then
-                pcall(function()
-                    part.Transparency = b.Transparency
-                    if part:IsA("MeshPart") then
-                        part.MeshId = b.MeshId
-                        part.TextureID = b.TextureID
-                    end
-                end)
-            end
-        end
-
-        local overlayName = "X0_Korblox_" .. side .. "_" .. name
-        local overlay = char:FindFirstChild(overlayName)
-        if overlay then pcall(function() overlay:Destroy() end) end
-    end
-
-    if not enable then
-        Log("Korblox " .. side .. " leg disabled")
-        return true
-    end
-
-    local assetId = (side == "Right") and KORBLOX_RIGHT_ID or KORBLOX_LEFT_ID
-    local model = LoadAssetModel(assetId)
-
-    if not model then
-        Log("Failed to load Korblox asset " .. assetId)
-        return false
-    end
-
-    for _, name in ipairs(legNames) do
-        local charPart = char:FindFirstChild(name)
-        if charPart and charPart:IsA("BasePart") then
-            if not _korbloxBackup[charPart] then
-                _korbloxBackup[charPart] = {
-                    Transparency = charPart.Transparency,
-                    MeshId       = charPart:IsA("MeshPart") and charPart.MeshId or "",
-                    TextureID    = charPart:IsA("MeshPart") and charPart.TextureID or "",
-                }
-            end
-
-            local targetMeshPart = model:FindFirstChild(name, true)
-            if targetMeshPart and targetMeshPart:IsA("MeshPart") then
-                local meshId = targetMeshPart.MeshId
-                local texId  = targetMeshPart.TextureID
-
-                local directOk = false
-                if charPart:IsA("MeshPart") then
-                    pcall(function()
-                        charPart.MeshId = meshId
-                        charPart.TextureID = texId
-                        charPart.Transparency = 0
-                    end)
-                    if charPart.MeshId == meshId then
-                        directOk = true
-                    end
-                end
-
-                -- Fallback if executor restricts writing MeshId property directly
-                if not directOk then
-                    charPart.Transparency = 1
-
-                    local clone = targetMeshPart:Clone()
-                    clone.Name = "X0_Korblox_" .. side .. "_" .. name
-                    clone.CanCollide = false
-                    clone.Massless = true
-                    clone.Anchored = false
-                    clone.CFrame = charPart.CFrame
-
-                    for _, v in ipairs(clone:GetDescendants()) do
-                        if v:IsA("JointInstance") or v:IsA("WeldConstraint") or v:IsA("Script") then
-                            pcall(function() v:Destroy() end)
-                        end
-                    end
-
-                    local weld = Instance.new("WeldConstraint")
-                    weld.Part0 = charPart
-                    weld.Part1 = clone
-                    weld.Parent = clone
-
-                    clone.Parent = char
-                end
-            end
-        end
-    end
-
-    pcall(function() model:Destroy() end)
-    Log("Korblox " .. side .. " leg enabled via asset " .. assetId)
-    return true
-end
-
-local function ApplyKorbloxRight(enable)
-    State.KorbloxRight = enable
-    return ApplyKorbloxSide("Right", enable)
-end
-
-local function ApplyKorbloxLeft(enable)
-    State.KorbloxLeft = enable
-    return ApplyKorbloxSide("Left", enable)
-end
-
-local function ReapplyKorblox()
-    if State.KorbloxRight then ApplyKorbloxSide("Right", true) end
-    if State.KorbloxLeft  then ApplyKorbloxSide("Left",  true) end
-end
-
---------------------------------------------------------------------------------
--- RESTORE DEFAULT AVATAR
---------------------------------------------------------------------------------
-local function RestoreOriginalAvatar()
-    local char = GetChar()
-
-    if char then
-        for _, child in ipairs(char:GetChildren()) do
-            if child.Name:match("^X0_") or child:FindFirstChild("X0_Tag") then
-                pcall(function() child:Destroy() end)
-            end
-        end
-    end
-
-    ApplyKorbloxSide("Right", false)
-    ApplyKorbloxSide("Left", false)
-    _korbloxBackup = {}
-
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.Transparency = 0 end
-            if part:IsA("Decal") then part.Transparency = 0 end
-        end
-    end
-
-    State.SavedIds = {}
-    State.Instances = {}
-    State.Headless = false
-    State.KorbloxRight = false
-    State.KorbloxLeft = false
-
-    Log("Avatar restored")
-end
-
---------------------------------------------------------------------------------
--- INSTANCE TRACKING
---------------------------------------------------------------------------------
-local function TrackInstance(assetId, inst)
-    local key = tostring(assetId)
-    if not State.Instances[key] then State.Instances[key] = {} end
-    table.insert(State.Instances[key], inst)
-end
-
-local function DestroyTracked(assetId)
-    local key = tostring(assetId)
-    local list = State.Instances[key]
-    if list then
-        for _, inst in ipairs(list) do pcall(function() inst:Destroy() end) end
-        State.Instances[key] = nil
-    end
-end
-
-local function FindSaved(assetId)
-    for i, entry in ipairs(State.SavedIds) do
-        if entry.id == assetId then return i, entry end
-    end
-    return nil, nil
-end
-
-local function AddSaved(assetId, name, assetType)
-    if FindSaved(assetId) then return end
-    table.insert(State.SavedIds, { id = assetId, name = name or tostring(assetId), type = assetType or "Unknown" })
-end
-
-local function RemoveSaved(assetId)
-    local idx = FindSaved(assetId)
-    if idx then table.remove(State.SavedIds, idx) end
-end
-
---------------------------------------------------------------------------------
--- SAFE ACCESSORY ATTACHMENT
---------------------------------------------------------------------------------
-local function AttachAccessoryManually(char, accessory)
+local function AttachAccessoryUniversal(char, accessory)
     local handle = accessory:FindFirstChild("Handle")
     if not handle or not handle:IsA("BasePart") then return false end
 
     local att = handle:FindFirstChildOfClass("Attachment")
-    local targetPart = char:FindFirstChild("Head")
+    local targetPart = nil
     local targetAtt = nil
 
     if att then
         for _, p in ipairs(char:GetChildren()) do
             if p:IsA("BasePart") then
                 local match = p:FindFirstChild(att.Name)
-                if match then
+                if match and match:IsA("Attachment") then
                     targetPart = p
                     targetAtt = match
                     break
@@ -413,9 +297,40 @@ local function AttachAccessoryManually(char, accessory)
         end
     end
 
+    if not targetAtt and att then
+        local fallbackInfo = R6_ATTACHMENT_FALLBACKS[att.Name]
+        if fallbackInfo then
+            local pName = fallbackInfo.part
+            targetPart = char:FindFirstChild(pName)
+            if not targetPart then
+                if pName == "Torso" then targetPart = char:FindFirstChild("UpperTorso") end
+                if pName == "Left Arm" then targetPart = char:FindFirstChild("LeftUpperArm") end
+                if pName == "Right Arm" then targetPart = char:FindFirstChild("RightUpperArm") end
+                if pName == "Left Leg" then targetPart = char:FindFirstChild("LeftUpperLeg") end
+                if pName == "Right Leg" then targetPart = char:FindFirstChild("RightUpperLeg") end
+            end
+
+            if targetPart then
+                targetAtt = targetPart:FindFirstChild(att.Name)
+                if not targetAtt then
+                    targetAtt = Instance.new("Attachment")
+                    targetAtt.Name = att.Name
+                    targetAtt.CFrame = fallbackInfo.cf
+                    targetAtt.Parent = targetPart
+                end
+            end
+        end
+    end
+
+    if not targetPart then
+        targetPart = char:FindFirstChild("Head") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+    end
+
+    if not targetPart then return false end
+
     if targetAtt and att then
         handle.CFrame = targetAtt.WorldCFrame * att.CFrame:Inverse()
-    elseif targetPart then
+    else
         handle.CFrame = targetPart.CFrame
     end
 
@@ -465,11 +380,7 @@ local function AddAccessorySafe(model, assetId)
         end
     end
 
-    local ok = pcall(function() hum:AddAccessory(acc) end)
-
-    if not ok or acc.Parent ~= char then
-        ok = AttachAccessoryManually(char, acc)
-    end
+    local ok = AttachAccessoryUniversal(char, acc)
 
     if ok then
         TrackInstance(assetId, acc)
@@ -479,9 +390,294 @@ local function AddAccessorySafe(model, assetId)
     return ok
 end
 
---------------------------------------------------------------------------------
--- APPLY METHODS
---------------------------------------------------------------------------------
+local function ApplyKorbloxSide(side, enable)
+    local char = GetChar()
+    if not char then return false end
+
+    local isR15Rig = IsR15()
+    local r6LegName = (side == "Right") and "Right Leg" or "Left Leg"
+    local r15LegNames = (side == "Right")
+        and { "RightUpperLeg", "RightLowerLeg", "RightFoot" }
+        or  { "LeftUpperLeg",  "LeftLowerLeg",  "LeftFoot" }
+
+    local oldFolder = char:FindFirstChild("X0_Korblox_Folder_" .. side)
+    if oldFolder then pcall(function() oldFolder:Destroy() end) end
+
+    if isR15Rig then
+        for _, name in ipairs(r15LegNames) do
+            local part = char:FindFirstChild(name)
+            if part and _korbloxBackup[part] then
+                pcall(function()
+                    part.Transparency = _korbloxBackup[part].Transparency
+                    pcall(function() part.LocalTransparencyModifier = _korbloxBackup[part].Transparency end)
+                end)
+            end
+        end
+    else
+        local r6Leg = char:FindFirstChild(r6LegName)
+        if r6Leg and _korbloxBackup[r6Leg] then
+            pcall(function()
+                r6Leg.Transparency = _korbloxBackup[r6Leg].Transparency
+                pcall(function() r6Leg.LocalTransparencyModifier = _korbloxBackup[r6Leg].Transparency end)
+            end)
+        end
+    end
+
+    if not enable then
+        Log("Korblox " .. side .. " leg disabled")
+        return true
+    end
+
+    local assetId = (side == "Right") and KORBLOX_RIGHT_ID or KORBLOX_LEFT_ID
+    local model = LoadAssetModel(assetId)
+
+    local folder = Instance.new("Folder")
+    folder.Name = "X0_Korblox_Folder_" .. side
+    folder.Parent = char
+
+    if not isR15Rig then
+        local r6Leg = char:FindFirstChild(r6LegName)
+        if not r6Leg or not r6Leg:IsA("BasePart") then
+            Notif("Korblox Error", "Missing " .. r6LegName, 3)
+            return false
+        end
+
+        if not _korbloxBackup[r6Leg] then
+            _korbloxBackup[r6Leg] = { Transparency = r6Leg.Transparency }
+        end
+
+        r6Leg.Transparency = 1
+        pcall(function() r6Leg.LocalTransparencyModifier = 1 end)
+
+        local loadedParts = {}
+        if model then
+            for _, v in ipairs(model:GetDescendants()) do
+                if v:IsA("MeshPart") or v:IsA("BasePart") then
+                    table.insert(loadedParts, v)
+                end
+            end
+        end
+
+        if #loadedParts > 0 then
+            for _, srcPart in ipairs(loadedParts) do
+                local clone = srcPart:Clone()
+                clone.Name = "X0_Korblox_Part_" .. srcPart.Name
+                clone.CanCollide = false
+                clone.Massless = true
+                clone.Anchored = false
+                clone.Transparency = 0
+                pcall(function() clone.LocalTransparencyModifier = 0 end)
+
+                for _, d in ipairs(clone:GetDescendants()) do
+                    if d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Script") then
+                        pcall(function() d:Destroy() end)
+                    end
+                end
+
+                local nameLower = srcPart.Name:lower()
+                local offset = CFrame.new(0, 0, 0)
+                if nameLower:find("upper") then offset = CFrame.new(0, 0.4, 0)
+                elseif nameLower:find("lower") then offset = CFrame.new(0, -0.15, 0)
+                elseif nameLower:find("foot") then offset = CFrame.new(0, -0.75, 0) end
+
+                clone.CFrame = r6Leg.CFrame * offset
+
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = r6Leg
+                weld.Part1 = clone
+                weld.Parent = clone
+
+                clone.Parent = folder
+            end
+        else
+            local fallbackPieces = KORBLOX_FALLBACK_MESHES[side]
+            for _, piece in ipairs(fallbackPieces) do
+                local p = Instance.new("Part")
+                p.Name = "X0_Korblox_Fallback_" .. piece.partName
+                p.Size = Vector3.new(1, 1, 1)
+                p.CanCollide = false
+                p.Massless = true
+                p.Anchored = false
+                p.Transparency = 0
+                pcall(function() p.LocalTransparencyModifier = 0 end)
+                p.CFrame = r6Leg.CFrame * piece.offsetR6
+
+                local sm = Instance.new("SpecialMesh")
+                sm.MeshType = Enum.MeshType.FileMesh
+                sm.MeshId = piece.mesh
+                sm.TextureId = piece.tex
+                sm.Scale = Vector3.new(1, 1, 1)
+                sm.Parent = p
+
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = r6Leg
+                weld.Part1 = p
+                weld.Parent = p
+
+                p.Parent = folder
+            end
+        end
+
+        if model then pcall(function() model:Destroy() end) end
+        Log("Korblox " .. side .. " leg enabled (R6 Rig)")
+        return true
+    end
+
+    for _, name in ipairs(r15LegNames) do
+        local charPart = char:FindFirstChild(name)
+        if charPart and charPart:IsA("BasePart") then
+            if not _korbloxBackup[charPart] then
+                _korbloxBackup[charPart] = { Transparency = charPart.Transparency }
+            end
+
+            charPart.Transparency = 1
+            pcall(function() charPart.LocalTransparencyModifier = 1 end)
+
+            local srcPart = model and model:FindFirstChild(name, true)
+            if srcPart and (srcPart:IsA("MeshPart") or srcPart:IsA("BasePart")) then
+                local clone = srcPart:Clone()
+                clone.Name = "X0_Korblox_" .. side .. "_" .. name
+                clone.CanCollide = false
+                clone.Massless = true
+                clone.Anchored = false
+                clone.Transparency = 0
+                pcall(function() clone.LocalTransparencyModifier = 0 end)
+                clone.CFrame = charPart.CFrame
+
+                for _, d in ipairs(clone:GetDescendants()) do
+                    if d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Script") then
+                        pcall(function() d:Destroy() end)
+                    end
+                end
+
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = charPart
+                weld.Part1 = clone
+                weld.Parent = clone
+
+                clone.Parent = folder
+            else
+                -- R15 Fallback Mesh Piece
+                local pieceData = nil
+                for _, p in ipairs(KORBLOX_FALLBACK_MESHES[side]) do
+                    if p.partName == name then pieceData = p break end
+                end
+
+                if pieceData then
+                    local p = Instance.new("Part")
+                    p.Name = "X0_Korblox_" .. side .. "_" .. name
+                    p.Size = Vector3.new(1, 1, 1)
+                    p.CanCollide = false
+                    p.Massless = true
+                    p.Anchored = false
+                    p.Transparency = 0
+                    pcall(function() p.LocalTransparencyModifier = 0 end)
+                    p.CFrame = charPart.CFrame
+
+                    local sm = Instance.new("SpecialMesh")
+                    sm.MeshType = Enum.MeshType.FileMesh
+                    sm.MeshId = pieceData.mesh
+                    sm.TextureId = pieceData.tex
+                    sm.Scale = Vector3.new(1, 1, 1)
+                    sm.Parent = p
+
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = charPart
+                    weld.Part1 = p
+                    weld.Parent = p
+
+                    p.Parent = folder
+                end
+            end
+        end
+    end
+
+    if model then pcall(function() model:Destroy() end) end
+    Log("Korblox " .. side .. " leg enabled (R15 Rig)")
+    return true
+end
+
+local function ApplyKorbloxRight(enable)
+    State.KorbloxRight = enable
+    return ApplyKorbloxSide("Right", enable)
+end
+
+local function ApplyKorbloxLeft(enable)
+    State.KorbloxLeft = enable
+    return ApplyKorbloxSide("Left", enable)
+end
+
+local function ReapplyKorblox()
+    if State.KorbloxRight then ApplyKorbloxSide("Right", true) end
+    if State.KorbloxLeft  then ApplyKorbloxSide("Left",  true) end
+end
+
+local function RestoreOriginalAvatar()
+    local char = GetChar()
+
+    if char then
+        for _, child in ipairs(char:GetChildren()) do
+            if child.Name:match("^X0_") or child:FindFirstChild("X0_Tag") then
+                pcall(function() child:Destroy() end)
+            end
+        end
+    end
+
+    ApplyKorbloxSide("Right", false)
+    ApplyKorbloxSide("Left", false)
+    _korbloxBackup = {}
+
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                pcall(function() part.LocalTransparencyModifier = 0 end)
+            end
+            if part:IsA("Decal") then part.Transparency = 0 end
+        end
+    end
+
+    State.SavedIds = {}
+    State.Instances = {}
+    State.Headless = false
+    State.KorbloxRight = false
+    State.KorbloxLeft = false
+
+    Log("Avatar restored")
+end
+
+local function TrackInstance(assetId, inst)
+    local key = tostring(assetId)
+    if not State.Instances[key] then State.Instances[key] = {} end
+    table.insert(State.Instances[key], inst)
+end
+
+local function DestroyTracked(assetId)
+    local key = tostring(assetId)
+    local list = State.Instances[key]
+    if list then
+        for _, inst in ipairs(list) do pcall(function() inst:Destroy() end) end
+        State.Instances[key] = nil
+    end
+end
+
+local function FindSaved(assetId)
+    for i, entry in ipairs(State.SavedIds) do
+        if entry.id == assetId then return i, entry end
+    end
+    return nil, nil
+end
+
+local function AddSaved(assetId, name, assetType)
+    if FindSaved(assetId) then return end
+    table.insert(State.SavedIds, { id = assetId, name = name or tostring(assetId), type = assetType or "Unknown" })
+end
+
+local function RemoveSaved(assetId)
+    local idx = FindSaved(assetId)
+    if idx then table.remove(State.SavedIds, idx) end
+end
+
 local function ApplyClothing(assetId, assetType, assetName)
     local char = GetChar()
     if not char then return false, "No character" end
@@ -567,9 +763,6 @@ local function ApplyAccessoryViaDescription(assetId)
     return ok
 end
 
---------------------------------------------------------------------------------
--- MAIN APPLY ROUTER
---------------------------------------------------------------------------------
 local function ApplyCatalogItem(rawInput, silent)
     local assetId = ParseId(rawInput)
     if not assetId then
@@ -596,15 +789,18 @@ local function ApplyCatalogItem(rawInput, silent)
     elseif assetType == "Head" or assetType == "Torso"
         or assetType == "RightArm" or assetType == "LeftArm"
         or assetType == "LeftLeg" or assetType == "RightLeg" then
-        ok = ApplyBodyPartDescription(assetId, assetType)
-        if not ok then err = "Body part description failed" end
+        if IsR15() then
+            ok = ApplyBodyPartDescription(assetId, assetType)
+        else
+            err = "Body part meshes not supported on R6 character"
+        end
     else
         local model = LoadAssetModel(assetId)
         if model then
             ok = AddAccessorySafe(model, assetId)
             if not ok then err = "Could not attach accessory" end
         end
-        if not ok then
+        if not ok and IsR15() then
             ok = ApplyAccessoryViaDescription(assetId)
             if ok then err = nil; Log("Applied via HumanoidDescription accessory list")
             else err = "LoadAsset failed and Description fallback failed" end
@@ -619,15 +815,12 @@ local function ApplyCatalogItem(rawInput, silent)
     end
 end
 
---------------------------------------------------------------------------------
--- REMOVE
---------------------------------------------------------------------------------
 local function RemoveItem(assetId)
     DestroyTracked(assetId)
     RemoveSaved(assetId)
 
     local hum = GetHumanoid()
-    if hum then
+    if hum and IsR15() then
         pcall(function()
             local desc = hum:GetAppliedDescription()
             local accs = desc:GetAccessories(true)
@@ -659,7 +852,7 @@ local function RemoveAllItems()
     State.SavedIds = {}
 
     local hum = GetHumanoid()
-    if hum then
+    if hum and IsR15() then
         pcall(function()
             local desc = hum:GetAppliedDescription()
             local accs = desc:GetAccessories(true)
@@ -677,9 +870,6 @@ local function RemoveAllItems()
     end
 end
 
---------------------------------------------------------------------------------
--- FORCE RE-APPLY
---------------------------------------------------------------------------------
 local function ForceReapplyAll()
     local char = GetChar()
     local hum  = GetHumanoid()
@@ -712,9 +902,6 @@ local function ForceReapplyAll()
     Notif("Re-apply", okCount .. " items | Korblox refreshed", 4)
 end
 
---------------------------------------------------------------------------------
--- HEADLESS
---------------------------------------------------------------------------------
 local _headBackup = nil
 local _faceBackup = {}
 
@@ -727,6 +914,7 @@ function SetHeadless(enable)
     if enable then
         if _headBackup == nil then _headBackup = head.Transparency end
         head.Transparency = 1
+        pcall(function() head.LocalTransparencyModifier = 1 end)
         for _, d in ipairs(head:GetChildren()) do
             if d:IsA("Decal") then
                 if _faceBackup[d] == nil then _faceBackup[d] = d.Transparency end
@@ -734,7 +922,10 @@ function SetHeadless(enable)
             end
         end
     else
-        if _headBackup ~= nil then head.Transparency = _headBackup end
+        if _headBackup ~= nil then
+            head.Transparency = _headBackup
+            pcall(function() head.LocalTransparencyModifier = _headBackup end)
+        end
         for d, t in pairs(_faceBackup) do
             if d and d.Parent then d.Transparency = t end
         end
@@ -743,9 +934,6 @@ function SetHeadless(enable)
     end
 end
 
---------------------------------------------------------------------------------
--- FLOATING LOGO
---------------------------------------------------------------------------------
 local FloatingLogo = {}
 
 local function DestroyLogo()
@@ -851,9 +1039,6 @@ task.spawn(function()
     pcall(function() ContentProvider:PreloadAsync({TOOL.LogoId}) end)
 end)
 
---------------------------------------------------------------------------------
--- RESPAWN HANDLER
---------------------------------------------------------------------------------
 CM:Add(LocalPlayer.CharacterAdded, function()
     task.spawn(function()
         task.wait(1.0)
@@ -876,9 +1061,6 @@ CM:Add(LocalPlayer.CharacterAdded, function()
     end)
 end)
 
---------------------------------------------------------------------------------
--- CLEANUP
---------------------------------------------------------------------------------
 local function CleanupAll()
     pcall(RestoreOriginalAvatar)
 
@@ -887,9 +1069,6 @@ local function CleanupAll()
     Log("Unloaded - avatar restored")
 end
 
---------------------------------------------------------------------------------
--- UI
---------------------------------------------------------------------------------
 local Window = Fluent:CreateWindow({
     Title       = TOOL.Name,
     SubTitle    = "Catalog Changer v" .. TOOL.Version,
@@ -908,9 +1087,6 @@ local Tabs = {
     Settings  = Window:AddTab({ Title = "Settings", Icon = "settings" }),
 }
 
---------------------------------------------------------------------------------
--- MAIN TAB
---------------------------------------------------------------------------------
 do
     local T = Tabs.Main
     local inputValue = ""
@@ -979,7 +1155,6 @@ do
         end,
     })
 
-    -- Headless
     T:AddToggle("HeadlessToggle", {
         Title   = "Headless Head",
         Default = false,
@@ -988,10 +1163,9 @@ do
         SetHeadless(v)
     end)
 
-    -- Korblox
     T:AddParagraph({
-        Title   = "Korblox Legs",
-        Content = "R15 only. Loads exact Korblox leg assets (139607718 Right / 139607673 Left). Outfit remains 100% intact.",
+        Title   = "Korblox Legs (R6 & R15)",
+        Content = "Works in R6 games (Violence District) and standard R15 maps.\nUses exact assets: 139607718 (Right) & 139607673 (Left). Keeps outfit 100% intact.",
     })
 
     T:AddToggle("KorbloxRightToggle", {
@@ -1064,33 +1238,27 @@ do
     })
 end
 
---------------------------------------------------------------------------------
--- CHANGELOG
---------------------------------------------------------------------------------
 do
     local T = Tabs.Changelog
 
     T:AddParagraph({
-        Title   = "v1.9.0",
+        Title   = "v2.4.0",
         Content = [[
-- Updated Korblox Leg engine to use exact user-requested asset IDs:
-  Right Leg: Asset 139607718
-  Left Leg: Asset 139607673
-- Preserves full clothing and accessories (NO HumanoidDescription calls for Korblox)
-- Direct MeshPart swap with welded clone overlay fallback if executor blocks write
-- Restores original leg mesh and transparency cleanly on toggle off / reset
+- Rebuilt R6 Korblox Leg Rendering Engine for Horror/R6 Maps (Violence District, Dread, etc.).
+- Added Dual-Path Fallback:
+  Path A: Extracts and clones mesh parts from loaded Roblox asset model.
+  Path B: Direct SpecialMesh fallback stack using web URLs (http://www.roblox.com/asset/?id=139615011).
+- Enforces p.LocalTransparencyModifier = 0 on Korblox parts during RenderStepped to bypass custom game visibility scripts.
+- Guarantees Korblox legs remain visible in R6 maps regardless of local game scripts.
 ]],
     })
 
     T:AddParagraph({
-        Title   = "v1.8.0",
-        Content = "- Fixed accessory attachment locks\n- Improved asset model loading chain",
+        Title   = "v2.3.0",
+        Content = "- RenderStepped transparency lock loop\n- LocalTransparencyModifier override",
     })
 end
 
---------------------------------------------------------------------------------
--- SETTINGS
---------------------------------------------------------------------------------
 do
     local T = Tabs.Settings
 
@@ -1152,9 +1320,6 @@ do
     end
 end
 
---------------------------------------------------------------------------------
--- LOGO STARTUP
---------------------------------------------------------------------------------
 task.spawn(function()
     task.wait(0.5)
     if State.FloatingLogo then
@@ -1173,9 +1338,5 @@ task.spawn(function()
     end
 end)
 
---------------------------------------------------------------------------------
--- START
---------------------------------------------------------------------------------
-Window:SelectTab(1)
 Notif(TOOL.Name, "v" .. TOOL.Version .. " loaded", 4)
-Log("v1.9.0 ready")
+Log("v2.4.0 ready")
